@@ -16,4 +16,7 @@ planned for **August 2026** as a single package with per-format extras
 (`[pdf]` / `[docx]` / `[xlsx]`).
 
 PyPI names `refigure` and `refigure-md` are reserved (placeholder 0.0.0).
-License: Apache-2.0 or MIT — to be finalized at release.
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
