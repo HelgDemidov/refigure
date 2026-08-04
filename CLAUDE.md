@@ -10,21 +10,24 @@ zero-loss markers for composite figures — market research found this genuinely
 absent even among well-funded incumbents (Docling issue #1287, >1yr open, unfixed).
 
 ## Status (2026-08-04)
-Design phase complete (scope, architecture, API, phased execution plan — all
-decided). Execution stage 1 (skeleton + core transfer, 10% of v1) merged
-2026-08-04 (PR #1): `refigure/{zipsafe,chart_data,xlsx_charts,chart_render,
-docx_groups}.py` now live in this repo, verbatim from G2AI_ME except 3
-relative-import fixes and 2 line-length reflows (1213 lines, verified via
-`wc -l` — not the earlier ~1400-1500 estimate, which bundled stage-2 material).
-Not yet done: public API wrapper (stage 2), English translation (stage 4),
-real tests (stage 5) — see `docs/stage1-skeleton-core-transfer-2026-08-04.md`.
+Design phase complete. Execution stages 1 and 2 merged (PRs #1, #2):
+`refigure.docx.convert()`/`refigure.xlsx.convert()` are real and callable —
+`Config`, `ConversionResult`, 3 typed exceptions, `Path | bytes | BinaryIO`
+input. CI (PR #3) and a 40-test robustness/security suite (PR #4: XML
+security, adversarial input, Hypothesis property tests, concurrency) also
+merged same day, closing 4 real bugs — see `feedback_untrusted_input_handling`
+memory. Not yet done: English translation of stage-1-ported files (stage 4),
+real corpus-fixture tests (stage 5, gated on stage 3's licensing check).
 
 ## Dev environment
 `pyproject.toml` (extras `[docx]`/`[xlsx]`, ruff/mypy/pytest config) +
-`requirements.txt`/`requirements-dev.txt`, managed with `uv`. Custom Claude
-Code commands in `.claude/commands/`: `/tech-spec` (draft a spec under
-`docs/`), `/feature-workflow` (implement one end-to-end), `/post-merge-sync`
-(this command), `/memory-sync` (audit memory against live code).
+`requirements.txt`/`requirements-dev.txt`, managed with `uv`. CI
+(`.github/workflows/ci.yml`): 3 parallel jobs — `quality` (ruff+mypy+
+pip-audit), `test-unit` (pytest `tests/unit` + coverage, no threshold gate
+yet), `test-integration` (placeholder for stage 5). Custom Claude Code
+commands in `.claude/commands/`: `/tech-spec` (draft a spec under `docs/`),
+`/feature-workflow` (implement one end-to-end), `/post-merge-sync` (this
+command), `/memory-sync` (audit memory against live code).
 
 ## Scope v1
 - DOCX + XLSX, one package, not two.
@@ -83,6 +86,10 @@ obvious from the code itself.
 - Rewrite already-pushed commit history to fix past convention violations
   (e.g. early Russian-language commit messages) — apply rules going forward
   only, don't force-push to rewrite what's already public.
+- Parse untrusted XML with stdlib `xml.etree.ElementTree` — no nesting-depth
+  or entity-expansion protection, unlike `lxml` (used everywhere else in
+  this codebase). Was a real bug (`docx.py::_docx_referenced_media_ids`,
+  fixed in PR #4) — see `feedback_untrusted_input_handling` memory.
 
 ## Source docs (Russian, tracked in git — project documentation, not code)
 - `docs/converter-viability-assessment-2026-08-04.md` — market research +

@@ -11,7 +11,7 @@ reproducible offline.
 
 ## Status
 
-Pre-release skeleton. The converters are being extracted from a working
+Pre-release. The converters are being extracted from a working
 document-analysis pipeline (government AI-policy corpus); first public release
 planned for **August 2026** as a single package with per-format extras
 (`[docx]` / `[xlsx]`) — VLM ships prepared behind `[vlm]` but inactive in v1.

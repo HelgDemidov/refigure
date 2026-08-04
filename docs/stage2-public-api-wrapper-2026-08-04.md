@@ -191,3 +191,20 @@ zip + сырой OOXML XML руками. Не переносить `support.py` 
   без установленного extra) — стадия 6.
 - README/демо — стадия 7.
 - Перевод стадии-1 файлов на английский — стадия 4, не эта.
+
+## Статус выполнения
+
+Смерджено 2026-08-04, PR #2 (`ed001f2`). Все пункты чек-листа выполнены,
+включая находку вне плана (`xlsx_charts.iter_chart_entries` тоже потребовал
+`Path | bytes`, не только `zipsafe`/`docx_groups`, как предполагалось в
+черновике — исправлено в §2 задним числом).
+
+После мерджа, тем же днём, две отдельные (без `/tech-spec`, по прямому
+запросу) работы поверх этого API: CI (PR #3) и пакет тестов на
+«живучесть» (PR #4) — 40 тестов (XML-security/robustness/property-based
+Hypothesis/concurrency), нашли и закрыли 4 реальных бага в коде именно
+этой стадии (`docx.py`/`xlsx.py`/`docx_groups.py`): depth-DoS через stdlib
+`ElementTree`, утечка `zipfile.BadZipFile` мимо `CorruptArchiveError`,
+неполный перехват форматных исключений mammoth/openpyxl, необработанный
+крах на пустом/безтелом `word/document.xml`. Детали — `feedback_
+untrusted_input_handling` (project memory), не дублирую здесь.
