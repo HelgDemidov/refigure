@@ -30,6 +30,7 @@ docx — здесь зафиксировано в докстроке заран�
 from __future__ import annotations
 
 import hashlib
+import io
 import posixpath
 import re
 import zipfile
@@ -145,7 +146,7 @@ def _chart_title(chart_root: Any) -> tuple[str, ...]:
     return _filter_caption_texts(title.itertext())
 
 
-def iter_chart_entries(raw: Path) -> list[tuple[XlsxChart, Any]]:
+def iter_chart_entries(raw: Path | bytes) -> list[tuple[XlsxChart, Any]]:
     """Общий обход workbook, лист за листом: (метаданные, распарсенный
     ``chart_root``) на каждый чарт — единственный проход по zip/XML.
     Публичная (не ``_``-префикс), т.к. потребитель, которому нужны ОБА
@@ -159,8 +160,14 @@ def iter_chart_entries(raw: Path) -> list[tuple[XlsxChart, Any]]:
     Малформед/недостижимая ссылка на любом шаге цепочки (лист без drawing,
     drawing без rels, чарт-парт отсутствует) — честно пропускается
     (terminal safety net — конвертация не падает на повреждённом OOXML,
-    симметрично ``_classify_docx``)."""
-    with zipfile.ZipFile(raw) as z:
+    симметрично ``_classify_docx``).
+
+    ``raw`` может быть ``bytes`` (refigure принимает in-memory вход, §2
+    stage2-public-api-wrapper) — ``zipfile.ZipFile`` не читает сырые
+    ``bytes`` напрямую (только путь или файлоподобный объект), заворачиваем
+    в ``io.BytesIO``."""
+    source = raw if isinstance(raw, Path) else io.BytesIO(raw)
+    with zipfile.ZipFile(source) as z:
         names = set(z.namelist())
         entries: list[tuple[XlsxChart, Any]] = []
         for sheet_name, sheet_part in _sheet_parts(z).items():

@@ -47,6 +47,17 @@ def _warn_missing_mermaidx() -> None:
     )
 
 
+def mermaidx_available() -> bool:
+    """Whether the optional ``mermaidx`` dependency is installed.
+
+    A proper accessor, not direct access to the module-level ``mermaidx``
+    name from other modules — the conditional ``try/except ImportError``
+    import isn't something mypy's strict re-export checking resolves cleanly
+    across module boundaries (refigure.docx/refigure.xlsx need this to build
+    ``ConversionResult.warnings``, see stage2-public-api-wrapper spec §3)."""
+    return mermaidx is not None
+
+
 _STRIP_RE = re.compile(r"[\[\]{}()]")
 _SLUG_RE = re.compile(r"[^a-zA-Z0-9]+")
 

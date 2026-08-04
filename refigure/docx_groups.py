@@ -196,12 +196,15 @@ def _iter_objects(body: Any) -> list[tuple[Any, Any, str]]:
     return objects
 
 
-def extract_and_strip_groups(raw: Path) -> tuple[bytes, list[DocxGroup]]:
+def extract_and_strip_groups(raw: Path | bytes) -> tuple[bytes, list[DocxGroup]]:
     """Вернуть (переписанный zip docx, найденные группы). Ноль групп -> байты
     БАЙТ-В-БАЙТ идентичны ``raw.read_bytes()`` (документ без composite-групп —
     большинство docx — платит только за один проход детекта, ноль риска
-    случайно исказить содержимое)."""
-    orig = raw.read_bytes()
+    случайно исказить содержимое).
+
+    ``raw`` может быть ``bytes`` (refigure принимает in-memory вход, §2
+    stage2-public-api-wrapper) — используется как есть, без чтения с диска."""
+    orig = raw.read_bytes() if isinstance(raw, Path) else raw
     with zipfile.ZipFile(io.BytesIO(orig)) as z:
         names = set(z.namelist())
         if "word/document.xml" not in names:
@@ -294,7 +297,7 @@ def _render_group_marker(id12: str, captions: tuple[str, ...], kind: str = "grou
     )
 
 
-def inject_group_markers(text: str, groups: list[DocxGroup]) -> str:
+def inject_group_markers(text: str, groups: list[DocxGroup]) -> tuple[str, int]:
     """Заменить текстовые сентинелы (пережившие mammoth+markdownify на месте
     вырезанной группы, см. ``extract_and_strip_groups``) на итоговый блок.
 
@@ -304,22 +307,30 @@ def inject_group_markers(text: str, groups: list[DocxGroup]) -> str:
     пустое извлечение (нет numCache и т.п.) -> ТОТ ЖЕ честный маркер, что и
     раньше (caption-фолбэк, zero-loss без VLM). Позиция сохраняется точно —
     сентинел заменяется IN-PLACE (spec §4.4: docx-провенанс = сама позиция в
-    потоке, отдельная строка не нужна, в отличие от xlsx)."""
+    потоке, отдельная строка не нужна, в отличие от xlsx).
+
+    Возвращает ``(text, rendered_count)`` — второй элемент нужен вызывающей
+    стороне (``refigure.docx``) для ``ConversionResult.charts_rendered``, без
+    дублирования этой же проверки (§3 stage2-public-api-wrapper)."""
     if not groups:
-        return text
+        return text, 0
     by_id = {g.id12: g for g in groups}
+    rendered_count = 0
 
     def _replace(m: re.Match[str]) -> str:
+        nonlocal rendered_count
         group = by_id.get(m.group("id"))
         if group is None:  # практически невозможно (id12 — sha256), но не падаем
             return m.group(0)
         if group.kind == "chart" and group.chart_data is not None:
             rendered = chart_render.render_chart(group.chart_data)
             if rendered is not None:
+                rendered_count += 1
                 return f"\n\n{rendered}\n\n"
         return _render_group_marker(group.id12, group.captions, group.kind)
 
-    return _SENTINEL_SCAN_RE.sub(_replace, text)
+    new_text = _SENTINEL_SCAN_RE.sub(_replace, text)
+    return new_text, rendered_count
 
 
 def all_media_ids(groups: list[DocxGroup]) -> frozenset[str]:
