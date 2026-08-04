@@ -11,9 +11,20 @@ absent even among well-funded incumbents (Docling issue #1287, >1yr open, unfixe
 
 ## Status (2026-08-04)
 Design phase complete (scope, architecture, API, phased execution plan — all
-decided, none implemented yet; no package code exists in this repo). Extraction
-source: G2AI_ME, ~1400-1500 lines near-verbatim (`chart_data.py`/`chart_render.py`/
-`xlsx_charts.py`/`docx_groups.py`/`zipsafe.py`).
+decided). Execution stage 1 (skeleton + core transfer, 10% of v1) merged
+2026-08-04 (PR #1): `refigure/{zipsafe,chart_data,xlsx_charts,chart_render,
+docx_groups}.py` now live in this repo, verbatim from G2AI_ME except 3
+relative-import fixes and 2 line-length reflows (1213 lines, verified via
+`wc -l` — not the earlier ~1400-1500 estimate, which bundled stage-2 material).
+Not yet done: public API wrapper (stage 2), English translation (stage 4),
+real tests (stage 5) — see `docs/stage1-skeleton-core-transfer-2026-08-04.md`.
+
+## Dev environment
+`pyproject.toml` (extras `[docx]`/`[xlsx]`, ruff/mypy/pytest config) +
+`requirements.txt`/`requirements-dev.txt`, managed with `uv`. Custom Claude
+Code commands in `.claude/commands/`: `/tech-spec` (draft a spec under
+`docs/`), `/feature-workflow` (implement one end-to-end), `/post-merge-sync`
+(this command), `/memory-sync` (audit memory against live code).
 
 ## Scope v1
 - DOCX + XLSX, one package, not two.
