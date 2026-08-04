@@ -65,10 +65,19 @@ docx:
     sha256: 9da4ad7ec3e5311426b0d1fac366a9ab6eb808f9bee78d1ce6b1fa59071d2a11
     size_bytes: 53066424
     notes: >
-      Verified by direct XML inspection 2026-08-04: 53 MB, 68 embedded
-      images, exactly one confirmed grouped shape (mc:Choice
-      Requires="wpg"), zero native chart parts. Primarily a size/media-volume
-      robustness stress test, not a chart- or group-extraction test.
+      Verified by direct XML inspection 2026-08-04, CORRECTED 2026-08-05:
+      53 MB, 68 embedded images, zero native chart parts. The single
+      mc:Choice Requires="wpg" block (originally logged as "1 confirmed
+      grouped shape") was re-inspected while writing stage-5 corpus tests
+      and turned out to be a false positive of the grep-based verification
+      method used at the time — Requires="wpg" only names the required
+      extension, it doesn't guarantee a <wpg:wgp> group element is actually
+      present inside. This block's Choice contains a single full-page
+      background/watermark wps:wsp shape instead. refigure/docx_groups.py's
+      own detection (which requires an actual <wpg:wgp> in the subtree)
+      correctly reports 0 groups for this file — confirmed correct behavior,
+      not a detection gap. Primarily a size/media-volume robustness stress
+      test, not a chart- or group-extraction test.
 
   - filename: efsa-trichinella-dashboard-guide.docx
     source_url: https://zenodo.org/records/13987050
