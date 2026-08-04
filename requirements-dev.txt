@@ -14,3 +14,4 @@ types-openpyxl==3.1.5.20260724
 # 25ef657). Installed here so the dev/test environment covers that code path;
 # NOT declared as a hard dependency of any published extra.
 mermaidx==0.9.4
+hypothesis==6.163.0
