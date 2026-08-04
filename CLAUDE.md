@@ -37,6 +37,16 @@ direct commit to `main`, no PR. Substantial changes — `/tech-spec` →
 no-force-push/no-deletion/required-status-checks, per OpenSSF Scorecard's
 Branch-Protection/Code-Review checks (matter once public-facing, not mid
 solo iteration). Full PR+review only if/when external contributors appear.
+Not purely a deferred choice: the GitHub repo is currently **private**, and
+`branches/main/protection` 403s with "Upgrade to GitHub Pro or make this
+repository public" — branch protection is structurally unavailable on a
+private repo under GitHub Free, not just switched off. Resolves itself once
+the repo goes public for the PyPI release (already the stage-8 plan), but
+don't assume it's a settings toggle we simply haven't flipped before then.
+Side effect: with no required-status-checks rule, a merged PR's CI results
+don't show the usual prominent "required checks" gate banner — easy to
+misread as "CI didn't run." Verify with `gh pr checks <n>` or the Checks API
+against the PR's head SHA, not by eyeballing the merge box.
 
 ## Scope v1
 - DOCX + XLSX, one package, not two.
