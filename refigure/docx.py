@@ -122,51 +122,59 @@ def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) ->
 
     try:
         zipsafe.check_archive(normalized)
-    except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile) as exc:
-        raise CorruptArchiveError(str(exc)) from exc
 
-    rewritten, groups = docx_groups.extract_and_strip_groups(normalized)
+        rewritten, groups = docx_groups.extract_and_strip_groups(normalized)
 
-    placed_ids: set[str] = set()
+        placed_ids: set[str] = set()
 
-    def convert_image(image: Any) -> list[Any]:
-        with image.open() as f:
-            data = f.read()
-        if len(data) < DOCX_IMAGE_MIN_BYTES:
-            return []
-        id12 = hashlib.sha256(data).hexdigest()[:12]
-        placed_ids.add(id12)
-        return [mammoth_html.element("img", {"src": f"{_DOCX_MARKER_SRC_PREFIX}{id12}"})]
+        def convert_image(image: Any) -> list[Any]:
+            with image.open() as f:
+                data = f.read()
+            if len(data) < DOCX_IMAGE_MIN_BYTES:
+                return []
+            id12 = hashlib.sha256(data).hexdigest()[:12]
+            placed_ids.add(id12)
+            return [mammoth_html.element("img", {"src": f"{_DOCX_MARKER_SRC_PREFIX}{id12}"})]
 
-    try:
-        converted = mammoth.convert_to_html(io.BytesIO(rewritten), convert_image=convert_image)
-    except OSError as exc:
-        # mammoth's own signal for "valid zip, but not a docx" (verified live:
-        # "Could not find main document part. Are you sure this is a valid
-        # .docx file?") — never leak mammoth's internal exception type.
-        raise UnsupportedFormatError(str(exc)) from exc
+        try:
+            converted = mammoth.convert_to_html(io.BytesIO(rewritten), convert_image=convert_image)
+        except OSError as exc:
+            # mammoth's own signal for "valid zip, but not a docx" (verified
+            # live: "Could not find main document part. Are you sure this is
+            # a valid .docx file?") — never leak mammoth's internal exception
+            # type. zipfile.BadZipFile (corrupted member CRC) is NOT an
+            # OSError — falls through to the outer handler below instead.
+            raise UnsupportedFormatError(str(exc)) from exc
 
-    text = _DocxMarkdownify(heading_style=ATX).convert(converted.value).strip()
+        text = _DocxMarkdownify(heading_style=ATX).convert(converted.value).strip()
 
-    warnings: list[str] = []
-    charts_found = sum(1 for g in groups if g.kind == "chart")
-    groups_found = sum(1 for g in groups if g.kind == "group")
-    charts_rendered = 0
+        warnings: list[str] = []
+        charts_found = sum(1 for g in groups if g.kind == "chart")
+        groups_found = sum(1 for g in groups if g.kind == "group")
+        charts_rendered = 0
 
-    if text:
-        text, charts_rendered = docx_groups.inject_group_markers(text, groups)
-    else:
-        warnings.append("no extractable content")
+        if text:
+            text, charts_rendered = docx_groups.inject_group_markers(text, groups)
+        else:
+            warnings.append("no extractable content")
 
-    if charts_found and not chart_render.mermaidx_available():
-        warnings.append(
-            "mermaidx not installed — chart diagrams disabled, tables only "
-            "(install refigure[docx] with mermaidx to enable rendering)"
+        if charts_found and not chart_render.mermaidx_available():
+            warnings.append(
+                "mermaidx not installed — chart diagrams disabled, tables only "
+                "(install refigure[docx] with mermaidx to enable rendering)"
+            )
+
+        fallback = _docx_image_markers(
+            normalized, placed=frozenset(placed_ids) | docx_groups.all_media_ids(groups)
         )
-
-    fallback = _docx_image_markers(
-        normalized, placed=frozenset(placed_ids) | docx_groups.all_media_ids(groups)
-    )
+    except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile) as exc:
+        # BadZipFile here means a structurally valid zip with corrupted
+        # member data (bad CRC-32) — can surface from any z.read() above
+        # (extract_and_strip_groups, mammoth reading the rewritten bytes,
+        # _docx_image_markers), not just zipsafe.check_archive itself.
+        # Verified live: a byte-flipped-but-structurally-intact docx raises
+        # this from extract_and_strip_groups, well before mammoth ever runs.
+        raise CorruptArchiveError(str(exc)) from exc
 
     return ConversionResult(
         markdown=text + "\n" + fallback,
