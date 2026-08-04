@@ -47,15 +47,20 @@ def _corrupt_member_crc(data: bytes) -> bytes:
 
 class TestZipBomb:
     def test_docx_convert_rejects_oversized_member(self) -> None:
+        # Fixture construction (~1s, building the compressible 129MB member)
+        # must not count against the rejection-speed budget below — time
+        # only the convert() call itself.
+        data = _oversized_member_zip()
         t0 = time.time()
         with pytest.raises(CorruptArchiveError):
-            docx.convert(_oversized_member_zip())
+            docx.convert(data)
         assert time.time() - t0 < 2.0  # rejected on declared size, never decompresses
 
     def test_xlsx_convert_rejects_oversized_member(self) -> None:
+        data = _oversized_member_zip()
         t0 = time.time()
         with pytest.raises(CorruptArchiveError):
-            xlsx.convert(_oversized_member_zip())
+            xlsx.convert(data)
         assert time.time() - t0 < 2.0
 
 
