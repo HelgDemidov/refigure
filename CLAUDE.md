@@ -22,17 +22,24 @@ ported 8 G2AI_ME test files + a new parametrized corpus-test layer
 found and fixed 2 real bugs (chart-parsing crash on `#N/A` cached values,
 silent chart loss on grouped xlsx anchors) via
 `superpowers:systematic-debugging`, see `project_stage5_chart_parsing_bugs`
-memory. 191 tests total. Not yet done: stage 4b (VLM, deferred), stage 6 (CI
-extras matrix), stage 7 (README+demo), stage 8 (release gate).
+memory. 191 tests total. Stage 6 (PR #8): extras-isolation CI matrix (fresh
+isolated venv per `bare`/`docx`/`xlsx`/`both` combo) — found and fixed a 3rd
+real bug the same day (`xlsx.py`'s openpyxl guard ran after an unguarded
+transitive import in `xlsx_charts.py`), see `project_extras_isolation_bug`
+memory. Not yet done: stage 4b (VLM, deferred — will need extending, not
+redoing, the stage-6 matrix), stage 7 (README+demo), stage 8 (release gate).
 
 ## Dev environment
 `pyproject.toml` (extras `[docx]`/`[xlsx]`, ruff/mypy/pytest config) +
 `requirements.txt`/`requirements-dev.txt`, managed with `uv`. CI
-(`.github/workflows/ci.yml`): 3 parallel jobs — `quality` (ruff+mypy+
+(`.github/workflows/ci.yml`): 4 parallel jobs — `quality` (ruff+mypy+
 pip-audit), `test-unit` (pytest `tests/unit` + coverage, no threshold gate
 yet), `test-integration` (pytest `tests/integration` — real corpus-fixture
 tests, stage 5; 0 collected in CI without the gitignored local fixture
-setup, graceful not a failure). Custom Claude Code
+setup, graceful not a failure), `test-extras` (stage 6: 4-leg matrix,
+`bare`/`docx`/`xlsx`/`both`, each a FRESH isolated venv — not
+requirements-dev.txt like the other 3 jobs — the only way to actually
+catch a broken extras boundary). Custom Claude Code
 commands in `.claude/commands/`: `/tech-spec` (draft a spec under `docs/`),
 `/feature-workflow` (implement one end-to-end), `/post-merge-sync` (this
 command), `/memory-sync` (audit memory against live code).
@@ -76,7 +83,12 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
 - One PyPI package, extras by format+capability: `[docx]`, `[xlsx]`, `[vlm]`.
 - Independent per-format submodules (`refigure/docx.py` imports only
   mammoth+markdownify; `refigure/xlsx.py` imports only openpyxl) — avoids
-  per-dependency try/except gymnastics.
+  per-dependency try/except gymnastics. The guard must run BEFORE any
+  same-package import, not just exist somewhere in the file: `xlsx_charts.py`
+  also touches openpyxl directly (`get_column_letter`) with no guard of its
+  own — a real bug (PR #8) when `xlsx.py` imported it before its own
+  try/except ran. Same discipline will need re-checking when stage 4b's VLM
+  code touches `chart_render.py`/`docx_groups.py`.
 - `chart_data.py`/`chart_render.py` — core, always installed, lxml-only +
   `mermaidx` optional inside itself.
 - Optional-dependency pattern (proven, implemented+tested in G2AI_ME commit
