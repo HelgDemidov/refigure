@@ -1,0 +1,172 @@
+"""Public DOCX -> Markdown conversion entry point.
+
+Imports mammoth + markdownify at module level — nothing else in this
+package touches them, so ``pip install refigure`` (no extra) never pulls
+them in. Importing this module without ``refigure[docx]`` installed raises
+``MissingOptionalDependencyError`` immediately, with an actionable message,
+instead of a bare ``ModuleNotFoundError``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import posixpath
+import zipfile
+from pathlib import Path
+from typing import Any, BinaryIO
+from xml.etree import ElementTree
+
+from . import chart_render, docx_groups, zipsafe
+from ._io import normalize_source
+from .api import (
+    Config,
+    ConversionResult,
+    CorruptArchiveError,
+    MissingOptionalDependencyError,
+    UnsupportedFormatError,
+)
+
+try:
+    import mammoth
+    from mammoth import html as mammoth_html
+    from markdownify import ATX, MarkdownConverter
+except ImportError as exc:
+    raise MissingOptionalDependencyError(
+        "refigure[docx] is required to convert DOCX files"
+    ) from exc
+
+DOCX_IMAGE_MIN_BYTES = 5000
+_DOCX_MARKER_SRC_PREFIX = "docx-marker:"
+
+
+def _docx_referenced_media_ids(source: Path | bytes) -> frozenset[str]:
+    """id12s of media files actually referenced by some XML part of the
+    document (document.xml/headers/footers/notes/charts — any part with its
+    own .rels). A file under word/media/ with no reference anywhere is an
+    orphan Word never displays, not real document content."""
+    referenced: set[str] = set()
+    z_source = source if isinstance(source, Path) else io.BytesIO(source)
+    with zipfile.ZipFile(z_source) as z:
+        names = set(z.namelist())
+        for part in sorted(names):
+            if not (part.startswith("word/") and part.endswith(".xml")) or "/_rels/" in part:
+                continue
+            rels_name = f"{posixpath.dirname(part)}/_rels/{posixpath.basename(part)}.rels"
+            if rels_name not in names:
+                continue
+            try:
+                rels_root = ElementTree.fromstring(z.read(rels_name))
+            except ElementTree.ParseError:
+                continue
+            part_bytes = z.read(part)
+            for rel in rels_root:
+                if not rel.get("Type", "").endswith("/image"):
+                    continue
+                rid = rel.get("Id")
+                target = rel.get("Target", "")
+                if not rid or f'"{rid}"'.encode() not in part_bytes:
+                    continue
+                media = posixpath.normpath(posixpath.join(posixpath.dirname(part), target))
+                if media.startswith("word/media/") and media in names:
+                    referenced.add(hashlib.sha256(z.read(media)).hexdigest()[:12])
+    return frozenset(referenced)
+
+
+def _docx_image_markers(source: Path | bytes, *, placed: frozenset[str] = frozenset()) -> str:
+    """Fallback markers under "## Figures (position unknown)" for media that
+    is (a) actually referenced by the document (orphan filter), (b) not
+    smaller than DOCX_IMAGE_MIN_BYTES, (c) not already placed inline by the
+    mammoth pass (``placed``). Deduplicated by id12. An empty result is
+    valid and expected — on a clean document all real raster content lands
+    inline."""
+    referenced = _docx_referenced_media_ids(source)
+    lines: list[str] = []
+    seen: set[str] = set()
+    z_source = source if isinstance(source, Path) else io.BytesIO(source)
+    with zipfile.ZipFile(z_source) as z:
+        for name in sorted(z.namelist()):
+            if not name.startswith("word/media/"):
+                continue
+            data = z.read(name)
+            if len(data) < DOCX_IMAGE_MIN_BYTES:
+                continue
+            id12 = hashlib.sha256(data).hexdigest()[:12]
+            if id12 in placed or id12 in seen or id12 not in referenced:
+                continue
+            seen.add(id12)
+            lines.append(f"> [Image, docx media {id12} — raster content not analyzed]")
+    if not lines:
+        return ""
+    return "\n## Figures (position unknown)\n\n" + "\n".join(lines) + "\n"
+
+
+class _DocxMarkdownify(MarkdownConverter):
+    def convert_img(self, el: Any, text: str, parent_tags: Any) -> str:
+        # The only <img> source in this HTML comes from convert_image below,
+        # so src always carries the marker-src prefix.
+        id12 = (el.attrs.get("src") or "")[len(_DOCX_MARKER_SRC_PREFIX) :]
+        return f"\n\n> [Image, docx media {id12} — raster content not analyzed]\n\n"
+
+
+def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) -> ConversionResult:
+    """Convert a DOCX file (path, bytes, or a file-like object) to Markdown."""
+    config = config or Config()
+    normalized = normalize_source(source)
+
+    try:
+        zipsafe.check_archive(normalized)
+    except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile) as exc:
+        raise CorruptArchiveError(str(exc)) from exc
+
+    rewritten, groups = docx_groups.extract_and_strip_groups(normalized)
+
+    placed_ids: set[str] = set()
+
+    def convert_image(image: Any) -> list[Any]:
+        with image.open() as f:
+            data = f.read()
+        if len(data) < DOCX_IMAGE_MIN_BYTES:
+            return []
+        id12 = hashlib.sha256(data).hexdigest()[:12]
+        placed_ids.add(id12)
+        return [mammoth_html.element("img", {"src": f"{_DOCX_MARKER_SRC_PREFIX}{id12}"})]
+
+    try:
+        converted = mammoth.convert_to_html(io.BytesIO(rewritten), convert_image=convert_image)
+    except OSError as exc:
+        # mammoth's own signal for "valid zip, but not a docx" (verified live:
+        # "Could not find main document part. Are you sure this is a valid
+        # .docx file?") — never leak mammoth's internal exception type.
+        raise UnsupportedFormatError(str(exc)) from exc
+
+    text = _DocxMarkdownify(heading_style=ATX).convert(converted.value).strip()
+
+    warnings: list[str] = []
+    charts_found = sum(1 for g in groups if g.kind == "chart")
+    groups_found = sum(1 for g in groups if g.kind == "group")
+    charts_rendered = 0
+
+    if text:
+        text, charts_rendered = docx_groups.inject_group_markers(text, groups)
+    else:
+        warnings.append("no extractable content")
+
+    if charts_found and not chart_render.mermaidx_available():
+        warnings.append(
+            "mermaidx not installed — chart diagrams disabled, tables only "
+            "(install refigure[docx] with mermaidx to enable rendering)"
+        )
+
+    fallback = _docx_image_markers(
+        normalized, placed=frozenset(placed_ids) | docx_groups.all_media_ids(groups)
+    )
+
+    return ConversionResult(
+        markdown=text + "\n" + fallback,
+        warnings=warnings,
+        charts_found=charts_found,
+        charts_rendered=charts_rendered,
+        groups_found=groups_found,
+        vlm_used=False,
+    )
