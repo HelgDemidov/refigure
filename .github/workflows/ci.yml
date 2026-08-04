@@ -25,8 +25,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: uv pip install --system -r requirements-dev.txt
+      - name: Create venv and install dependencies
+        run: |
+          uv venv
+          uv pip install -r requirements-dev.txt
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Ruff (lint)
         run: ruff check refigure tests
@@ -39,7 +42,7 @@ jobs:
 
       - name: Audit Python dependencies
         run: |
-          uv pip install --system pip-audit
+          uv pip install pip-audit
           pip-audit -r requirements.txt -r requirements-dev.txt
 
   # ---------------------------------------------------------------------------
@@ -60,8 +63,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: uv pip install --system -r requirements-dev.txt
+      - name: Create venv and install dependencies
+        run: |
+          uv venv
+          uv pip install -r requirements-dev.txt
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Pytest unit + coverage
         run: python -m pytest tests/unit --cov --cov-report=term-missing
@@ -85,8 +91,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: uv pip install --system -r requirements-dev.txt
+      - name: Create venv and install dependencies
+        run: |
+          uv venv
+          uv pip install -r requirements-dev.txt
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Pytest integration (exit 5 = nothing collected yet, expected)
         run: |
