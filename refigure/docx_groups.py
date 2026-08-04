@@ -1,28 +1,33 @@
-"""Composite-группы docx (spec convert-docx §2-ter): Word рисует сложную
-инфографику как ГРУППУ фигур (``mc:AlternateContent``/``mc:Choice``/``wpg:wgp``
-+ VML-``mc:Fallback``) — mammoth обходит такую группу поэлементно, распадая ОДНУ
-диаграмму на россыпь растровых фрагментов + бессвязные строки текста (живой
-кейс, см. спек §2-ter.1: 3/3 настоящих инфографик тестовой вырезки распадались
-именно так). Этот модуль детектирует такие группы ДО передачи документа
-mammoth, вырезает их целиком (заменяя на текстовый сентинел, который mammoth
-пронесёт как обычный текст на своём месте), собирает id вложенных media
-(чтобы фолбэк-проход ``converters._docx_image_markers`` их не задублировал)
-и текстовые подписи группы (zero-loss на случай недоступности VLM).
+"""Composite groups in docx (spec convert-docx §2-ter): Word draws a complex
+infographic as a GROUP of shapes (``mc:AlternateContent``/``mc:Choice``/
+``wpg:wgp`` + VML ``mc:Fallback``) — mammoth walks such a group element by
+element, breaking ONE diagram apart into a scatter of raster fragments plus
+disconnected lines of text (a real-world case, see spec §2-ter.1: 3 out of 3
+real infographics in the test excerpt fell apart exactly this way). This
+module detects such groups BEFORE the document is handed to mammoth, cuts
+them out whole (replacing them with a text sentinel that mammoth carries
+through as ordinary text in the same spot), collects the ids of the nested
+media (so the fallback pass ``converters._docx_image_markers`` doesn't
+duplicate them), and collects the group's text captions (zero-loss in case
+VLM is unavailable).
 
-Детект: top-level блок body содержит ``mc:AlternateContent``, чей ``mc:Choice``
-несёт ``wpg:wgp`` (современный DrawingML-группа фигур) — сигнал специфичный и
-надёжный (прототип 2026-07-20: 3/3 реальных диаграмм, 0 ложных срабатываний).
+Detection: a top-level body block contains ``mc:AlternateContent`` whose
+``mc:Choice`` carries a ``wpg:wgp`` (the modern DrawingML shape group) — a
+signal that is both specific and reliable (2026-07-20 prototype: 3 out of 3
+real diagrams, 0 false positives).
 
-Вторая категория (kind="chart", §2-ter ultimate-тест 2026-07-20): голый
-``w:drawing`` с ``c:chart``-анкером ВНЕ ``mc:AlternateContent`` — классический
-нативный Word-чарт (данные в embeddings/*.xlsx). У него нет Fallback-картинки
-вовсе: mammoth его просто НЕ видит — класс «тихая потеря» (живой кейс: bar-chart
-CAPEX/OPEX в реальном отчёте). Обрабатывается тем же конвейером
-сентинел→маркер→soffice-рендер: мини-docx наследует ВЕСЬ zip оригинала (см.
-``extract_group_docx``), поэтому chart-парты/rels/xlsx доезжают автоматически.
-chartEx-диаграммы нового поколения (sunburst и т.п.) сюда СОЗНАТЕЛЬНО не входят:
-Word по построению кладёт им в ``mc:Fallback`` готовую PNG-отрисовку — её
-забирает штатный mammoth-путь инлайн-картинок (позиция + VLM бесплатно).
+Second category (kind="chart", §2-ter ultimate test, 2026-07-20): a bare
+``w:drawing`` with a ``c:chart`` anchor OUTSIDE ``mc:AlternateContent`` — a
+classic native Word chart (data lives in embeddings/*.xlsx). It has no
+Fallback image at all: mammoth simply doesn't see it — a "silent loss"
+class of bug (real-world case: a CAPEX/OPEX bar chart in an actual report).
+Handled by the same pipeline — sentinel -> marker -> soffice render: the
+mini-docx inherits the ENTIRE zip of the original (see
+``extract_group_docx``), so chart parts/rels/xlsx come along automatically.
+Next-generation chartEx diagrams (sunburst etc.) are DELIBERATELY excluded
+here: by construction, Word puts a ready-made PNG rendering for them in
+``mc:Fallback`` — that gets picked up by the regular mammoth inline-image
+path (position + VLM for free).
 """
 
 from __future__ import annotations
@@ -51,10 +56,11 @@ _NS = {
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 
 SENTINEL_PREFIX = "DOCXGROUPSENTINEL"
-# \**...\** поглощает возможное bold-обрамление markdownify: сентинел наследует
-# rPr того run'а, чьё содержимое заменил (живой кейс — блок с bold в фикстуре).
+# \**...\** absorbs the bold wrapping markdownify may add: the sentinel inherits
+# the rPr of the run whose content it replaced (real case — a bold block in the
+# fixture).
 _SENTINEL_SCAN_RE = re.compile(r"\**" + SENTINEL_PREFIX + r"(?P<id>[0-9a-f]{12})\**")
-_NUMERIC_JUNK_RE = re.compile(r"^-?\d+$")  # posOffset/extent координаты в itertext()
+_NUMERIC_JUNK_RE = re.compile(r"^-?\d+$")  # posOffset/extent coordinates in itertext()
 
 
 def _q(prefix: str, local: str) -> str:
@@ -66,15 +72,15 @@ class DocxGroup:
     id12: str
     media_ids: frozenset[str]
     captions: tuple[str, ...]
-    kind: str = "group"  # "group" (wpg-группа фигур) | "chart" (нативный c:chart)
-    # kind="chart" ТОЛЬКО (spec chart-data-extraction §4.2): распарсенные данные
-    # чарта для data-driven резолюции (inject_group_markers). kind="group" —
-    # всегда None, group-путь остаётся на VLM без изменений.
+    kind: str = "group"  # "group" (wpg shape group) | "chart" (native c:chart)
+    # kind="chart" ONLY (spec chart-data-extraction §4.2): parsed chart data for
+    # data-driven resolution (inject_group_markers). kind="group" is always
+    # None — the group path is left unchanged, still handled by VLM.
     chart_data: ChartData | None = None
 
 
 def _rel_targets(z: zipfile.ZipFile, part: str) -> dict[str, str]:
-    """rId -> Target для ``part`` (напр. ``word/document.xml``), из соседнего .rels."""
+    """rId -> Target for ``part`` (e.g. ``word/document.xml``), from its sibling .rels."""
     rels_name = f"{posixpath.dirname(part)}/_rels/{posixpath.basename(part)}.rels"
     if rels_name not in z.namelist():
         return {}
@@ -98,12 +104,12 @@ def _group_media_ids(
 
 
 def _filter_caption_texts(texts: Any) -> tuple[str, ...]:
-    """Общий фильтр текстов под captions: ``itertext()`` тянет и числовой мусор
-    координат (``wp:posOffset``/``a:ext`` несут значение как текстовое
-    содержимое элемента, не атрибут) — отсеиваем строки, целиком состоящие из
-    цифр (настоящие подписи содержат буквы); дедуп по порядку появления
-    (proofErr иногда дробит слово на несколько run — не склеиваем, честно
-    передаём как есть)."""
+    """Shared text filter for captions: ``itertext()`` also pulls in numeric
+    coordinate junk (``wp:posOffset``/``a:ext`` carry their value as the
+    element's text content, not an attribute) — we drop strings made up
+    entirely of digits (real captions contain letters); dedup in order of
+    appearance (proofErr sometimes splits a word across several runs — we
+    don't stitch them back together, just pass them through honestly as-is)."""
     seen: set[str] = set()
     out: list[str] = []
     for t in texts:
@@ -116,17 +122,18 @@ def _filter_caption_texts(texts: Any) -> tuple[str, ...]:
 
 
 def _group_captions(ac: Any) -> tuple[str, ...]:
-    """Текст группы (captions под маркером, zero-loss без VLM)."""
+    """Group text (captions under the marker, zero-loss without VLM)."""
     return _filter_caption_texts(ac.itertext())
 
 
 def _chart_root(
     drawing: Any, rel_targets: dict[str, str], z: zipfile.ZipFile, names: set[str]
 ) -> Any | None:
-    """Распарсенный chart-парт (``word/charts/chartN.xml``) референсированный
-    ``w:drawing``-анкером — общий резолв для captions (``_chart_captions``) И
-    данных (``chart_data.parse_chart``, spec chart-data-extraction §4.2). None —
-    анкер/rel/парт недостижимы (малформед OOXML, честно пропускается)."""
+    """The parsed chart part (``word/charts/chartN.xml``) referenced by the
+    ``w:drawing`` anchor — shared resolution used for both captions
+    (``_chart_captions``) AND data (``chart_data.parse_chart``, spec
+    chart-data-extraction §4.2). None means the anchor/rel/part is
+    unreachable (malformed OOXML, honestly skipped)."""
     chart_ref = drawing.find(f".//{_q('c', 'chart')}")
     rid = chart_ref.get(_q("r", "id")) if chart_ref is not None else None
     if rid is None or rid not in rel_targets:
@@ -138,10 +145,11 @@ def _chart_root(
 
 
 def _chart_captions(chart_root: Any | None) -> tuple[str, ...]:
-    """Заголовок чарта из его chart-парта (``c:title``): сам ``w:drawing``-анкер
-    текста не несёт (данные и заголовок живут в ``word/charts/chartN.xml``).
-    Берём ТОЛЬКО title, не весь парт — иначе captions затопило бы подписями
-    осей/категорий/значений."""
+    """Chart title from its chart part (``c:title``): the ``w:drawing`` anchor
+    itself carries no text (data and title live in
+    ``word/charts/chartN.xml``). We take ONLY the title, not the whole
+    part — otherwise captions would get flooded with axis/category/value
+    labels."""
     if chart_root is None:
         return ()
     title = chart_root.find(f".//{_q('c', 'title')}")
@@ -151,10 +159,10 @@ def _chart_captions(chart_root: Any | None) -> tuple[str, ...]:
 
 
 def _iter_group_acs(body: Any) -> list[tuple[Any, Any]]:
-    """Топ-level (block, ac) пары для всех composite-групп ``body`` — общая
-    точка детекта для ``extract_and_strip_groups``/``extract_group_docx``
-    (единственный критерий: ``mc:Choice`` несёт ``wpg:wgp``, см. докстроку
-    модуля)."""
+    """Top-level (block, ac) pairs for every composite group in ``body`` — the
+    shared detection point for ``extract_and_strip_groups``/
+    ``extract_group_docx`` (the sole criterion: ``mc:Choice`` carries
+    ``wpg:wgp``, see the module docstring)."""
     pairs: list[tuple[Any, Any]] = []
     for block in list(body):
         for ac in block.findall(f".//{_q('mc', 'AlternateContent')}"):
@@ -166,11 +174,12 @@ def _iter_group_acs(body: Any) -> list[tuple[Any, Any]]:
 
 
 def _iter_chart_drawings(body: Any) -> list[tuple[Any, Any]]:
-    """Топ-level (block, drawing) пары для голых chart-анкеров: ``w:drawing``
-    с ``c:chart`` ВНЕ ``mc:AlternateContent``. Вложенные в AC чарты (chartEx:
-    Choice несёт cx-диаграмму, Fallback — готовую PNG-картинку от Word)
-    сознательно пропускаются — их забирает mammoth-путь инлайн-картинок
-    (см. докстроку модуля)."""
+    """Top-level (block, drawing) pairs for bare chart anchors: a ``w:drawing``
+    with a ``c:chart`` OUTSIDE ``mc:AlternateContent``. Charts nested inside
+    an AC (chartEx: Choice carries the cx-diagram, Fallback carries a
+    ready-made PNG image from Word) are deliberately skipped — they're
+    picked up by the mammoth inline-image path (see the module
+    docstring)."""
     pairs: list[tuple[Any, Any]] = []
     for block in list(body):
         for drawing in block.findall(f".//{_q('w', 'drawing')}"):
@@ -189,27 +198,28 @@ def _iter_chart_drawings(body: Any) -> list[tuple[Any, Any]]:
 
 
 def _iter_objects(body: Any) -> list[tuple[Any, Any, str]]:
-    """Все вырезаемые объекты body: (block, element, kind) — единая точка
-    для ``extract_and_strip_groups``/``extract_group_docx``."""
+    """All objects in ``body`` that get cut out: (block, element, kind) — the
+    single entry point shared by ``extract_and_strip_groups``/
+    ``extract_group_docx``."""
     objects = [(b, el, "group") for b, el in _iter_group_acs(body)]
     objects += [(b, el, "chart") for b, el in _iter_chart_drawings(body)]
     return objects
 
 
 def extract_and_strip_groups(raw: Path | bytes) -> tuple[bytes, list[DocxGroup]]:
-    """Вернуть (переписанный zip docx, найденные группы). Ноль групп -> байты
-    БАЙТ-В-БАЙТ идентичны ``raw.read_bytes()`` (документ без composite-групп —
-    большинство docx — платит только за один проход детекта, ноль риска
-    случайно исказить содержимое).
+    """Return (rewritten docx zip, groups found). Zero groups -> the bytes are
+    BYTE-FOR-BYTE identical to ``raw.read_bytes()`` (a document with no
+    composite groups — the majority of docx files — pays only for a single
+    detection pass, with zero risk of accidentally corrupting the content).
 
-    ``raw`` может быть ``bytes`` (refigure принимает in-memory вход, §2
-    stage2-public-api-wrapper) — используется как есть, без чтения с диска.
+    ``raw`` can be ``bytes`` (refigure accepts in-memory input, §2
+    stage2-public-api-wrapper) — used as-is, without reading from disk.
 
-    Малформед ``word/document.xml`` (не XML вовсе, либо XML без ``w:body``)
-    — тот же честный пасс-through, что и отсутствующий парт вовсе (найдено
-    Hypothesis-тестом, stage2-public-api-wrapper: пустой ``document.xml``
-    ронял ``etree.XMLSyntaxError``, XML без ``w:body`` ронял ``TypeError``
-    на ``list(None)`` в ``_iter_objects``)."""
+    A malformed ``word/document.xml`` (not XML at all, or XML with no
+    ``w:body``) gets the same honest pass-through as a missing part
+    altogether (found by a Hypothesis test, stage2-public-api-wrapper: an
+    empty ``document.xml`` raised ``etree.XMLSyntaxError``, XML with no
+    ``w:body`` raised ``TypeError`` on ``list(None)`` in ``_iter_objects``)."""
     orig = raw.read_bytes() if isinstance(raw, Path) else raw
     with zipfile.ZipFile(io.BytesIO(orig)) as z:
         names = set(z.namelist())
@@ -261,11 +271,12 @@ def extract_and_strip_groups(raw: Path | bytes) -> tuple[bytes, list[DocxGroup]]
 
 
 def extract_group_docx(raw: Path, id12: str) -> bytes | None:
-    """Пересобрать мини-docx, содержащий ТОЛЬКО блок с данной группой (+
-    ``sectPr`` оригинала для геометрии страницы) — под изолированный рендер
-    через soffice (``figures_vlm._render_docx_group``). Прототип 2026-07-20:
-    все 3 диаграммы тестовой вырезки отрендерились этим способом ЦЕЛИКОМ.
-    None — группа с таким id12 не найдена при пере-детекции (raw изменился?)."""
+    """Rebuild a mini-docx that contains ONLY the block with the given group
+    (+ the original's ``sectPr`` for page geometry) — for an isolated
+    render via soffice (``figures_vlm._render_docx_group``). 2026-07-20
+    prototype: all 3 diagrams in the test excerpt rendered COMPLETELY this
+    way. None means a group with this id12 wasn't found on re-detection
+    (did ``raw`` change?)."""
     with zipfile.ZipFile(raw) as z:
         names = z.namelist()
         tree = etree.fromstring(z.read("word/document.xml"))
@@ -296,10 +307,11 @@ def extract_group_docx(raw: Path, id12: str) -> bytes | None:
 
 
 def _render_group_marker(id12: str, captions: tuple[str, ...], kind: str = "group") -> str:
-    # Литерал английский, как вся остальная маркерная грамматика (spec
-    # convert-knowledge-seam-hardening §1, Б17): текст маркера попадает в doc.md,
-    # значит — в FTS-токены и в вектор чанка; язык куратора там был бы примесью,
-    # машинный контракт корпуса одноязычен. Русский остаётся в логах/CLI.
+    # The literal text stays in English, like the rest of the marker grammar
+    # (spec convert-knowledge-seam-hardening §1, item B17): the marker text ends
+    # up in doc.md, which means it ends up in FTS tokens and the chunk vector;
+    # the curator's language would be an impurity there — the corpus's machine
+    # contract is monolingual. Russian is confined to logs/CLI.
     caption_line = "; ".join(captions) if captions else "(no captions)"
     noun = "composite" if kind == "group" else "chart"
     return (
@@ -309,20 +321,23 @@ def _render_group_marker(id12: str, captions: tuple[str, ...], kind: str = "grou
 
 
 def inject_group_markers(text: str, groups: list[DocxGroup]) -> tuple[str, int]:
-    """Заменить текстовые сентинелы (пережившие mammoth+markdownify на месте
-    вырезанной группы, см. ``extract_and_strip_groups``) на итоговый блок.
+    """Replace the text sentinels (which survived mammoth+markdownify in the
+    spot where the group was cut out, see ``extract_and_strip_groups``) with
+    the final block.
 
-    kind="group" — БЕЗ ИЗМЕНЕНИЙ, честный VLM-маркер (spec chart-data-extraction
-    §4.2/§2: group-путь остаётся на VLM). kind="chart" — data-driven (spec §4.2):
-    ``chart_render.render_chart(group.chart_data)``, если извлечение непустое;
-    пустое извлечение (нет numCache и т.п.) -> ТОТ ЖЕ честный маркер, что и
-    раньше (caption-фолбэк, zero-loss без VLM). Позиция сохраняется точно —
-    сентинел заменяется IN-PLACE (spec §4.4: docx-провенанс = сама позиция в
-    потоке, отдельная строка не нужна, в отличие от xlsx).
+    kind="group" — LEFT UNCHANGED, the honest VLM marker (spec
+    chart-data-extraction §4.2/§2: the group path stays on VLM). kind="chart"
+    — data-driven (spec §4.2): ``chart_render.render_chart(group.chart_data)``
+    if the extraction is non-empty; an empty extraction (no numCache etc.)
+    -> THE SAME honest marker as before (caption fallback, zero-loss without
+    VLM). Position is preserved exactly — the sentinel is replaced IN-PLACE
+    (spec §4.4: docx provenance IS the position in the stream itself, no
+    separate line needed, unlike xlsx).
 
-    Возвращает ``(text, rendered_count)`` — второй элемент нужен вызывающей
-    стороне (``refigure.docx``) для ``ConversionResult.charts_rendered``, без
-    дублирования этой же проверки (§3 stage2-public-api-wrapper)."""
+    Returns ``(text, rendered_count)`` — the second element is needed by the
+    caller (``refigure.docx``) for ``ConversionResult.charts_rendered``, so
+    it doesn't have to duplicate this same check (§3
+    stage2-public-api-wrapper)."""
     if not groups:
         return text, 0
     by_id = {g.id12: g for g in groups}
@@ -331,7 +346,7 @@ def inject_group_markers(text: str, groups: list[DocxGroup]) -> tuple[str, int]:
     def _replace(m: re.Match[str]) -> str:
         nonlocal rendered_count
         group = by_id.get(m.group("id"))
-        if group is None:  # практически невозможно (id12 — sha256), но не падаем
+        if group is None:  # practically impossible (id12 is a sha256), but don't crash
             return m.group(0)
         if group.kind == "chart" and group.chart_data is not None:
             rendered = chart_render.render_chart(group.chart_data)
@@ -345,9 +360,10 @@ def inject_group_markers(text: str, groups: list[DocxGroup]) -> tuple[str, int]:
 
 
 def all_media_ids(groups: list[DocxGroup]) -> frozenset[str]:
-    """Объединение media_ids всех групп — «поглощённые» id для фолбэк-прохода
-    (``converters._docx_image_markers(raw, placed=...)``): куски группы не
-    должны всплыть повторно ни инлайн, ни в ``## Figures (position unknown)``."""
+    """Union of media_ids across all groups — the "absorbed" ids for the
+    fallback pass (``converters._docx_image_markers(raw, placed=...)``):
+    pieces of a group must not resurface again, neither inline nor under
+    ``## Figures (position unknown)``."""
     if not groups:
         return frozenset()
     return frozenset().union(*(g.media_ids for g in groups))
