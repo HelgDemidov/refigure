@@ -1,13 +1,30 @@
 """Public XLSX -> Markdown conversion entry point.
 
-Imports openpyxl at module level — nothing else in this package touches it,
-so ``pip install refigure`` (no extra) never pulls it in. Importing this
-module without ``refigure[xlsx]`` installed raises
+Importing this module without ``refigure[xlsx]`` installed raises
 ``MissingOptionalDependencyError`` immediately, with an actionable message,
-instead of a bare ``ModuleNotFoundError``.
+instead of a bare ``ModuleNotFoundError`` — this guard MUST run before any
+other same-package import, because ``xlsx_charts.py`` also touches openpyxl
+directly (``openpyxl.utils.get_column_letter``, for cell-reference
+formatting) and has no guard of its own. A prior version imported
+``xlsx_charts`` first, which raised an unguarded ``ModuleNotFoundError``
+from deep inside it before this module's own try/except ever ran — found
+by the stage-6 extras-isolation CI matrix (2026-08-05), which installs
+``refigure`` into a venv with openpyxl genuinely absent, unlike every other
+CI job that installs the full dev environment at once and could never have
+caught this.
 """
 
 from __future__ import annotations
+
+try:
+    import openpyxl
+    from openpyxl.utils.cell import coordinate_to_tuple
+except ImportError as exc:
+    from .api import MissingOptionalDependencyError
+
+    raise MissingOptionalDependencyError(
+        "refigure[xlsx] is required to convert XLSX files"
+    ) from exc
 
 import datetime as _dt
 import io
@@ -21,17 +38,8 @@ from .api import (
     Config,
     ConversionResult,
     CorruptArchiveError,
-    MissingOptionalDependencyError,
     UnsupportedFormatError,
 )
-
-try:
-    import openpyxl
-    from openpyxl.utils.cell import coordinate_to_tuple
-except ImportError as exc:
-    raise MissingOptionalDependencyError(
-        "refigure[xlsx] is required to convert XLSX files"
-    ) from exc
 
 
 def _xlsx_cell_str(value: Any) -> str:
