@@ -47,7 +47,7 @@ explicit_package_bases = true
 
 [[tool.mypy.overrides]]
 # no type stubs published
-module = ["mammoth.*", "mermaidx.*"]
+module = ["lxml.*", "mammoth.*", "mermaidx.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
