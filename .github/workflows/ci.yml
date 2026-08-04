@@ -80,12 +80,14 @@ jobs:
         run: python -m pytest tests/unit --cov --cov-report=term-missing
 
   # ---------------------------------------------------------------------------
-  # Integration tests (tests/integration/) — real licensed corpus fixtures,
-  # stage 5 (gated on stage 3's licensing check). Empty today: exit 5 ("no
-  # tests ran") is expected, not a failure, until stage 5 lands — same
-  # graceful handling as G2AI_ME's own test-integration job. Starts running
-  # something real automatically once stage 5 adds fixtures, no edit to this
-  # file needed.
+  # Integration tests (tests/integration/) — real corpus fixtures (stage 5,
+  # landed PR #7: 27 real documents, provenance/license in
+  # tests/integration/fixtures/manifest.yaml). Binaries are gitignored
+  # (~81MB) and not present in a fresh CI checkout, so this still collects 0
+  # tests in CI today — exit 5 ("no tests ran") is expected, not a failure,
+  # same graceful handling as G2AI_ME's own test-integration job. Starts
+  # running something real once a local/CI fixture cache exists, no edit to
+  # this file needed then either.
   # ---------------------------------------------------------------------------
   test-integration:
     name: Integration tests (CI-safe subset)
@@ -114,3 +116,44 @@ jobs:
             exit 0
           fi
           exit $code
+
+  # ---------------------------------------------------------------------------
+  # Extras isolation matrix (stage 6): verifies the extras architecture's core
+  # promise — previously only ASSERTED in CLAUDE.md/design docs, never
+  # actually CI-checked. Each leg installs refigure into a FRESH, isolated
+  # venv with exactly one extras combination (no shared requirements-dev.txt,
+  # unlike the 3 jobs above, which install everything at once and so
+  # couldn't catch an isolation break) — a leaked mammoth/openpyxl import
+  # would only ever surface here, not in quality/test-unit/test-integration.
+  # ---------------------------------------------------------------------------
+  test-extras:
+    name: Extras isolation (${{ matrix.extras }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        extras: [bare, docx, xlsx, both]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv and set Python version
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Create isolated venv, install ONLY refigure[${{ matrix.extras }}] + pytest
+        run: |
+          uv venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          case "${{ matrix.extras }}" in
+            bare) uv pip install . ;;
+            docx) uv pip install ".[docx]" ;;
+            xlsx) uv pip install ".[xlsx]" ;;
+            both) uv pip install ".[docx,xlsx]" ;;
+          esac
+          uv pip install pytest
+
+      - name: Verify extras isolation
+        env:
+          REFIGURE_EXTRAS_UNDER_TEST: ${{ matrix.extras }}
+        run: python -m pytest tests/extras -v
