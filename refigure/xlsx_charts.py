@@ -122,13 +122,23 @@ def _sheet_parts(z: zipfile.ZipFile) -> dict[str, str]:
 
 
 def _chart_anchors(drawing_root: Any) -> list[tuple[Any, Any]]:
-    """(anchor, chart_ref) for every ``xdr:oneCellAnchor``/``xdr:twoCellAnchor``
-    carrying a ``c:chart`` somewhere inside it (usually within a ``graphicFrame``)."""
+    """(anchor, chart_ref) for every ``c:chart`` inside every
+    ``xdr:oneCellAnchor``/``xdr:twoCellAnchor`` — usually a lone
+    ``graphicFrame`` (one chart per anchor), but an anchor can legitimately
+    be an ``xdr:grpSp`` (Excel's "group these charts" feature) wrapping
+    SEVERAL charts at one shared position: real, confirmed structure (e.g.
+    eia-aeo-2026-figures.xlsx's drawing25.xml, one anchor nesting 6 charts
+    under one grpSp, each in its own graphicFrame) — every one must be
+    yielded, not just the first. A prior version used a singular ``.find()``
+    here, which silently dropped every chart after the first in a grouped
+    anchor (found via corpus testing, stage 5, 2026-08-05: 5/43, 48/93, and
+    1/22 charts silently lost across 3 real fixtures, with no trace in
+    ``ConversionResult`` at all — the exact opposite of this project's
+    zero-loss positioning)."""
     pairs: list[tuple[Any, Any]] = []
     for tag in ("oneCellAnchor", "twoCellAnchor"):
         for anchor in drawing_root.findall(_q("xdr", tag)):
-            chart_ref = anchor.find(f".//{_q('c', 'chart')}")
-            if chart_ref is not None:
+            for chart_ref in anchor.findall(f".//{_q('c', 'chart')}"):
                 pairs.append((anchor, chart_ref))
     return pairs
 

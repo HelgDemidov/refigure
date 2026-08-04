@@ -133,7 +133,20 @@ def _chart_root(
     ``w:drawing`` anchor — shared resolution used for both captions
     (``_chart_captions``) AND data (``chart_data.parse_chart``, spec
     chart-data-extraction §4.2). None means the anchor/rel/part is
-    unreachable (malformed OOXML, honestly skipped)."""
+    unreachable (malformed OOXML, honestly skipped).
+
+    KNOWN LATENT RISK (not yet confirmed in any real document, flagged
+    2026-08-05 while root-causing a confirmed sibling bug in
+    ``xlsx_charts._chart_anchors``): this uses a singular ``.find()``, so if
+    a single bare ``w:drawing`` ever legitimately carried more than one
+    ``c:chart`` descendant, every chart after the first would be silently
+    dropped — same shape as the xlsx bug. Not fixed here: no real fixture in
+    the current 15-document docx corpus triggers this (unlike xlsx's
+    confirmed 3-file case), and unlike the xlsx fix (self-contained inside
+    one function), fixing this would need ``_iter_chart_drawings``/its
+    caller to potentially yield multiple entries per drawing — a real
+    restructuring, not a minimal patch, for an unconfirmed case. Revisit if
+    a real document ever surfaces this shape."""
     chart_ref = drawing.find(f".//{_q('c', 'chart')}")
     rid = chart_ref.get(_q("r", "id")) if chart_ref is not None else None
     if rid is None or rid not in rel_targets:

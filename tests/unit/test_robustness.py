@@ -1,4 +1,4 @@
-"""API-level robustness ("живучесть") tests: adversarial/edge-case input
+"""API-level robustness tests: adversarial/edge-case input
 through the public docx.convert()/xlsx.convert() surface, not the real
 corpus-fixture behavioral tests (stage 5, gated on stage 3's licensing).
 

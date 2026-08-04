@@ -12,7 +12,14 @@ spec): numCache is present in practically all real-world charts.
 ``parse_chart`` does not raise exceptions on a structurally incomplete or
 unusual chart — a missing node at any step yields an empty/``None`` result
 (the caller decides on the caption fallback, see
-``chart_render.render_chart`` -> ``None``).
+``chart_render.render_chart`` -> ``None``). This also covers a MALFORMED-but-
+PRESENT node, not just an absent one: real-world charts can cache an Excel
+error placeholder (``#N/A``, ``#DIV/0!``, etc.) directly inside a numeric
+cache when the source formula errored for that data point — confirmed real
+(eia-steo-chart-gallery.xlsx, 19 of 67 chart parts) and previously an
+uncaught ``ValueError`` crash (found via corpus testing, stage 5,
+2026-08-05) before ``_safe_int``/``_safe_float`` closed it, along with the
+same unguarded-coercion shape on ``ptCount``/``idx`` attributes.
 """
 
 from __future__ import annotations
@@ -45,6 +52,38 @@ _STACKED_GROUPINGS = frozenset({"stacked", "percentStacked"})
 
 def _q(local: str) -> str:
     return f"{{{_NS}}}{local}"
+
+
+def _safe_int(text: str | None) -> int | None:
+    """Parse an OOXML integer attribute (``@idx``, etc.) defensively —
+    ``None`` on both absence (``text is None``) and malformed content
+    (present but not a valid integer — untrusted files can carry garbage in
+    fields the schema declares as integers). Deliberately does NOT default
+    a malformed ``idx`` to 0: an earlier draft of this fix did, and a
+    malformed ``idx`` on a LATER ``c:pt`` would then silently overwrite a
+    real, valid point already placed at index 0 — worse than just skipping
+    the malformed point. Callers decide what ``None`` means (skip the
+    point, in every current caller)."""
+    if text is None:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _safe_float(text: str | None) -> float | None:
+    """Parse a cached numeric value (``c:pt``/``c:v`` inside a
+    ``c:numCache``) defensively — ``None`` (not 0.0) on any unparseable
+    text, so callers can't confuse a real zero with a missing/errored
+    value. See the module docstring for the real ``#N/A`` case this
+    guards against."""
+    if text is None:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 @dataclass(frozen=True)
@@ -91,9 +130,13 @@ def _text_of(el: Any) -> str | None:
 
 def _pt_count(cache_el: Any) -> int:
     pt_count_el = cache_el.find(_q("ptCount"))
-    if pt_count_el is not None and pt_count_el.get("val") is not None:
-        return int(pt_count_el.get("val"))
-    idxs = [int(pt.get("idx", 0)) for pt in cache_el.findall(_q("pt"))]
+    if pt_count_el is not None:
+        val = _safe_int(pt_count_el.get("val"))
+        if val is not None:
+            return val
+    idxs = [
+        idx for pt in cache_el.findall(_q("pt")) if (idx := _safe_int(pt.get("idx"))) is not None
+    ]
     return (max(idxs) + 1) if idxs else 0
 
 
@@ -106,8 +149,8 @@ def _materialize_str(cache_el: Any) -> tuple[str, ...]:
     n = _pt_count(cache_el)
     values: list[str] = [""] * n
     for pt in cache_el.findall(_q("pt")):
-        idx = int(pt.get("idx", 0))
-        if 0 <= idx < n:
+        idx = _safe_int(pt.get("idx"))
+        if idx is not None and 0 <= idx < n:
             v = _pt_value(pt)
             values[idx] = v if v is not None else ""
     return tuple(values)
@@ -117,10 +160,9 @@ def _materialize_num(cache_el: Any) -> tuple[float | None, ...]:
     n = _pt_count(cache_el)
     values: list[float | None] = [None] * n
     for pt in cache_el.findall(_q("pt")):
-        idx = int(pt.get("idx", 0))
-        if 0 <= idx < n:
-            v = _pt_value(pt)
-            values[idx] = float(v) if v is not None else None
+        idx = _safe_int(pt.get("idx"))
+        if idx is not None and 0 <= idx < n:
+            values[idx] = _safe_float(_pt_value(pt))
     return tuple(values)
 
 
