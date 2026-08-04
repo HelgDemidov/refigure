@@ -85,60 +85,72 @@ def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) ->
 
     try:
         zipsafe.check_archive(normalized)
+
+        # openpyxl accepts a path or a file-like object, but not raw bytes
+        # directly (verified live) — wrap only when needed.
+        wb_source = normalized if isinstance(normalized, Path) else io.BytesIO(normalized)
+        try:
+            wb = openpyxl.load_workbook(wb_source, data_only=True, read_only=False)
+        except zipfile.BadZipFile:
+            raise  # corrupted member CRC — let the outer handler classify this
+        except Exception as exc:
+            # openpyxl has no unified exception type for "not a valid xlsx"
+            # either — verified live across several malformation shapes:
+            # OSError ("File contains no valid workbook part"),
+            # lxml.etree.XMLSyntaxError (malformed inner XML), KeyError
+            # (missing [Content_Types].xml). Same reasoning as docx.py's
+            # mammoth call: blanket catch scoped to this one narrow call,
+            # never leak the internal exception type.
+            raise UnsupportedFormatError(str(exc)) from exc
+
+        chart_roots: dict[str, Any] = {}
+        charts_by_sheet: dict[str, list[Any]] = {}
+        for chart, chart_root in xlsx_charts.iter_chart_entries(normalized):
+            chart_roots[chart.id12] = chart_root
+            charts_by_sheet.setdefault(chart.sheet, []).append(chart)
+        for charts in charts_by_sheet.values():
+            charts.sort(key=lambda c: coordinate_to_tuple(c.anchor_cell))
+
+        sections: list[str] = []
+        any_content = False
+        charts_found = 0
+        charts_rendered = 0
+        for name in wb.sheetnames:
+            ws = wb[name]
+            heading = f"## {name}" if ws.sheet_state == "visible" else f"## {name} (hidden)"
+            sheet_charts = charts_by_sheet.get(name, [])
+            if _sheet_is_empty(ws) and not sheet_charts:
+                sections.append(f'{heading}\n\n> [Sheet "{name}" — empty, skipped]')
+                continue
+            any_content = True
+            parts = [heading]
+            if not _sheet_is_empty(ws):
+                parts.append(_sheet_table(ws))
+            if sheet_charts:
+                blocks: list[str] = []
+                for c in sheet_charts:
+                    block, rendered = _render_xlsx_chart_block(c, chart_roots[c.id12])
+                    blocks.append(block)
+                    charts_found += 1
+                    charts_rendered += rendered
+                parts.append("\n\n".join(blocks))
+            sections.append("\n\n".join(parts))
+
+        warnings: list[str] = []
+        if not any_content:
+            warnings.append("no extractable content")
+        if charts_found and not chart_render.mermaidx_available():
+            warnings.append(
+                "mermaidx not installed — chart diagrams disabled, tables only "
+                "(install refigure[xlsx] with mermaidx to enable rendering)"
+            )
     except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile) as exc:
+        # BadZipFile here means a structurally valid zip with corrupted
+        # member data (bad CRC-32) — can surface from openpyxl.load_workbook
+        # or xlsx_charts.iter_chart_entries, not just zipsafe.check_archive
+        # itself. Verified live: a byte-flipped-but-structurally-intact xlsx
+        # raises this from load_workbook.
         raise CorruptArchiveError(str(exc)) from exc
-
-    # openpyxl accepts a path or a file-like object, but not raw bytes
-    # directly (verified live) — wrap only when needed.
-    wb_source = normalized if isinstance(normalized, Path) else io.BytesIO(normalized)
-    try:
-        wb = openpyxl.load_workbook(wb_source, data_only=True, read_only=False)
-    except KeyError as exc:
-        # openpyxl's own signal for "valid zip, but not an xlsx" (verified
-        # live: KeyError on the missing [Content_Types].xml part).
-        raise UnsupportedFormatError(str(exc)) from exc
-
-    chart_roots: dict[str, Any] = {}
-    charts_by_sheet: dict[str, list[Any]] = {}
-    for chart, chart_root in xlsx_charts.iter_chart_entries(normalized):
-        chart_roots[chart.id12] = chart_root
-        charts_by_sheet.setdefault(chart.sheet, []).append(chart)
-    for charts in charts_by_sheet.values():
-        charts.sort(key=lambda c: coordinate_to_tuple(c.anchor_cell))
-
-    sections: list[str] = []
-    any_content = False
-    charts_found = 0
-    charts_rendered = 0
-    for name in wb.sheetnames:
-        ws = wb[name]
-        heading = f"## {name}" if ws.sheet_state == "visible" else f"## {name} (hidden)"
-        sheet_charts = charts_by_sheet.get(name, [])
-        if _sheet_is_empty(ws) and not sheet_charts:
-            sections.append(f'{heading}\n\n> [Sheet "{name}" — empty, skipped]')
-            continue
-        any_content = True
-        parts = [heading]
-        if not _sheet_is_empty(ws):
-            parts.append(_sheet_table(ws))
-        if sheet_charts:
-            blocks: list[str] = []
-            for c in sheet_charts:
-                block, rendered = _render_xlsx_chart_block(c, chart_roots[c.id12])
-                blocks.append(block)
-                charts_found += 1
-                charts_rendered += rendered
-            parts.append("\n\n".join(blocks))
-        sections.append("\n\n".join(parts))
-
-    warnings: list[str] = []
-    if not any_content:
-        warnings.append("no extractable content")
-    if charts_found and not chart_render.mermaidx_available():
-        warnings.append(
-            "mermaidx not installed — chart diagrams disabled, tables only "
-            "(install refigure[xlsx] with mermaidx to enable rendering)"
-        )
 
     return ConversionResult(
         markdown="\n\n".join(sections) + "\n",
