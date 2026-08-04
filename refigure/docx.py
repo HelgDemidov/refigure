@@ -15,7 +15,8 @@ import posixpath
 import zipfile
 from pathlib import Path
 from typing import Any, BinaryIO
-from xml.etree import ElementTree
+
+from lxml import etree
 
 from . import chart_render, docx_groups, zipsafe
 from ._io import normalize_source
@@ -44,7 +45,12 @@ def _docx_referenced_media_ids(source: Path | bytes) -> frozenset[str]:
     """id12s of media files actually referenced by some XML part of the
     document (document.xml/headers/footers/notes/charts — any part with its
     own .rels). A file under word/media/ with no reference anywhere is an
-    orphan Word never displays, not real document content."""
+    orphan Word never displays, not real document content.
+
+    Uses lxml, not stdlib xml.etree.ElementTree, to parse untrusted .rels
+    content — verified live (tests/unit/test_xml_security.py) that stdlib
+    ElementTree has no nesting-depth protection (a 13MB crafted .rels caused
+    547MB RSS growth), while lxml rejects excessive depth by default."""
     referenced: set[str] = set()
     z_source = source if isinstance(source, Path) else io.BytesIO(source)
     with zipfile.ZipFile(z_source) as z:
@@ -56,8 +62,8 @@ def _docx_referenced_media_ids(source: Path | bytes) -> frozenset[str]:
             if rels_name not in names:
                 continue
             try:
-                rels_root = ElementTree.fromstring(z.read(rels_name))
-            except ElementTree.ParseError:
+                rels_root = etree.fromstring(z.read(rels_name))
+            except etree.XMLSyntaxError:
                 continue
             part_bytes = z.read(part)
             for rel in rels_root:
