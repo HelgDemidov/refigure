@@ -1,0 +1,130 @@
+# Provenance/license/integrity record for tests/integration/fixtures/.
+# Binaries are gitignored (see .gitignore) — this file is the source of
+# truth for what belongs here, where it came from, and why it's legally
+# usable. See tests/integration/fixtures/README.md for the local-setup
+# workflow.
+
+docx:
+  - filename: iot-report-2022-national-strategies-excerpt.docx
+    source: own
+    source_url: null
+    license: unpublished — repo owner's own draft from a prior job
+    attribution: null
+    added_date: 2026-08-04
+    sha256: e0fbfca90405beb47739b248ec880f44483a815918556f7556b3a598aea0d649
+    size_bytes: 10884685
+    notes: >
+      Repo owner's own IoT-strategy report draft. Former employer indifferent
+      to reuse, but the owner has no independent proof of authorship beyond
+      file possession plus embedded core.xml (dc:creator="Oleg Demidov").
+      Ownership risk (work-for-hire) is a separate question from the
+      authorship-evidentiary question — see conversation record 2026-08-04.
+      Risk explicitly accepted by the repo owner 2026-08-04; kept as an
+      active fixture. 139 pages / 42614 words — largest realistic
+      single-document stress test in the set.
+
+  - filename: ipbes-ias-assessment-spm.docx
+    source_url: https://zenodo.org/records/11254974
+    license: CC BY 4.0
+    attribution: >
+      IPBES (2023). Summary for Policymakers of the Thematic Assessment of
+      Invasive Alien Species and their Control. IPBES Secretariat, Bonn,
+      Germany.
+    added_date: 2026-08-04
+    sha256: 0d8e42719d08e82feddc66297d9ffd968e10bb6320361086ad227da250e574ad
+    size_bytes: 10852513
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 18 embedded images, 8
+      mc:AlternateContent blocks — all Requires="wps" (simple shape
+      fallbacks), zero wpg (grouped-shape) occurrences, zero native chart
+      parts. Does NOT exercise the composite-figure-group code path despite
+      the initial hope; kept as a large, image-heavy, openly-licensed
+      general-robustness fixture instead.
+
+  - filename: hackair-d7.7-pilot-evaluation.docx
+    source_url: https://zenodo.org/records/2531140
+    license: CC BY 4.0
+    attribution: >
+      hackAIR Consortium. D7.7 Final Pilot Evaluation Report v1.0. Horizon
+      2020 project 689443.
+    added_date: 2026-08-04
+    sha256: 501b6a89d8d9a38be37e49faf228b323aa3d967b3ae82ec1ad8bd5d6b1064785
+    size_bytes: 4332677
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 8 native word/charts/
+      chartN.xml parts, containing real c:numCache/c:strCache data (not
+      pasted images). Best docx candidate for chart-extraction testing.
+
+  - filename: marcobolo-3rd-workshop-report.docx
+    source_url: https://zenodo.org/records/17244832
+    license: CC BY 4.0
+    attribution: >
+      MARCO-BOLO Project. 3rd Co-Design/Co-Creation Workshop Report. Horizon
+      Europe grant 101082021.
+    added_date: 2026-08-04
+    sha256: 9da4ad7ec3e5311426b0d1fac366a9ab6eb808f9bee78d1ce6b1fa59071d2a11
+    size_bytes: 53066424
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 53 MB, 68 embedded
+      images, exactly one confirmed grouped shape (mc:Choice
+      Requires="wpg"), zero native chart parts. Primarily a size/media-volume
+      robustness stress test, not a chart- or group-extraction test.
+
+xlsx:
+  - filename: govtech-2025-charts.xlsx
+    source_url: https://datacatalog.worldbank.org/search/dataset/0037889
+    license: CC BY 4.0
+    attribution: >
+      World Bank Group. GovTech Maturity Index (GTMI) 2025 Update. DOI
+      10.60572/50tk-0s28.
+    added_date: 2026-08-04
+    sha256: 046926f7b1496748f6672dea6b023c5bea400ff4c7cedc028398916ab9c99b46
+    size_bytes: 1453942
+    notes: >
+      core.xml confirmed byte-identical to the official
+      WBG_GovTech_Dataset_Dec2025.xlsx release 2026-08-04 — this is a
+      trimmed re-save (fewer cached values/charts than the 5.4MB original)
+      made in the private source pipeline, not an independent copy.
+
+  - filename: eia-steo-chart-gallery.xlsx
+    source_url: https://www.eia.gov/outlooks/steo/xls/chart-gallery.xlsx
+    license: public domain (US federal government work)
+    attribution: null
+    added_date: 2026-08-04
+    sha256: 7030693a771246b6a75432c25c59d0b12f647b598220167270d16fdd1cde73ef
+    size_bytes: 1808182
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 67 native chart parts
+      (bar/line/area/scatter), 1240 c:numCache + 528 c:strCache occurrences
+      total. Largest and most varied xlsx candidate. Source URL always
+      serves the current month's edition — re-downloading later will not
+      reproduce this exact sha256, only structurally similar content.
+
+  - filename: wb-gep-jan2022-ch4-annex.xlsx
+    source_url: >
+      https://thedocs.worldbank.org/en/doc/cb15f6d7442eadedf75bb95c4fdec1b3-0350012022/related/GEP-January-2022-Chapter4-Annex.xlsx
+    license: CC BY 3.0 IGO
+    attribution: >
+      World Bank. Global Economic Prospects, January 2022. Washington, DC:
+      World Bank.
+    added_date: 2026-08-04
+    sha256: 0bf3a6d656bd2acb9d7d082b821c3aba730edb8a9029f44ded08f744fe560a88
+    size_bytes: 2130661
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 10 native chart parts
+      (bar/line), 62 c:numCache + 112 c:strCache occurrences.
+
+  - filename: wb-gep-jan2022-ch3-annex.xlsx
+    source_url: >
+      https://thedocs.worldbank.org/en/doc/cb15f6d7442eadedf75bb95c4fdec1b3-0350012022/related/GEP-January-2022-Chapter3-Annex.xlsx
+    license: CC BY 3.0 IGO
+    attribution: >
+      World Bank. Global Economic Prospects, January 2022. Washington, DC:
+      World Bank.
+    added_date: 2026-08-04
+    sha256: 561337b6a0000df4cf5869d2eda15cb1a768b57a12af6186e7ed1e0637de195b
+    size_bytes: 170049
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 13 native chart parts
+      (area/line), 102 c:numCache + 8 c:strCache occurrences. Smaller
+      companion to the Chapter 4 annex — useful as a quicker/lighter case.
