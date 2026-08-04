@@ -81,14 +81,14 @@ full-suite budget) — отдельным коммитом не идут.
 
 ## Чек-лист реализации
 
-- [ ] `zipsafe.py` перенесён
-- [ ] `chart_data.py` перенесён
-- [ ] `xlsx_charts.py` перенесён
-- [ ] `chart_render.py` перенесён, импорт поправлен
-- [ ] `docx_groups.py` перенесён, импорты поправлены
-- [ ] `ruff check refigure` чисто
-- [ ] `mypy refigure` чисто
-- [ ] все 5 модулей импортируются без ошибок
+- [x] `zipsafe.py` перенесён
+- [x] `chart_data.py` перенесён
+- [x] `xlsx_charts.py` перенесён
+- [x] `chart_render.py` перенесён, импорт поправлен
+- [x] `docx_groups.py` перенесён, импорты поправлены
+- [x] `ruff check refigure` чисто
+- [x] `mypy refigure` чисто
+- [x] все 5 модулей импортируются без ошибок
 
 ## Вне скоупа
 
