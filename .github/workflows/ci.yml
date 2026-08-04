@@ -1,0 +1,100 @@
+name: CI
+
+# 3 independent parallel jobs (single-responsibility, clear failure
+# attribution) — same shape as G2AI_ME's own ci.yml, the closest analog to
+# this repo's scale (single Python package, no DB/frontend).
+on:
+  push:
+    branches: [main, "feat/**", "fix/**", "refactor/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Static analysis: lint, types, dependency CVE audit. Doesn't run pytest —
+  # the fastest, cheapest job.
+  # ---------------------------------------------------------------------------
+  quality:
+    name: Code quality (ruff + mypy + pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv and set Python version
+        uses: astral-sh/setup-uv@v9
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv pip install --system -r requirements-dev.txt
+
+      - name: Ruff (lint)
+        run: ruff check refigure tests
+
+      - name: Ruff (format check)
+        run: ruff format --check refigure tests
+
+      - name: Mypy (strict)
+        run: python -m mypy refigure
+
+      - name: Audit Python dependencies
+        run: |
+          uv pip install --system pip-audit
+          pip-audit -r requirements.txt -r requirements-dev.txt
+
+  # ---------------------------------------------------------------------------
+  # Unit tests (tests/unit/) — hermetic: synthetic fixtures built in the test
+  # itself, no real corpus, no network. Coverage reported, not yet gated
+  # (stage 4/5 haven't landed real behavioral coverage for chart_data.py/
+  # chart_render.py/docx_groups.py/xlsx_charts.py internals — a hard
+  # threshold now would just be noise until that lands).
+  # ---------------------------------------------------------------------------
+  test-unit:
+    name: Unit tests + coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv and set Python version
+        uses: astral-sh/setup-uv@v9
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv pip install --system -r requirements-dev.txt
+
+      - name: Pytest unit + coverage
+        run: python -m pytest tests/unit --cov --cov-report=term-missing
+
+  # ---------------------------------------------------------------------------
+  # Integration tests (tests/integration/) — real licensed corpus fixtures,
+  # stage 5 (gated on stage 3's licensing check). Empty today: exit 5 ("no
+  # tests ran") is expected, not a failure, until stage 5 lands — same
+  # graceful handling as G2AI_ME's own test-integration job. Starts running
+  # something real automatically once stage 5 adds fixtures, no edit to this
+  # file needed.
+  # ---------------------------------------------------------------------------
+  test-integration:
+    name: Integration tests (CI-safe subset)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv and set Python version
+        uses: astral-sh/setup-uv@v9
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv pip install --system -r requirements-dev.txt
+
+      - name: Pytest integration (exit 5 = nothing collected yet, expected)
+        run: |
+          set +e
+          python -m pytest tests/integration -v
+          code=$?
+          if [ "$code" -eq 5 ]; then
+            echo "0 integration tests yet (real corpus fixtures land in stage 5) — expected, not a failure."
+            exit 0
+          fi
+          exit $code
