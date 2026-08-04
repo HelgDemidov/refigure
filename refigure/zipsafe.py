@@ -1,21 +1,22 @@
-"""Потолок разжатия OOXML-архивов (spec convert-knowledge-seam-hardening §8).
+"""Decompression ceiling for OOXML archives (spec convert-knowledge-seam-hardening §8).
 
-docx/xlsx — zip, и весь конвейер читает их парты целиком в память
-(``ZipFile.read``), нигде не сверяясь с заявленным распакованным размером. Живой
-замер аудита: архив 199 КБ разворачивается в 438 МБ пикового RAM на ОДНОМ
-``z.read`` — на машине с 8 ГБ это OOM всего прогона, а не отказ одного документа.
-Вектор не гипотетический: docx приходят и из batch-каналов discovery, то есть от
-третьих сторон.
+docx/xlsx are zip archives, and the whole pipeline reads their parts entirely into
+memory (``ZipFile.read``), never checking against the declared uncompressed size.
+Live audit measurement: a 199 KB archive expands to 438 MB peak RAM on a SINGLE
+``z.read`` — on a machine with 8 GB RAM that's an OOM for the whole run, not a
+failure of a single document. The vector isn't hypothetical: docx files also
+arrive from batch discovery channels, i.e. from third parties.
 
-Гейт — один проход по ``infolist()`` ДО первого чтения парта: заявленный
-``file_size`` покрывает главный класс (целиком-в-память ``read``), а занижение
-размера у намеренно сломанного архива ломает сам разжим контролируемым
-исключением, изолированным per-doc. Побайтового контроля потока нет намеренно
-(Design rationale спека): обвязывать каждое чтение ради края, который и так
-отказывает громко, — сложность без выигрыша.
+The gate is a single pass over ``infolist()`` BEFORE the first part is read: the
+declared ``file_size`` covers the main failure class (whole-file-in-memory
+``read``), and an understated size on a deliberately corrupted archive breaks the
+decompression itself with a controlled exception, isolated per-doc. There is
+deliberately no byte-by-byte stream check (per the spec's Design rationale):
+wrapping every read for the sake of an edge case that already fails loudly would
+be complexity without payoff.
 
-Прецедент индустрии — ``ZipSecureFile`` в Apache POI (min inflate ratio + потолок
-размера) как штатная защита OOXML-пайплайнов.
+Industry precedent — Apache POI's ``ZipSecureFile`` (min inflate ratio + size
+ceiling) as standard-issue protection for OOXML pipelines.
 """
 
 from __future__ import annotations
@@ -24,21 +25,25 @@ import io
 import zipfile
 from pathlib import Path
 
-MAX_MEMBER_BYTES = 128 * 1024 * 1024  # один парт (крупная media/лист) — с большим запасом
-MAX_TOTAL_BYTES = 512 * 1024 * 1024  # весь архив в распакованном виде
-# Стартовая калибровка: легитимный гос-документ на порядки меньше (самый тяжёлый в
-# корпусе — единицы МБ), а 8 ГБ RAM машины держат 512 МБ распакованного без риска.
-# Как все численные пороги проекта — пересматриваются по факту живой приёмки.
+MAX_MEMBER_BYTES = 128 * 1024 * 1024  # one part (large media/sheet) — with a generous margin
+MAX_TOTAL_BYTES = 512 * 1024 * 1024  # whole archive, decompressed
+# Initial calibration: a legitimate government document is orders of magnitude
+# smaller (the heaviest in the corpus is a few MB), and an 8 GB RAM machine can
+# hold 512 MB decompressed without risk.
+# Like all numeric thresholds in the project — subject to revision once live
+# acceptance data comes in.
 
 
 class ArchiveBombSuspected(RuntimeError):
-    """Архив заявляет распакованный размер выше потолка — читать его не начинаем.
+    """The archive declares a decompressed size above the ceiling — we don't start
+    reading it.
 
-    Наследует ``RuntimeError``, а НЕ ``converters.ConversionError``: гейт зовут два
-    независимых входа (``converters`` и ``figures_vlm``), и импорт ``converters``
-    отсюда замкнул бы цикл. На маршрутизацию это не влияет — изоляция отказа документа
-    в ``run_pipeline.process_docs`` ловит ``Exception``; тип нужен для читаемости и
-    тестов.
+    Inherits from ``RuntimeError``, NOT ``converters.ConversionError``: the gate is
+    called from two independent entry points (``converters`` and ``figures_vlm``),
+    and importing ``converters`` from here would create a circular import. This
+    doesn't affect routing — per-document failure isolation in
+    ``run_pipeline.process_docs`` catches ``Exception``; the dedicated type exists
+    for readability and tests.
     """
 
 
@@ -48,12 +53,13 @@ def check_archive(
     max_member: int = MAX_MEMBER_BYTES,
     max_total: int = MAX_TOTAL_BYTES,
 ) -> None:
-    """Проверить заявленные размеры членов архива ДО чтения парта. Тихо возвращает
-    None, если всё в пределах; иначе ``ArchiveBombSuspected`` с виновником.
+    """Check the declared sizes of archive members BEFORE reading any part. Returns
+    None silently if everything is within limits; otherwise raises
+    ``ArchiveBombSuspected`` naming the culprit.
 
-    ``path`` может быть ``bytes`` (refigure принимает in-memory вход, §2
-    stage2-public-api-wrapper) — заворачивается в ``io.BytesIO`` перед
-    ``zipfile.ZipFile``, диагностика в этом случае без имени файла."""
+    ``path`` can be ``bytes`` (refigure accepts in-memory input, §2
+    stage2-public-api-wrapper) — it's wrapped in ``io.BytesIO`` before
+    ``zipfile.ZipFile``; in that case the diagnostic has no filename."""
     name = path.name if isinstance(path, Path) else "<in-memory>"
     source = path if isinstance(path, Path) else io.BytesIO(path)
     with zipfile.ZipFile(source) as z:
@@ -61,12 +67,11 @@ def check_archive(
         for info in z.infolist():
             if info.file_size > max_member:
                 raise ArchiveBombSuspected(
-                    f"{name}: член {info.filename} заявляет {info.file_size} байт "
-                    f"распакованного (потолок {max_member}) — архив не читается"
+                    f"{name}: member {info.filename} declares {info.file_size} bytes "
+                    f"decompressed (ceiling {max_member}) — archive not read"
                 )
             total += info.file_size
             if total > max_total:
                 raise ArchiveBombSuspected(
-                    f"{name}: суммарный распакованный размер превысил {max_total} байт "
-                    f"— архив не читается"
+                    f"{name}: total decompressed size exceeded {max_total} bytes — archive not read"
                 )
