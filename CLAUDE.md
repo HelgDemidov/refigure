@@ -29,6 +29,15 @@ commands in `.claude/commands/`: `/tech-spec` (draft a spec under `docs/`),
 `/feature-workflow` (implement one end-to-end), `/post-merge-sync` (this
 command), `/memory-sync` (audit memory against live code).
 
+## Git workflow
+Routine changes (≤1-2 commits, no `/tech-spec`+`/feature-workflow` needed) —
+direct commit to `main`, no PR. Substantial changes — `/tech-spec` →
+`/feature-workflow` → PR. No branch protection on `main` yet, deliberately
+(solo pre-release velocity) — revisit at the v1 release gate (stage 8):
+no-force-push/no-deletion/required-status-checks, per OpenSSF Scorecard's
+Branch-Protection/Code-Review checks (matter once public-facing, not mid
+solo iteration). Full PR+review only if/when external contributors appear.
+
 ## Scope v1
 - DOCX + XLSX, one package, not two.
 - VLM composite-figure interpretation (LibreOffice+cloud): ported in parallel,
@@ -84,12 +93,10 @@ obvious from the code itself.
 - Launch the Agent tool (subagents/worktrees) without the user's explicit
   permission first.
 - Rewrite already-pushed commit history to fix past convention violations
-  (e.g. early Russian-language commit messages) — apply rules going forward
-  only, don't force-push to rewrite what's already public.
+  (e.g. early Russian-language commits) — apply rules going forward only.
 - Parse untrusted XML with stdlib `xml.etree.ElementTree` — no nesting-depth
-  or entity-expansion protection, unlike `lxml` (used everywhere else in
-  this codebase). Was a real bug (`docx.py::_docx_referenced_media_ids`,
-  fixed in PR #4) — see `feedback_untrusted_input_handling` memory.
+  or entity-expansion protection, unlike `lxml`. Real bug, fixed in PR #4 —
+  see `feedback_untrusted_input_handling` memory.
 
 ## Source docs (Russian, tracked in git — project documentation, not code)
 - `docs/converter-viability-assessment-2026-08-04.md` — market research +
