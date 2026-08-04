@@ -1,0 +1,17 @@
+# Derived/noise — not source, keep out of context
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Editor config — versioned as shared config, not something to read as source
+.vscode/
+
+# Secrets — .env.example (if any) stays visible
+.env

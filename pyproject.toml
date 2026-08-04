@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "refigure"
+version = "0.0.0"
+description = "DOCX/XLSX -> Markdown conversion with native OOXML chart-data extraction, no rasterize/OCR/VLM"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.10"
+authors = [{ name = "HelgDemidov", email = "helg.demidov88@gmail.com" }]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+dependencies = [
+    "lxml>=6.1,<7",
+]
+
+[project.optional-dependencies]
+docx = ["mammoth>=1.12,<2", "markdownify>=1.2,<2"]
+xlsx = ["openpyxl>=3.1,<4"]
+
+[project.urls]
+Homepage = "https://github.com/HelgDemidov/refigure"
+Repository = "https://github.com/HelgDemidov/refigure"
+
+[tool.hatch.build.targets.wheel]
+packages = ["refigure"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+# no type stubs published
+module = ["mammoth.*", "mermaidx.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["refigure"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+]
