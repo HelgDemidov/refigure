@@ -48,6 +48,13 @@ don't show the usual prominent "required checks" gate banner — easy to
 misread as "CI didn't run." Verify with `gh pr checks <n>` or the Checks API
 against the PR's head SHA, not by eyeballing the merge box.
 
+`delete_branch_on_merge: true` (2026-08-05) — unlike branch protection,
+this IS available on a private repo under GitHub Free (a plain repo
+setting, not gated); merged PR branches now auto-delete on GitHub. Local
+tracking branches still need manual `git branch -d` (or `-D` after a squash
+merge, which `git` can't always detect as "fully merged") — `git fetch
+--prune` clears stale `remotes/origin/*` refs but not local branches.
+
 ## Scope v1
 - DOCX + XLSX, one package, not two.
 - VLM composite-figure interpretation (LibreOffice+cloud): ported in parallel,
