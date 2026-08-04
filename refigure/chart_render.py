@@ -112,9 +112,7 @@ def _row_labels(data: ChartData) -> tuple[str, ...]:
 
 
 def _table(data: ChartData) -> str:
-    header = ["Category"] + [
-        s.name or f"Series {i + 1}" for i, s in enumerate(data.series)
-    ]
+    header = ["Category"] + [s.name or f"Series {i + 1}" for i, s in enumerate(data.series)]
     lines = [
         "| " + " | ".join(header) + " |",
         "| " + " | ".join(["---"] * len(header)) + " |",
@@ -173,9 +171,7 @@ def _mermaid_xychart(data: ChartData) -> str | None:
     lines = ["xychart-beta"]
     x_axis = ", ".join(f'"{_sanitize_label(c)}"' for c in data.categories)
     lines.append(f"x-axis [{x_axis}]")
-    y_label = (
-        _sanitize_label(data.value_axis_title) if data.value_axis_title else "Value"
-    )
+    y_label = _sanitize_label(data.value_axis_title) if data.value_axis_title else "Value"
     all_values = [v for s in data.series for v in _dense(s.values)]
     y_min, y_max = min(0.0, min(all_values)), max(all_values)
     if y_min == y_max:
@@ -192,8 +188,7 @@ def _mermaid_radar(data: ChartData) -> str | None:
     if not _series_shape_ok(data):
         return None
     axis = ", ".join(
-        f'{_slug(cat, i)}["{_sanitize_label(cat)}"]'
-        for i, cat in enumerate(data.categories)
+        f'{_slug(cat, i)}["{_sanitize_label(cat)}"]' for i, cat in enumerate(data.categories)
     )
     lines = [f"axis {axis}"]
     for i, s in enumerate(data.series):
@@ -247,9 +242,7 @@ def render_chart(data: ChartData) -> str | None:
     зовёт caption-фолбэк (честный маркер, см. ``xlsx_charts.render_chart_marker``/
     ``docx_groups._render_group_marker``). Порядок вывода (§3): подпись ->
     mermaid (если есть) -> таблица."""
-    if not data.series or not any(
-        any(v is not None for v in s.values) for s in data.series
-    ):
+    if not data.series or not any(any(v is not None for v in s.values) for s in data.series):
         return None
     parts = [p for p in (_caption(data), _mermaid(data), _table(data)) if p]
     return "\n\n".join(parts)

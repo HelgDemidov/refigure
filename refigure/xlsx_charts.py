@@ -26,6 +26,7 @@ docx — здесь зафиксировано в докстроке заран�
 что у нативных docx-чартов (§2-ter convert-docx) — код адаптируется под
 другие XML-пути, не копируется 1:1.
 """
+
 from __future__ import annotations
 
 import hashlib

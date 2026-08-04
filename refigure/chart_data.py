@@ -13,6 +13,7 @@ rationale спека): numCache присутствует практически 
 (вызывающая сторона решает про caption-фолбэк, см. ``chart_render.render_chart``
 -> ``None``).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -273,8 +274,13 @@ def _value_axis_title(chart_el: Any) -> str | None:
 
 
 _EMPTY = ChartData(
-    chart_type="other", title=None, value_axis_title=None, value_format=None,
-    stacked=False, categories=(), series=(),
+    chart_type="other",
+    title=None,
+    value_axis_title=None,
+    value_format=None,
+    stacked=False,
+    categories=(),
+    series=(),
 )
 
 
@@ -286,8 +292,13 @@ def parse_chart(chart_root: Any) -> ChartData:
     plot_area = chart_el.find(_q("plotArea"))
     if plot_area is None:
         return ChartData(
-            chart_type="other", title=title, value_axis_title=None, value_format=None,
-            stacked=False, categories=(), series=(),
+            chart_type="other",
+            title=title,
+            value_axis_title=None,
+            value_format=None,
+            stacked=False,
+            categories=(),
+            series=(),
         )
 
     chart_type = _chart_type(plot_area)

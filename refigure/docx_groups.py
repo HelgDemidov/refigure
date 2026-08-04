@@ -24,6 +24,7 @@ chartEx-диаграммы нового поколения (sunburst и т.п.) 
 Word по построению кладёт им в ``mc:Fallback`` готовую PNG-отрисовку — её
 забирает штатный mammoth-путь инлайн-картинок (позиция + VLM бесплатно).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -222,7 +223,10 @@ def extract_and_strip_groups(raw: Path) -> tuple[bytes, list[DocxGroup]]:
             id12 = hashlib.sha256(etree.tostring(el)).hexdigest()[:12]
             groups.append(
                 DocxGroup(
-                    id12=id12, media_ids=media_ids, captions=captions, kind=kind,
+                    id12=id12,
+                    media_ids=media_ids,
+                    captions=captions,
+                    kind=kind,
                     chart_data=parsed_chart_data,
                 )
             )
