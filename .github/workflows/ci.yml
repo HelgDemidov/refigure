@@ -3,11 +3,18 @@ name: CI
 # 3 independent parallel jobs (single-responsibility, clear failure
 # attribution) — same shape as G2AI_ME's own ci.yml, the closest analog to
 # this repo's scale (single Python package, no DB/frontend).
+# No branch filters, deliberately — an enumerated branch-prefix list (feat/**,
+# fix/**, ...) silently skips anything outside it (ci/**, test/**, chore/**,
+# a stacked PR whose base isn't main — this is exactly how PR #4 merged with
+# zero live CI signal, see feedback_ci_branch_triggers memory). pull_request
+# with no `branches:` filter already covers every base branch, including
+# stacked-PR bases; push with no filter covers pre-PR pushes on any branch
+# name. The redundant double-run (push + pull_request firing on the same
+# commit once a PR is open) costs a few extra CI minutes, free on a public
+# repo — a fair trade against silently skipping a branch again.
 on:
   push:
-    branches: [main, "feat/**", "fix/**", "refactor/**"]
   pull_request:
-    branches: [main]
 
 jobs:
   # ---------------------------------------------------------------------------
