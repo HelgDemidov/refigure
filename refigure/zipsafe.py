@@ -20,6 +20,7 @@ docx/xlsx — zip, и весь конвейер читает их парты ц�
 
 from __future__ import annotations
 
+import io
 import zipfile
 from pathlib import Path
 
@@ -42,21 +43,30 @@ class ArchiveBombSuspected(RuntimeError):
 
 
 def check_archive(
-    path: Path, *, max_member: int = MAX_MEMBER_BYTES, max_total: int = MAX_TOTAL_BYTES
+    path: Path | bytes,
+    *,
+    max_member: int = MAX_MEMBER_BYTES,
+    max_total: int = MAX_TOTAL_BYTES,
 ) -> None:
     """Проверить заявленные размеры членов архива ДО чтения парта. Тихо возвращает
-    None, если всё в пределах; иначе ``ArchiveBombSuspected`` с виновником."""
-    with zipfile.ZipFile(path) as z:
+    None, если всё в пределах; иначе ``ArchiveBombSuspected`` с виновником.
+
+    ``path`` может быть ``bytes`` (refigure принимает in-memory вход, §2
+    stage2-public-api-wrapper) — заворачивается в ``io.BytesIO`` перед
+    ``zipfile.ZipFile``, диагностика в этом случае без имени файла."""
+    name = path.name if isinstance(path, Path) else "<in-memory>"
+    source = path if isinstance(path, Path) else io.BytesIO(path)
+    with zipfile.ZipFile(source) as z:
         total = 0
         for info in z.infolist():
             if info.file_size > max_member:
                 raise ArchiveBombSuspected(
-                    f"{path.name}: член {info.filename} заявляет {info.file_size} байт "
+                    f"{name}: член {info.filename} заявляет {info.file_size} байт "
                     f"распакованного (потолок {max_member}) — архив не читается"
                 )
             total += info.file_size
             if total > max_total:
                 raise ArchiveBombSuspected(
-                    f"{path.name}: суммарный распакованный размер превысил {max_total} байт "
+                    f"{name}: суммарный распакованный размер превысил {max_total} байт "
                     f"— архив не читается"
                 )
