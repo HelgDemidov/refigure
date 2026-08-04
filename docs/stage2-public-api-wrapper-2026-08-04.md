@@ -53,23 +53,27 @@ class MissingOptionalDependencyError(Exception): ...
 
 ## 2. Вход `Path | bytes | BinaryIO` — что реально нужно менять
 
-Проверено: `zipfile.ZipFile(x)`/`openpyxl.load_workbook(x)` уже принимают
-файлоподобный объект, не только путь — большинство мест менять не нужно.
-Ломается ровно один вызов: `docx_groups.extract_and_strip_groups`
-(`docx_groups.py:203`) делает `raw.read_bytes()` — метод `Path`, которого нет
-у `bytes`/`BinaryIO`.
+Проверено (реализация; черновик спеки здесь ошибался — см. ниже):
+`zipfile.ZipFile`/`openpyxl.load_workbook` принимают путь ИЛИ файлоподобный
+объект (с `read`/`seek`), но **не сырые `bytes` напрямую** — это выяснилось
+только при реализации, живым тестом (`zipfile.ZipFile(b"...")` ->
+`AttributeError: 'bytes' object has no attribute 'seek'`). Значит, любое
+место, где `raw`/`path` может прийти как `bytes`, обязано завернуть его в
+`io.BytesIO` перед вызовом — таких мест 3, не 1.
 
 - Новый `refigure/_io.py` (приватный, core-tier): `normalize_source(source:
   Path | bytes | BinaryIO) -> Path | bytes` — `Path` пропускает как есть,
   `bytes` как есть, `BinaryIO` -> `.read()`.
-- `zipsafe.check_archive`: тип параметра `Path` -> `Path | bytes`, внутри —
+- `zipsafe.check_archive`: тип `Path` -> `Path | bytes`, внутри —
   `path if isinstance(path, Path) else io.BytesIO(path)` перед
-  `zipfile.ZipFile(...)`; `path.name` в сообщениях об ошибке -> `getattr(path,
-  "name", "<in-memory>")`.
+  `zipfile.ZipFile(...)`; `path.name` в сообщениях об ошибке -> условно.
 - `docx_groups.extract_and_strip_groups`: тип `raw: Path` -> `Path | bytes`,
   `orig = raw.read_bytes() if isinstance(raw, Path) else raw`.
-- `xlsx_charts.iter_chart_entries`/`openpyxl.load_workbook`: без изменений
-  (уже принимают файлоподобное).
+- `xlsx_charts.iter_chart_entries`: тип `raw: Path` -> `Path | bytes`, тот же
+  `io.BytesIO`-паттерн, что в `zipsafe.check_archive` — **этого не было в
+  черновике** (ошибочно решил, что не нужно).
+- `openpyxl.load_workbook` в `refigure/xlsx.py`: `bytes` заворачивается в
+  `io.BytesIO` на месте вызова (сам `openpyxl` не модифицируется).
 
 ## 3. `refigure/docx.py`
 
@@ -166,16 +170,18 @@ zip + сырой OOXML XML руками. Не переносить `support.py` 
 
 ## Чек-лист реализации
 
-- [ ] `refigure/api.py`: `Config`, `ConversionResult`, 3 исключения
-- [ ] `refigure/_io.py`: `normalize_source`
-- [ ] `zipsafe.check_archive` принимает `Path | bytes`
-- [ ] `docx_groups.extract_and_strip_groups` принимает `Path | bytes`
-- [ ] `docx_groups.inject_group_markers` возвращает `(text, rendered_count)`
-- [ ] `refigure/docx.py`: `convert()`, `MissingOptionalDependencyError` на импорте
-- [ ] `refigure/xlsx.py`: `convert()`, `MissingOptionalDependencyError` на импорте
-- [ ] `refigure/__init__.py` ре-экспортирует публичные типы
-- [ ] synthetic smoke-тесты зелёные
-- [ ] `ruff check`/`ruff format --check`/`mypy refigure` чисты
+- [x] `refigure/api.py`: `Config`, `ConversionResult`, 3 исключения
+- [x] `refigure/_io.py`: `normalize_source`
+- [x] `zipsafe.check_archive` принимает `Path | bytes`
+- [x] `docx_groups.extract_and_strip_groups` принимает `Path | bytes`
+- [x] `docx_groups.inject_group_markers` возвращает `(text, rendered_count)`
+- [x] `refigure/docx.py`: `convert()`, `MissingOptionalDependencyError` на импорте
+- [x] `refigure/xlsx.py`: `convert()`, `MissingOptionalDependencyError` на импорте
+- [x] `refigure/__init__.py` ре-экспортирует публичные типы
+- [x] synthetic smoke-тесты зелёные (12/12)
+- [x] `ruff check`/`ruff format --check`/`mypy refigure` чисты
+- [x] (вне исходного чек-листа) `xlsx_charts.iter_chart_entries` тоже
+      потребовал `Path | bytes` — найдено при реализации, см. §2
 
 ## Вне скоупа
 
