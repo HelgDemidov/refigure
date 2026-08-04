@@ -1,17 +1,18 @@
-"""Container-agnostic извлечение данных из нативного OOXML ``c:chart`` (spec
-chart-data-extraction §3): чистый парсинг УЖЕ распарсенного chart-парта
-(``xl/charts/chartN.xml`` ИЛИ ``word/charts/chartN.xml`` — идентичная
-DrawingML-схема, разница только в контейнере-резолвере снаружи, который эта
-функция не касается — см. ``xlsx_charts``/``docx_groups`` для навигации к
-парту). Источник данных — ТОЛЬКО ``c:numCache``/``c:strCache`` (v1): данные,
-которые авторское приложение УЖЕ закэшировало в самом chart-XML, без резолва
-``<c:f>``-формул против книги. Диапазон-резолвер — вне скоупа v1 (см. Design
-rationale спека): numCache присутствует практически во всех реальных чартах.
+"""Container-agnostic extraction of data from a native OOXML ``c:chart`` (spec
+chart-data-extraction §3): pure parsing of an ALREADY-parsed chart part
+(``xl/charts/chartN.xml`` OR ``word/charts/chartN.xml`` — identical
+DrawingML schema, the only difference being the container resolver outside,
+which this function does not touch — see ``xlsx_charts``/``docx_groups`` for
+navigating to the part). The data source is ONLY ``c:numCache``/``c:strCache``
+(v1): data that the authoring application has ALREADY cached inside the
+chart XML itself, without resolving ``<c:f>`` formulas against the workbook.
+A range resolver is out of scope for v1 (see the Design rationale in the
+spec): numCache is present in practically all real-world charts.
 
-``parse_chart`` не бросает исключений на структурно неполном/непривычном
-чарте — отсутствующий узел на любом шаге даёт пустой/``None`` результат
-(вызывающая сторона решает про caption-фолбэк, см. ``chart_render.render_chart``
--> ``None``).
+``parse_chart`` does not raise exceptions on a structurally incomplete or
+unusual chart — a missing node at any step yields an empty/``None`` result
+(the caller decides on the caption fallback, see
+``chart_render.render_chart`` -> ``None``).
 """
 
 from __future__ import annotations
@@ -23,12 +24,13 @@ from lxml import etree
 
 _NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 
-# Локальное имя chart-type-элемента -> базовый chart_type (кроме barChart —
-# требует разбора c:barDir, см. _bar_subtype). scatterChart несёт данные через
-# c:xVal/c:yVal, а не c:cat/c:val (см. _cat_element/_val_element) — структурно
-# другая пара тегов той же роли, обнаружено сверкой с реальной фикстурой
-# govtech (5 scatter-чартов, 9 серий на общий year-xVal): без фолбэка на
-# xVal/yVal эти чарты тихо теряли бы ВСЮ таблицу (не только mermaid).
+# Local name of the chart-type element -> base chart_type (except barChart,
+# which requires parsing c:barDir, see _bar_subtype). scatterChart carries
+# data via c:xVal/c:yVal, not c:cat/c:val (see _cat_element/_val_element) —
+# structurally a different tag pair for the same role, discovered by
+# cross-checking against the real govtech fixture (5 scatter charts, 9
+# series sharing a common year xVal): without a fallback to xVal/yVal these
+# charts would silently lose the ENTIRE table (not just the mermaid diagram).
 _SIMPLE_CHART_TAGS = {
     "lineChart": "line",
     "pieChart": "pie",
@@ -49,10 +51,10 @@ def _q(local: str) -> str:
 class ChartSeries:
     name: str | None
     values: tuple[float | None, ...]
-    # Локальный chart_type ЭЛЕМЕНТА, несущего этот <c:ser> (не chart_type
-    # чарта в целом) — нужен исключительно для bar+line combo: ChartData.
-    # chart_type="combo" не говорит, какие серии рисовать как бары, какие как
-    # линию (chart_render._mermaid_xychart).
+    # Local chart_type of the ELEMENT carrying this <c:ser> (not the overall
+    # chart's chart_type) — needed exclusively for bar+line combo charts:
+    # ChartData.chart_type="combo" doesn't say which series to draw as bars
+    # and which as a line (chart_render._mermaid_xychart).
     kind: str
 
 
@@ -62,24 +64,25 @@ class ChartData:
     title: str | None
     value_axis_title: str | None
     value_format: str | None
-    # c:grouping val="stacked"/"percentStacked" на любом bar/line/area-элементе
-    # (реально встречается в govtech-фикстуре — 5+8 из 55 чартов): mermaid
-    # xychart-beta стек НЕ поддерживает (issue #7392, только overlay) —
-    # chart_render должен откатиться к таблице-только, не сымитировать стек
-    # оверлеем (тихо исказило бы смысл — «сумма частей» превратилась бы в
-    # «несколько наложенных рядов»).
+    # c:grouping val="stacked"/"percentStacked" on any bar/line/area element
+    # (actually occurs in the govtech fixture — 5+8 out of 55 charts): mermaid
+    # xychart-beta does NOT support stacking (issue #7392, overlay only) —
+    # chart_render must fall back to table-only rather than fake a stack with
+    # an overlay (which would silently distort the meaning — "sum of parts"
+    # would turn into "several overlaid series").
     stacked: bool
     categories: tuple[str, ...]
     series: tuple[ChartSeries, ...]
 
 
 def _text_of(el: Any) -> str | None:
-    """Плоский текст rich-текстового узла (``c:title``/``c:valAx><c:title``):
-    ``a:t``-раны через ``itertext()``, склеенные пробелом. В отличие от
-    ``docx_groups._filter_caption_texts``/``xlsx_charts._chart_title`` (которые
-    отсеивают числовой geometry-мусор координат из group/anchor XML) — здесь
-    он не нужен: ``c:title`` несёт ТОЛЬКО текстовые раны, без geometry-тегов
-    вроде ``wp:posOffset``/``a:ext``, что итерируются как текст в тех структурах."""
+    """Flat text of a rich-text node (``c:title``/``c:valAx><c:title``):
+    ``a:t`` runs joined via ``itertext()``, concatenated with a space. Unlike
+    ``docx_groups._filter_caption_texts``/``xlsx_charts._chart_title`` (which
+    filter out numeric coordinate geometry noise from group/anchor XML) —
+    that filtering isn't needed here: ``c:title`` carries ONLY text runs, with
+    no geometry tags like ``wp:posOffset``/``a:ext`` that get iterated as text
+    in those other structures."""
     if el is None:
         return None
     text = " ".join(t.strip() for t in el.itertext() if t.strip())
@@ -128,26 +131,27 @@ def _format_plain_num(v: float | None) -> str:
 
 
 def _cat_element(ser_el: Any) -> Any:
-    """``c:cat`` (bar/line/pie/radar/doughnut/area) или ``c:xVal`` (scatter,
-    структурно та же роль — см. докстроку модуля/``_SIMPLE_CHART_TAGS``)."""
+    """``c:cat`` (bar/line/pie/radar/doughnut/area) or ``c:xVal`` (scatter,
+    structurally the same role — see the module docstring/``_SIMPLE_CHART_TAGS``)."""
     cat = ser_el.find(_q("cat"))
     return cat if cat is not None else ser_el.find(_q("xVal"))
 
 
 def _val_element(ser_el: Any) -> Any:
-    """``c:val`` (bar/line/pie/radar/doughnut/area) или ``c:yVal`` (scatter)."""
+    """``c:val`` (bar/line/pie/radar/doughnut/area) or ``c:yVal`` (scatter)."""
     val = ser_el.find(_q("val"))
     return val if val is not None else ser_el.find(_q("yVal"))
 
 
 def _categories(cat_el: Any) -> tuple[str, ...]:
-    """``c:cat``/``c:xVal`` — 4 варианта источника (``CT_AxDataSource``):
-    ``strRef``>``strCache`` (обычные текстовые категории по ссылке — типовой
-    случай), ``numRef``>``numCache`` (числовые категории по ссылке — года
-    scatter-серии), ``strLit``/``numLit`` (ЛИТЕРАЛЬНЫЕ данные без ссылки на
-    ячейку вовсе — живой факт govtech-фикстуры, chart6.xml: категории заданы
-    прямо в чарте, не через ``<c:f>``; структура ``ptCount``/``pt`` идентична
-    ``*Cache``, поэтому те же ``_materialize_*`` подходят без изменений)."""
+    """``c:cat``/``c:xVal`` — 4 possible source variants (``CT_AxDataSource``):
+    ``strRef``>``strCache`` (ordinary text categories by reference — the
+    typical case), ``numRef``>``numCache`` (numeric categories by reference —
+    years for a scatter series), ``strLit``/``numLit`` (LITERAL data with no
+    cell reference at all — a real fact from the govtech fixture, chart6.xml:
+    categories are given directly in the chart, not via ``<c:f>``; the
+    ``ptCount``/``pt`` structure is identical to ``*Cache``, so the same
+    ``_materialize_*`` functions apply unchanged)."""
     if cat_el is None:
         return ()
     str_ref = cat_el.find(_q("strRef"))
@@ -180,14 +184,14 @@ def _series_name(ser_el: Any) -> str | None:
             return None
         vals = _materialize_str(cache)
         return vals[0] if vals and vals[0] else None
-    v_el = tx.find(_q("v"))  # литеральное имя серии (редко, но валидно)
+    v_el = tx.find(_q("v"))  # literal series name (rare, but valid)
     return v_el.text if v_el is not None else None
 
 
 def _val_cache(val_el: Any) -> Any:
-    """``c:val``/``c:yVal`` — ``numRef``>``numCache`` (типовая ссылка на
-    ячейки) ИЛИ ``numLit`` (литеральные данные без ссылки — см. докстроку
-    ``_categories``, тот же класс варианта в ``CT_NumDataSource``)."""
+    """``c:val``/``c:yVal`` — ``numRef``>``numCache`` (the typical cell
+    reference) OR ``numLit`` (literal data with no reference — see the
+    ``_categories`` docstring, the same variant class in ``CT_NumDataSource``)."""
     num_ref = val_el.find(_q("numRef"))
     if num_ref is not None:
         return num_ref.find(_q("numCache"))
@@ -264,8 +268,9 @@ def _series_kind(ser_el: Any) -> str:
 
 
 def _value_axis_title(chart_el: Any) -> str | None:
-    """Первый ``c:valAx`` с непустым ``c:title`` (combo-чарты иногда несут
-    несколько valAx — берём первый содержательный, не первый по документу)."""
+    """The first ``c:valAx`` with a non-empty ``c:title`` (combo charts
+    sometimes carry multiple valAx elements — take the first meaningful one,
+    not the first in document order)."""
     for val_ax in chart_el.findall(f".//{_q('valAx')}"):
         title = _text_of(val_ax.find(_q("title")))
         if title:
@@ -306,11 +311,13 @@ def parse_chart(chart_root: Any) -> ChartData:
     value_axis_title = _value_axis_title(chart_el)
 
     ser_elements = plot_area.findall(f".//{_q('ser')}")
-    # Категории живут на ОДНОЙ серии (обычно общей для всех — Excel не дублирует
-    # c:cat/c:xVal на каждой), но НЕ обязательно на первой в порядке документа
-    # (живой факт govtech-фикстуры, chart1.xml: серия, идущая в документе
-    # первой, вовсе не несёт <c:cat> — категории у ВТОРОЙ). Берём первую серию,
-    # у которой категории реально нашлись, а не слепо ser_elements[0].
+    # Categories live on ONE series (usually shared across all of them — Excel
+    # doesn't duplicate c:cat/c:xVal on every series), but NOT necessarily on
+    # the first one in document order (a real fact from the govtech fixture,
+    # chart1.xml: the series that comes first in the document carries no
+    # <c:cat> at all — the categories are on the SECOND one). Take the first
+    # series for which categories are actually found, rather than blindly
+    # using ser_elements[0].
     categories: tuple[str, ...] = ()
     for ser_el in ser_elements:
         found = _categories(_cat_element(ser_el))
