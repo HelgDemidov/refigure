@@ -70,6 +70,60 @@ docx:
       Requires="wpg"), zero native chart parts. Primarily a size/media-volume
       robustness stress test, not a chart- or group-extraction test.
 
+  - filename: efsa-trichinella-dashboard-guide.docx
+    source_url: https://zenodo.org/records/13987050
+    license: CC BY 4.0
+    attribution: >
+      European Food Safety Authority. User Guide – Dashboard on Trichinella.
+      Supplement to DOI 10.2903/j.efsa.2024.9106 (EU Zoonoses Report).
+    added_date: 2026-08-04
+    sha256: 072b2c407dd7e3621305045a999a4fc35067ee1dcdbb20106412f1b9504c7a14
+    size_bytes: 2470169
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 9 confirmed grouped
+      shapes (mc:Choice Requires="wpg") — annotated dashboard screenshots
+      with callout shapes, the exact composite-figure-group pattern the
+      converter targets. By far the strongest group-density fixture in the
+      set (previous best was 1 group in a 53MB file). 69 embedded images,
+      22 mc:AlternateContent blocks, zero native chart parts.
+
+  - filename: swd2018-254-marine-litter-ia-main.docx
+    source_url: >
+      http://publications.europa.eu/resource/cellar/4d0542a2-6256-11e8-ab9c-01aa75ed71a1.0001.01/DOC_1
+    license: EU reuse right (Commission Decision 2011/833/EU)
+    attribution: >
+      European Commission. SWD(2018) 254 final — Impact Assessment
+      accompanying the proposal on reducing marine litter (single-use
+      plastics and fishing gear). EUR-Lex CELEX 52018SC0254.
+    added_date: 2026-08-04
+    sha256: 224da66278f89825d14c74dfdf65513ee101fe4b3465308440684dc18a889c9c
+    size_bytes: 1686363
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 6 native chart parts
+      with real c:numCache/c:strCache data, 12 embedded images, zero
+      grouped shapes. Part 1 of 3 (main IA body) — the discovery here is
+      that EUR-Lex/Cellar serves the original native docx behind every
+      Staff Working Document at a stable URL pattern
+      (cellar/{UUID}.0001.01/DOC_{N}), a source not previously used.
+
+  - filename: swd2018-254-marine-litter-ia-annex.docx
+    source_url: >
+      http://publications.europa.eu/resource/cellar/4d0542a2-6256-11e8-ab9c-01aa75ed71a1.0001.01/DOC_2
+    license: EU reuse right (Commission Decision 2011/833/EU)
+    attribution: >
+      European Commission. SWD(2018) 254 final — Impact Assessment
+      accompanying the proposal on reducing marine litter (single-use
+      plastics and fishing gear), Annex. EUR-Lex CELEX 52018SC0254.
+    added_date: 2026-08-04
+    sha256: 64ff22e3255434f31ee1471ec71488be9ef53f60b6d8c42c4361590c9ab2c431
+    size_bytes: 2581488
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 1 native chart part
+      (real c:numCache/c:strCache), 2 confirmed grouped shapes (mc:Choice
+      Requires="wpg"), 19 embedded images. Part 2 of 3 (statistical annex)
+      — combines chart AND group content in one file, companion to
+      swd2018-254-marine-litter-ia-main.docx.
+
 xlsx:
   - filename: govtech-2025-charts.xlsx
     source_url: https://datacatalog.worldbank.org/search/dataset/0037889
