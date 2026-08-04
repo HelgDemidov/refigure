@@ -91,11 +91,16 @@ def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) ->
         wb_source = normalized if isinstance(normalized, Path) else io.BytesIO(normalized)
         try:
             wb = openpyxl.load_workbook(wb_source, data_only=True, read_only=False)
-        except KeyError as exc:
-            # openpyxl's own signal for "valid zip, but not an xlsx" (verified
-            # live: KeyError on the missing [Content_Types].xml part).
-            # zipfile.BadZipFile (corrupted member CRC) is a different
-            # exception — falls through to the outer handler below instead.
+        except zipfile.BadZipFile:
+            raise  # corrupted member CRC — let the outer handler classify this
+        except Exception as exc:
+            # openpyxl has no unified exception type for "not a valid xlsx"
+            # either — verified live across several malformation shapes:
+            # OSError ("File contains no valid workbook part"),
+            # lxml.etree.XMLSyntaxError (malformed inner XML), KeyError
+            # (missing [Content_Types].xml). Same reasoning as docx.py's
+            # mammoth call: blanket catch scoped to this one narrow call,
+            # never leak the internal exception type.
             raise UnsupportedFormatError(str(exc)) from exc
 
         chart_roots: dict[str, Any] = {}

@@ -138,12 +138,17 @@ def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) ->
 
         try:
             converted = mammoth.convert_to_html(io.BytesIO(rewritten), convert_image=convert_image)
-        except OSError as exc:
-            # mammoth's own signal for "valid zip, but not a docx" (verified
-            # live: "Could not find main document part. Are you sure this is
-            # a valid .docx file?") — never leak mammoth's internal exception
-            # type. zipfile.BadZipFile (corrupted member CRC) is NOT an
-            # OSError — falls through to the outer handler below instead.
+        except zipfile.BadZipFile:
+            raise  # corrupted member CRC — let the outer handler classify this
+        except Exception as exc:
+            # mammoth has no unified exception type for "not a valid docx" —
+            # verified live across several malformation shapes: OSError
+            # ("Could not find main document part..."), ValueError ("Could
+            # not find the body element..."), xml.parsers.expat.ExpatError
+            # (malformed inner XML). A blanket catch scoped to this one
+            # narrow call is deliberate: anything mammoth raises parsing
+            # untrusted input means "not a docx", never leak the internal
+            # exception type.
             raise UnsupportedFormatError(str(exc)) from exc
 
         text = _DocxMarkdownify(heading_style=ATX).convert(converted.value).strip()
