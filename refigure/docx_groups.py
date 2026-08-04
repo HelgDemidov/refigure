@@ -203,15 +203,26 @@ def extract_and_strip_groups(raw: Path | bytes) -> tuple[bytes, list[DocxGroup]]
     случайно исказить содержимое).
 
     ``raw`` может быть ``bytes`` (refigure принимает in-memory вход, §2
-    stage2-public-api-wrapper) — используется как есть, без чтения с диска."""
+    stage2-public-api-wrapper) — используется как есть, без чтения с диска.
+
+    Малформед ``word/document.xml`` (не XML вовсе, либо XML без ``w:body``)
+    — тот же честный пасс-through, что и отсутствующий парт вовсе (найдено
+    Hypothesis-тестом, stage2-public-api-wrapper: пустой ``document.xml``
+    ронял ``etree.XMLSyntaxError``, XML без ``w:body`` ронял ``TypeError``
+    на ``list(None)`` в ``_iter_objects``)."""
     orig = raw.read_bytes() if isinstance(raw, Path) else raw
     with zipfile.ZipFile(io.BytesIO(orig)) as z:
         names = set(z.namelist())
         if "word/document.xml" not in names:
             return orig, []
         rel_targets = _rel_targets(z, "word/document.xml")
-        tree = etree.fromstring(z.read("word/document.xml"))
+        try:
+            tree = etree.fromstring(z.read("word/document.xml"))
+        except etree.XMLSyntaxError:
+            return orig, []
         body = tree.find(_q("w", "body"))
+        if body is None:
+            return orig, []
         groups: list[DocxGroup] = []
         for _block, el, kind in _iter_objects(body):
             media_ids = _group_media_ids(el, rel_targets, z, names)
