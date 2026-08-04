@@ -124,6 +124,135 @@ docx:
       — combines chart AND group content in one file, companion to
       swd2018-254-marine-litter-ia-main.docx.
 
+  - filename: ukri-user-behaviour-survey.docx
+    source_url: https://zenodo.org/records/7827919
+    license: CC BY 4.0
+    attribution: >
+      UKRI. User Behaviour Survey Final Report: The motivators/enablers, and
+      barriers to sustainable Digital Research Infrastructure use.
+    added_date: 2026-08-04
+    sha256: 3815f1ed49125d25c53d2d60636d57f38f092bf19bfe14e65da642c6ff25f8f6
+    size_bytes: 3931423
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 44 native chart parts
+      (172 c:numCache + 284 c:strCache occurrences) — by far the highest
+      chart density in the entire corpus, in a comparatively small 3.9MB
+      file. Zero grouped shapes. Best fixture for chart-extraction-at-scale
+      testing.
+
+  - filename: efsa-echinococcus-guide.docx
+    source_url: https://zenodo.org/records/13987056
+    license: CC BY 4.0
+    attribution: >
+      European Food Safety Authority. User Guide – Dashboard on
+      Echinococcus. Supplement to the EU Zoonoses Report.
+    added_date: 2026-08-04
+    sha256: 4afc18ce792ba92cabd7623341917a354b6a3a793e058e55e4de41cb50b50779
+    size_bytes: 2731804
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 10 confirmed grouped
+      shapes (mc:Choice Requires="wpg") — highest group density in the
+      corpus, edging out the Trichinella guide's 9. Same "dashboard user
+      guide" template family as efsa-trichinella-dashboard-guide.docx and
+      efsa-rabies-guide.docx — three near-identical documents kept
+      deliberately, useful for cross-document consistency testing. 70
+      embedded images, zero native chart parts.
+
+  - filename: efsa-rabies-guide.docx
+    source_url: https://zenodo.org/records/13987080
+    license: CC BY 4.0
+    attribution: >
+      European Food Safety Authority. User Guide – Dashboard on Rabies.
+      Supplement to the EU Zoonoses Report.
+    added_date: 2026-08-04
+    sha256: 82d762a4be7b8fb457687defd95ab7eb1d01c391bedf39134146869617c887e2
+    size_bytes: 3708996
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 8 confirmed grouped
+      shapes (mc:Choice Requires="wpg"), 69 embedded images, zero native
+      chart parts. Third of the three EFSA dashboard user guides — see
+      efsa-echinococcus-guide.docx note.
+
+  - filename: swd2021-396-platform-work-ia.docx
+    source_url: >
+      http://publications.europa.eu/resource/cellar/48491c8f-59bb-11ec-91ac-01aa75ed71a1.0001.01/DOC_1
+    license: EU reuse right (Commission Decision 2011/833/EU)
+    attribution: >
+      European Commission. SWD(2021) 396 final — Impact Assessment
+      accompanying the proposal on improving working conditions in
+      platform work. EUR-Lex CELEX 52021SC0396.
+    added_date: 2026-08-04
+    sha256: 153018f56189246a4f15125fa27ed5cf3a4d0d0587a6e82eb2a19269f345feec
+    size_bytes: 1696125
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 8 native chart parts
+      (78 c:numCache + 54 c:strCache), 4 mc:AlternateContent blocks (no
+      confirmed wpg group among them), 11 embedded images. Note: the op.europa.eu
+      publication-detail page's own UUID served directly as the Cellar
+      manifestation UUID here — didn't need a separate EUR-Lex CELEX-page
+      lookup like the other SWD fixtures.
+
+  - filename: onehealth-ejp-d3.20.docx
+    source_url: https://zenodo.org/records/8091310
+    license: CC BY 4.0
+    attribution: >
+      One Health EJP. D3.20 Report on evaluation of finalized JRPs (second
+      round), May 2023.
+    added_date: 2026-08-04
+    sha256: 5c3e573fbb7497400b2cc0defccbb76065e991dea9cf418c7d20676886124c20
+    size_bytes: 29867271
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 5 native chart parts
+      (42 c:numCache + 14 c:strCache), 1 confirmed grouped shape, 123
+      embedded images, 30MB. Combines chart AND group signal in one large
+      file — good combined-capability + volume stress test.
+
+  - filename: kth-onsset-ecuador.docx
+    source_url: https://zenodo.org/records/10601101
+    license: CC BY 4.0
+    attribution: >
+      KTH dESA. Least-cost technology analysis for electricity access in
+      Ecuador (OnSSET modeling report).
+    added_date: 2026-08-04
+    sha256: c574c31c21c2ebae8f2f6580ed09bcadd9229aee8233ff8e039996c2b7dbee60
+    size_bytes: 7171486
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 3 native chart parts
+      (20 c:numCache + 36 c:strCache), 10 embedded images (likely GIS maps),
+      zero grouped shapes.
+
+  - filename: swd2020-335-batteries-ia-part2.docx
+    source_url: >
+      http://publications.europa.eu/resource/cellar/5ee7d299-3ad8-11eb-b27b-01aa75ed71a1.0001.01/DOC_2
+    license: EU reuse right (Commission Decision 2011/833/EU)
+    attribution: >
+      European Commission. SWD(2020) 335 final — Impact Assessment on
+      batteries and waste batteries. EUR-Lex CELEX 52020SC0335.
+    added_date: 2026-08-04
+    sha256: 81b4f639d08511622224ad41a50eeb85c1a1cdeb9998cb1c3977c77bb859dfdc
+    size_bytes: 1164050
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 2 native chart parts
+      (24 c:numCache + 24 c:strCache), 9 embedded images, zero grouped
+      shapes. Part 1 (main body, zero chart/group signal) was checked and
+      deliberately excluded — same main/annex signal-based selection as the
+      marine-litter SWD pair.
+
+  - filename: swd2020-335-batteries-ia-part3.docx
+    source_url: >
+      http://publications.europa.eu/resource/cellar/5ee7d299-3ad8-11eb-b27b-01aa75ed71a1.0001.01/DOC_3
+    license: EU reuse right (Commission Decision 2011/833/EU)
+    attribution: >
+      European Commission. SWD(2020) 335 final — Impact Assessment on
+      batteries and waste batteries, Annex. EUR-Lex CELEX 52020SC0335.
+    added_date: 2026-08-04
+    sha256: 155f122e7086e46b5745510a05415ca35d63d18bed07153e6fd502aeec0398d4
+    size_bytes: 2048037
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 2 native chart parts
+      (20 c:numCache + 10 c:strCache), 55 embedded images, zero grouped
+      shapes. Companion to swd2020-335-batteries-ia-part2.docx.
+
 xlsx:
   - filename: govtech-2025-charts.xlsx
     source_url: https://datacatalog.worldbank.org/search/dataset/0037889
