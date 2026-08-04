@@ -107,6 +107,16 @@ obvious from the code itself.
 - Parse untrusted XML with stdlib `xml.etree.ElementTree` — no nesting-depth
   or entity-expansion protection, unlike `lxml`. Real bug, fixed in PR #4 —
   see `feedback_untrusted_input_handling` memory.
+- Claim "battle-tested"/"production-ready" in README/package description
+  without verifiable evidence — decision 2026-08-04, research-backed
+  (`producingoss.com`'s marketing-claims chapter; CNCF's own graduation bar
+  requires ≥3 independent production adopters even at its lowest tier).
+  Neither is testable pre-release with zero external users, regardless of
+  fixture-corpus size — corpus size supports a *different*, honest claim
+  ("validated against N real documents, M native charts, K composite
+  groups — see `tests/integration/fixtures/manifest.yaml`"), not that one.
+  Revisit "battle-tested"-tier language only once real external adopters
+  exist to cite (natural fit: stage 7 README, or post-release).
 
 ## Source docs (Russian, tracked in git — project documentation, not code)
 - `docs/converter-viability-assessment-2026-08-04.md` — market research +
