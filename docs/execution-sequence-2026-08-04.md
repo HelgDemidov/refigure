@@ -75,8 +75,16 @@ flowchart TD
 5. **Портирование тестов — 15%.** Логика тестов не меняется, но объём реальный:
    импорты и layout меняются в ~7 тестовых файлах (`test_docx_groups.py`,
    `test_chart_data.py`, `test_chart_render.py`, `test_chart_render_visual.py`,
-   `test_xlsx_charts.py`, `test_docx_chart_group_coexistence.py` + 2
-   интеграционных) плюс хелперы `tests/support.py`. Зависит от 2 и 3.
+   `test_xlsx_charts.py`, `test_docx_chart_group_coexistence.py`,
+   `test_chart_render_missing_mermaidx.py`) плюс хелперы `tests/support.py`.
+   Из двух исходных интеграционных тестов переносится только один —
+   `test_xlsx_charts_datadriven.py` (чистый, без soffice/VLM). Второй,
+   `test_docx_groups_live.py`, завязан на `convert.figures_vlm._render_docx_group`
+   + системный `soffice` — **отложен до стадии 4b** (решение 2026-08-04):
+   портировать нечего, пока `figures_vlm.py` не перенесён. Плюс новый слой —
+   параметризованные интеграционные тесты по всему корпусу фикстур
+   (`tests/integration/fixtures/`, 27 файлов, см. `manifest.yaml`) — не
+   перенос, а новый код поверх публичного `convert()`. Зависит от 2 и 3.
 6. **CI-матрица extras — 8%.** Новая инженерия (в G2AI_ME такого нет — там
    всегда всё установлено разом), но ограниченная по объёму, есть прямой
    прецедент из уже настроенного CI `cldr-cnr`. Зависит от 5.
