@@ -27,7 +27,8 @@ isolated venv per `bare`/`docx`/`xlsx`/`both` combo) — found and fixed a 3rd
 real bug the same day (`xlsx.py`'s openpyxl guard ran after an unguarded
 transitive import in `xlsx_charts.py`), see `project_extras_isolation_bug`
 memory. Not yet done: stage 4b (VLM, deferred — will need extending, not
-redoing, the stage-6 matrix), stage 7 (README+demo), stage 8 (release gate).
+redoing, the stage-6 matrix), stage 6b (CLI wrapper, added to the roadmap
+2026-08-05, not yet built), stage 7 (README+demo), stage 8 (release gate).
 
 ## Dev environment
 `pyproject.toml` (extras `[docx]`/`[xlsx]`, ruff/mypy/pytest config) +
@@ -76,8 +77,13 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
   gated behind `[vlm]` extra + runtime `use_vlm` toggle — **not active/announced
   in v1**.
 - MCP server: **not v1** — v2's primary goal (replaces PDF as the v2 target).
-- Full phase/effort breakdown: `docs/execution-sequence-2026-08-04.md` (10 stages,
-  dependency graph, %-effort per stage, mermaid-verified before publish).
+- CLI wrapper (stage 6b, added 2026-08-05, not yet built): thin argparse layer
+  over `convert()`, MarkItDown-parity scope only (single file in, markdown on
+  stdout/`-o`) — market check found CLI is the category baseline, not an
+  optional extra (MarkItDown/Docling/marker all ship one as first-class).
+- Full phase/effort breakdown: `docs/execution-sequence-2026-08-04.md` (10
+  numbered stages + 4b/6b insertions, dependency graph, %-effort per stage,
+  mermaid-verified before publish).
 
 ## Package architecture
 - One PyPI package, extras by format+capability: `[docx]`, `[xlsx]`, `[vlm]`.
