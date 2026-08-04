@@ -1,24 +1,26 @@
-"""``ChartData`` -> markdown (spec chart-data-extraction §3): GFM-таблица
-ВСЕГДА (лосслесс), mermaid ДОПОЛНИТЕЛЬНО — только для типов, у которых
-объективно ЕСТЬ mermaid-конструкт (предел вокабуляра самого mermaid, не
-осторожность): ``pie``/``doughnut``->``pie``, ``column``/``bar``/``line``/
-``area``/``combo``->``xychart-beta`` (bar+line combo = overlay двух серий
-разного kind), ``radar``->``radar-beta``. Всё прочее (``scatter``, stacked-бар,
-bubble/waterfall/treemap/sunburst/boxplot/3D/лог-шкалы) -> mermaid-конструкта
-НЕТ вовсе, только таблица. ``verify+fallback``: форма рискованна (несовпадение
-длин серии/категорий, пропуски, >1 серия у pie) -> mermaid снимается, таблица
-остаётся всегда (см. Design rationale спека).
+"""``ChartData`` -> markdown (spec chart-data-extraction §3): a GFM table is
+produced ALWAYS (lossless), mermaid is ADDITIONAL — only for chart kinds that
+objectively HAVE a mermaid construct (a limit of mermaid's own vocabulary,
+not caution on our part): ``pie``/``doughnut``->``pie``, ``column``/``bar``/
+``line``/``area``/``combo``->``xychart-beta`` (bar+line combo = an overlay of
+two series of different kind), ``radar``->``radar-beta``. Everything else
+(``scatter``, stacked bar, bubble/waterfall/treemap/sunburst/boxplot/3D/log
+scales) -> there is NO mermaid construct at all, table only.
+``verify+fallback``: if the shape is risky (series/category length mismatch,
+gaps, >1 series for a pie) -> mermaid is dropped, the table is always kept
+(see the spec's Design rationale).
 
-Двухуровневая верификация mermaid перед выдачей (решение пользователя
-2026-07-22, эволюция того же verify+fallback): структурные эвристики выше
-ловят рискованную ФОРМУ, но не гарантируют, что mermaid.js реально примет
-СИНТАКСИС/СЕМАНТИКУ результата — живой пример: кавычки в ``pie title``
-синтаксически валидны, но рендерятся буквально. Финальный гейт —
-``mermaid_renders``: настоящий рендер через ``mermaidx`` (embedded QuickJS,
-runtime-зависимость с 2026-07-22), любой отказ -> откат к таблице-only, НЕ
-крах конвертации. Гейт публичен (spec convert-knowledge-seam-hardening §8-bis):
-``figures_vlm`` применяет его к mermaid-фенсам VLM-ответа — тот же класс вывода,
-та же дисциплина (прецедент публикации — ``apply_superseded_gate``)."""
+Two-level mermaid verification before output (user decision 2026-07-22, an
+evolution of the same verify+fallback): the structural heuristics above
+catch a risky SHAPE, but don't guarantee mermaid.js will actually accept the
+SYNTAX/SEMANTICS of the result — a real example: quotes inside ``pie title``
+are syntactically valid but render literally. The final gate is
+``mermaid_renders``: an actual render through ``mermaidx`` (embedded
+QuickJS, a runtime dependency since 2026-07-22) — any failure -> fall back
+to table-only, NOT a conversion crash. The gate is public (spec
+convert-knowledge-seam-hardening §8-bis): ``figures_vlm`` applies it to
+mermaid fences in the VLM response — same class of output, same discipline
+(publication precedent — ``apply_superseded_gate``)."""
 
 from __future__ import annotations
 
@@ -66,16 +68,17 @@ _XYCHART_LIKE = frozenset({"column", "bar", "line", "area", "combo"})
 
 
 def _sanitize_label(text: str) -> str:
-    """Живой дефект convert-xlsx (VLM-эра): скобки/кавычки в лейбле ломают
-    mermaid-парсер — вырезаем ``[]{}()``, двойные кавычки заменяем на
-    одинарные (лейблы всегда в двойных кавычках в выводе)."""
+    """Real bug from convert-xlsx (VLM era): brackets/quotes in a label break
+    the mermaid parser — strip out ``[]{}()``, replace double quotes with
+    single quotes (labels are always double-quoted in the output)."""
     cleaned = _STRIP_RE.sub("", text).replace('"', "'").strip()
     return cleaned or "?"
 
 
 def _slug(text: str, fallback_idx: int) -> str:
-    """Голое слово без пробелов/пунктуации — id узла radar-beta (``curve
-    id[...]``): mermaid требует именно такой id ПЕРЕД лейблом."""
+    """A bare word with no spaces/punctuation — the radar-beta node id
+    (``curve id[...]``): mermaid requires exactly this kind of id BEFORE the
+    label."""
     s = _SLUG_RE.sub("_", text).strip("_").lower()
     if not s or not s[0].isalpha():
         s = f"s{fallback_idx}{s}"
@@ -94,10 +97,11 @@ def _count_decimal_digits(fmt: str) -> int:
 
 
 def _format_value(value: float | None, value_format: str | None) -> str:
-    """Прагматичное форматирование (§3): ``0.0%``->×100+«%», число десятичных
-    из кода; неизвестный/отсутствующий формат -> округление ~4 знач. цифры
-    (НЕ сырой float — живой дефект govtech: ``0.58909698401216537`` без
-    формата нечитаем)."""
+    """Pragmatic formatting (§3): a ``0.0%``-style format -> multiply by 100
+    and append "%", with the decimal count taken from the format code; an
+    unknown/missing format -> round to ~4 significant digits (NOT a raw
+    float — real bug from govtech: ``0.58909698401216537`` with no format is
+    unreadable)."""
     if value is None:
         return ""
     if value_format:
@@ -138,9 +142,9 @@ def _table(data: ChartData) -> str:
 
 
 def _series_shape_ok(data: ChartData) -> bool:
-    """verify-часть правила verify+fallback-to-table: mermaid не умеет
-    представить пропуск/несовпадение длины — таблица переживает это честно
-    (пустая ячейка), mermaid просто снимается целиком."""
+    """The verify part of the verify+fallback-to-table rule: mermaid has no
+    way to represent a gap/length mismatch — the table handles this honestly
+    (an empty cell), while mermaid is simply dropped entirely."""
     if not data.categories:
         return False
     return all(
@@ -150,9 +154,10 @@ def _series_shape_ok(data: ChartData) -> bool:
 
 
 def _dense(values: tuple[float | None, ...]) -> tuple[float, ...]:
-    """``values`` только ПОСЛЕ ``_series_shape_ok`` подтвердил отсутствие
-    ``None`` — узкий cast вместо повторной рантайм-проверки/фильтрации
-    (фильтрация читалась бы как «отбросить None», а инвариант уже — «их нет»)."""
+    """``values`` is only passed in AFTER ``_series_shape_ok`` has confirmed
+    there are no ``None`` entries — a narrow cast instead of a redundant
+    runtime check/filter (filtering would read as "drop the Nones," but the
+    invariant already guarantees "there are none")."""
     return cast(tuple[float, ...], values)
 
 
@@ -161,15 +166,16 @@ def _mermaid_pie(data: ChartData) -> str | None:
         return None
     values = _dense(data.series[0].values)
     if any(v < 0 for v in values):
-        return None  # доля не может быть отрицательной — форма рискованна
-    # "pie title <text>" — ПЛОСКАЯ строка, БЕЗ кавычек (в отличие от data-
-    # лейблов ниже, которые mermaid требует в кавычках): найдено на реальном
-    # рендере govtech-фикстуры (пользователь попросил визуально проверить
-    # результат) — кавычки, обёрнутые вокруг title, mermaid НЕ интерпретирует
-    # как delimiter, а рендерит буквально (хвостовая `"` была видна в SVG).
-    # mermaid-parser-bundle/mermaid.parse() эту форму пропускали как валидную
-    # (кавычки внутри плоской строки — не грамматическая ошибка), поэтому
-    # синтакс-валидация её не поймала — только визуальный рендер.
+        return None  # a share can't be negative — the shape is risky
+    # "pie title <text>" is a FLAT string, WITHOUT quotes (unlike the data
+    # labels below, which mermaid requires to be quoted): found via an
+    # actual render of the govtech fixture (the user asked for a visual
+    # check of the result) — quotes wrapped around the title are NOT
+    # interpreted by mermaid as a delimiter, they render literally (the
+    # trailing `"` was visible in the SVG). mermaid-parser-bundle/
+    # mermaid.parse() passed this shape as valid (quotes inside a flat
+    # string aren't a grammar error), so syntax validation alone didn't
+    # catch it — only the visual render did.
     lines = [f"pie title {_sanitize_label(data.title)}"] if data.title else ["pie"]
     for cat, v in zip(data.categories, values, strict=True):
         lines.append(f'    "{_sanitize_label(cat)}" : {_fmt_num(v)}')
@@ -186,7 +192,7 @@ def _mermaid_xychart(data: ChartData) -> str | None:
     all_values = [v for s in data.series for v in _dense(s.values)]
     y_min, y_max = min(0.0, min(all_values)), max(all_values)
     if y_min == y_max:
-        y_max = y_min + 1  # xychart-beta требует различимый диапазон оси
+        y_max = y_min + 1  # xychart-beta requires a distinguishable axis range
     lines.append(f'y-axis "{y_label}" {_fmt_num(y_min)} --> {_fmt_num(y_max)}')
     for s in data.series:
         kind = "bar" if s.kind in ("bar", "column") else "line"
@@ -211,25 +217,26 @@ def _mermaid_radar(data: ChartData) -> str | None:
 
 
 def mermaid_renders(code: str) -> bool:
-    """Настоящая render-проверка через ``mermaidx`` (spec chart-data-extraction,
-    решение пользователя 2026-07-22 — сначала dev-тест, затем штатный
-    runtime-гейт): структурные эвристики выше (``_series_shape_ok`` и т.п.)
-    ловят РИСКОВАННУЮ форму, но не гарантируют, что mermaid.js реально
-    примет результат — живой пример (найден на визуальном рендере govtech,
-    коммит `509f6ff`): ``pie title "T"`` синтаксически валиден (кавычки
-    внутри плоской строки — не ошибка грамматики), но рендерится с
-    буквальными кавычками. Синтакс-валидаторы (``mermaid-parser-bundle``/
-    ``mermaid.parse()``) эту форму пропускали — только фактический рендер
-    различает «грамматически валидно» и «примет реальный рендерер». Любой
-    сбой (включая недоступность самой библиотеки) -> False, фейл-safe —
-    вызывающая сторона просто теряет mermaid-блок, НЕ конвертацию целиком."""
+    """An actual render check through ``mermaidx`` (spec
+    chart-data-extraction, user decision 2026-07-22 — first a dev-time test,
+    then a standing runtime gate): the structural heuristics above
+    (``_series_shape_ok`` etc.) catch a RISKY shape, but don't guarantee
+    mermaid.js will actually accept the result — a real example (found via a
+    visual render of govtech, commit `509f6ff`): ``pie title "T"`` is
+    syntactically valid (quotes inside a flat string aren't a grammar
+    error), but it renders with literal quotes. Syntax validators
+    (``mermaid-parser-bundle``/``mermaid.parse()``) passed this shape
+    through — only an actual render distinguishes "grammatically valid"
+    from "the real renderer will accept it." Any failure (including the
+    library itself being unavailable) -> False, fail-safe — the caller
+    simply loses the mermaid block, NOT the whole conversion."""
     if mermaidx is None:
         _warn_missing_mermaidx()
         return False
     try:
         mermaidx.render(code).svg()
         return True
-    except Exception:  # noqa: BLE001 — любой отказ реального рендера -> честный откат к таблице
+    except Exception:  # noqa: BLE001 — any real-render failure -> an honest fallback to the table
         return False
 
 
@@ -241,7 +248,7 @@ def _mermaid(data: ChartData) -> str | None:
     elif data.chart_type == "radar":
         candidate = _mermaid_radar(data)
     else:
-        return None  # scatter/stacked-bar/прочее — mermaid-конструкта нет вовсе
+        return None  # scatter/stacked-bar/etc. — there is no mermaid construct at all
     if candidate is None:
         return None
     code = candidate.removeprefix("```mermaid\n").removesuffix("\n```")
@@ -249,10 +256,10 @@ def _mermaid(data: ChartData) -> str | None:
 
 
 def render_chart(data: ChartData) -> str | None:
-    """None -> извлечение пустое (нет серий/значений), вызывающая сторона
-    зовёт caption-фолбэк (честный маркер, см. ``xlsx_charts.render_chart_marker``/
-    ``docx_groups._render_group_marker``). Порядок вывода (§3): подпись ->
-    mermaid (если есть) -> таблица."""
+    """None -> extraction is empty (no series/values), the caller invokes the
+    caption fallback (an honest marker, see
+    ``xlsx_charts.render_chart_marker``/``docx_groups._render_group_marker``).
+    Output order (§3): caption -> mermaid (if present) -> table."""
     if not data.series or not any(any(v is not None for v in s.values) for s in data.series):
         return None
     parts = [p for p in (_caption(data), _mermaid(data), _table(data)) if p]

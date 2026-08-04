@@ -1,30 +1,34 @@
-"""Встроенные чарты xlsx (spec convert-xlsx §3): архитектурный аналог
-``docx_groups.py``, адаптированный под безпотоковую (cell-anchored) модель —
-у xlsx-чарта нет «места в абзаце», есть лист + якорная ячейка, поэтому вместо
-сентинел-в-потоке маркер декларативно позиционируется сразу после таблицы
-своего листа (``converters._convert_xlsx``). Отсюда и другое имя функции
-детекта: в отличие от docx-аналога (``extract_and_strip_groups`` — переписывает
-``word/document.xml``, вырезая группу), здесь ``raw`` НЕ модифицируется вовсе —
-называть это «strip» было бы неточно.
+"""Embedded xlsx charts (spec convert-xlsx §3): the architectural analog of
+``docx_groups.py``, adapted to the streamless (cell-anchored) model — an
+xlsx chart has no "position within a paragraph", only a sheet + anchor cell,
+so instead of an in-stream sentinel the marker is declaratively placed right
+after its sheet's table (``converters._convert_xlsx``). Hence the different
+name for the detection function too: unlike the docx analog
+(``extract_and_strip_groups``, which rewrites ``word/document.xml`` to cut
+the group out), here ``raw`` is NOT modified at all — calling this "strip"
+would be inaccurate.
 
-Детект: ``xl/worksheets/sheetK.xml`` несёт ``<drawing r:id="rIdX"/>`` ->
+Detection: ``xl/worksheets/sheetK.xml`` carries ``<drawing r:id="rIdX"/>`` ->
 ``xl/worksheets/_rels/sheetK.xml.rels`` -> ``xl/drawings/drawingM.xml`` ->
-``<xdr:oneCellAnchor>``/``<xdr:twoCellAnchor>`` с ``<xdr:from>`` (якорная
-ячейка: 0-indexed col/row) и ``graphicFrame``, несущим ``c:chart`` (ссылка на
-``xl/charts/chartN.xml`` через ``xl/drawings/_rels/drawingM.xml.rels``).
-Имя листа -> путь его XML-парта — через ``xl/workbook.xml`` (имя -> r:id) +
-``xl/_rels/workbook.xml.rels`` (r:id -> Target); три разных источника
-относительных путей (workbook/лист/drawing) требуют resolve относительно
-директории КАЖДОГО конкретного source-парта (не хардкод «xl/», как у docx,
-где все rels живут в одной ``word/``, см. ``_resolve_target``).
+``<xdr:oneCellAnchor>``/``<xdr:twoCellAnchor>`` with ``<xdr:from>`` (anchor
+cell: 0-indexed col/row) and a ``graphicFrame`` carrying ``c:chart`` (a
+reference to ``xl/charts/chartN.xml`` via
+``xl/drawings/_rels/drawingM.xml.rels``). Sheet name -> path of its XML part
+goes through ``xl/workbook.xml`` (name -> r:id) +
+``xl/_rels/workbook.xml.rels`` (r:id -> Target); three different sources of
+relative paths (workbook/sheet/drawing) each require resolving relative to
+the directory of THAT SPECIFIC source part (not a hardcoded ``xl/`` as in
+docx, where all rels live under a single ``word/`` — see
+``_resolve_target``).
 
-``id12`` — sha256 XML-СТРУКТУРЫ чарта (``etree.tostring`` парсенного
-``xl/charts/chartN.xml``), НЕ байтов рендера: тот же принцип, что у
-docx-групп (единственное отклонение, на котором дважды спотыкались тесты
-docx — здесь зафиксировано в докстроке заранее). ``captions`` — из
-``c:title`` чарт-парта: идентичная DrawingML-схема ``c:tx/c:rich/a:p/a:r/a:t``,
-что у нативных docx-чартов (§2-ter convert-docx) — код адаптируется под
-другие XML-пути, не копируется 1:1.
+``id12`` is the sha256 of the chart's XML STRUCTURE (``etree.tostring`` of
+the parsed ``xl/charts/chartN.xml``), NOT of rendered bytes: the same
+principle used for docx groups (the one deviation that docx tests tripped
+over twice — recorded here in the docstring up front as a heads-up).
+``captions`` come from the chart part's ``c:title``: the identical DrawingML
+schema ``c:tx/c:rich/a:p/a:r/a:t`` used by native docx charts (§2-ter
+convert-docx) — the code is adapted to the different XML paths, not copied
+1:1.
 """
 
 from __future__ import annotations
@@ -47,7 +51,8 @@ _NS = {
     "xdr": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing",
     "c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
 }
-_NUMERIC_JUNK_RE = re.compile(r"^-?\d+$")  # posOffset/ext координаты в itertext(), см. docx_groups
+# posOffset/ext coordinates that show up in itertext(), see docx_groups
+_NUMERIC_JUNK_RE = re.compile(r"^-?\d+$")
 
 
 def _q(prefix: str, local: str) -> str:
@@ -63,8 +68,8 @@ class XlsxChart:
 
 
 def _filter_caption_texts(texts: Any) -> tuple[str, ...]:
-    """Тот же фильтр, что ``docx_groups._filter_caption_texts`` — отсеивает
-    числовой геометрический мусор и дедуплицирует по порядку появления."""
+    """Same filter as ``docx_groups._filter_caption_texts`` — discards numeric
+    geometry junk and deduplicates in order of first appearance."""
     seen: set[str] = set()
     out: list[str] = []
     for t in texts:
@@ -77,7 +82,8 @@ def _filter_caption_texts(texts: Any) -> tuple[str, ...]:
 
 
 def _rel_targets(z: zipfile.ZipFile, part: str) -> dict[str, str]:
-    """rId -> сырой Target (ещё не resolve-нутый) для ``part``, из соседнего .rels."""
+    """rId -> raw Target (not yet resolved) for ``part``, read from the adjacent
+    .rels."""
     rels_name = f"{posixpath.dirname(part)}/_rels/{posixpath.basename(part)}.rels"
     if rels_name not in z.namelist():
         return {}
@@ -86,18 +92,19 @@ def _rel_targets(z: zipfile.ZipFile, part: str) -> dict[str, str]:
 
 
 def _resolve_target(source_part: str, target: str) -> str:
-    """OPC-резолв Target относительно СВОЕГО source-парта: абсолютный
-    (ведущий ``/``) -> package-root, иначе -> относительно директории
-    source_part (не хардкод одной директории — в отличие от docx, где все
-    rels живут в ``word/``, здесь по цепочке участвуют ``xl/``,
-    ``xl/worksheets/``, ``xl/drawings/``)."""
+    """OPC-resolve a Target relative to its OWN source part: absolute (leading
+    ``/``) -> package root, otherwise -> relative to source_part's directory
+    (not a single hardcoded directory — unlike docx, where all rels live
+    under ``word/``; here the chain involves ``xl/``, ``xl/worksheets/``,
+    and ``xl/drawings/``)."""
     if target.startswith("/"):
         return target.lstrip("/")
     return posixpath.normpath(posixpath.join(posixpath.dirname(source_part), target))
 
 
 def _sheet_parts(z: zipfile.ZipFile) -> dict[str, str]:
-    """Имя листа (как в ``wb.sheetnames``) -> путь XML-парта листа в zip."""
+    """Sheet name (as in ``wb.sheetnames``) -> path of the sheet's XML part in the
+    zip."""
     names = set(z.namelist())
     if "xl/workbook.xml" not in names:
         return {}
@@ -115,8 +122,8 @@ def _sheet_parts(z: zipfile.ZipFile) -> dict[str, str]:
 
 
 def _chart_anchors(drawing_root: Any) -> list[tuple[Any, Any]]:
-    """(anchor, chart_ref) для каждого ``xdr:oneCellAnchor``/``xdr:twoCellAnchor``,
-    несущего ``c:chart`` где-то внутри (обычно в ``graphicFrame``)."""
+    """(anchor, chart_ref) for every ``xdr:oneCellAnchor``/``xdr:twoCellAnchor``
+    carrying a ``c:chart`` somewhere inside it (usually within a ``graphicFrame``)."""
     pairs: list[tuple[Any, Any]] = []
     for tag in ("oneCellAnchor", "twoCellAnchor"):
         for anchor in drawing_root.findall(_q("xdr", tag)):
@@ -127,14 +134,14 @@ def _chart_anchors(drawing_root: Any) -> list[tuple[Any, Any]]:
 
 
 def _anchor_col_row(anchor: Any) -> tuple[int, int]:
-    """``xdr:from`` (0-indexed col/row) -> (col, row) 1-indexed, как
-    ``openpyxl.utils.column_index_from_string``/``ws.cell`` ожидают."""
+    """``xdr:from`` (0-indexed col/row) -> (col, row) 1-indexed, as expected by
+    ``openpyxl.utils.column_index_from_string``/``ws.cell``."""
     frm = anchor.find(_q("xdr", "from"))
     return int(frm.findtext(_q("xdr", "col"))) + 1, int(frm.findtext(_q("xdr", "row"))) + 1
 
 
 def _anchor_cell(anchor: Any) -> str:
-    """``xdr:from`` (0-indexed col/row) -> Excel-ссылка на ячейку (``D2``)."""
+    """``xdr:from`` (0-indexed col/row) -> an Excel cell reference (``D2``)."""
     col, row = _anchor_col_row(anchor)
     return f"{get_column_letter(col)}{row}"
 
@@ -147,25 +154,25 @@ def _chart_title(chart_root: Any) -> tuple[str, ...]:
 
 
 def iter_chart_entries(raw: Path | bytes) -> list[tuple[XlsxChart, Any]]:
-    """Общий обход workbook, лист за листом: (метаданные, распарсенный
-    ``chart_root``) на каждый чарт — единственный проход по zip/XML.
-    Публичная (не ``_``-префикс), т.к. потребитель, которому нужны ОБА
-    среза сразу (``converters._convert_xlsx`` — метаданные для группировки
-    по листу/сортировки по якорю И roots для ``chart_data.parse_chart``),
-    обязан звать её напрямую ОДИН раз — иначе (живой дефект, найден на
-    ревью) ``extract_charts(raw)`` + ``extract_chart_roots(raw)`` в связке
-    читают и парсят книгу ДВАЖДЫ. ``extract_charts``/``extract_chart_roots``
-    ниже — тонкие обёртки для потребителей, которым нужен только один срез
-    (тесты, точечные проверки). ``raw`` НЕ изменяется (см. докстроку модуля).
-    Малформед/недостижимая ссылка на любом шаге цепочки (лист без drawing,
-    drawing без rels, чарт-парт отсутствует) — честно пропускается
-    (terminal safety net — конвертация не падает на повреждённом OOXML,
-    симметрично ``_classify_docx``).
+    """A single pass over the workbook, sheet by sheet: (metadata, parsed
+    ``chart_root``) for every chart — one single pass over the zip/XML.
+    Public (no ``_`` prefix) because a consumer that needs BOTH slices at
+    once (``converters._convert_xlsx`` — metadata for grouping by sheet /
+    sorting by anchor, AND roots for ``chart_data.parse_chart``) must call
+    it directly exactly ONCE — otherwise (a real bug found in review)
+    ``extract_charts(raw)`` + ``extract_chart_roots(raw)`` used together
+    would read and parse the workbook TWICE. ``extract_charts``/
+    ``extract_chart_roots`` below are thin wrappers for consumers that need
+    only one slice (tests, one-off checks). ``raw`` is NOT modified (see the
+    module docstring). A malformed/unreachable reference at any step of the
+    chain (a sheet with no drawing, a drawing with no rels, a missing chart
+    part) is silently skipped (a terminal safety net — conversion doesn't
+    fail on corrupted OOXML, symmetric with ``_classify_docx``).
 
-    ``raw`` может быть ``bytes`` (refigure принимает in-memory вход, §2
-    stage2-public-api-wrapper) — ``zipfile.ZipFile`` не читает сырые
-    ``bytes`` напрямую (только путь или файлоподобный объект), заворачиваем
-    в ``io.BytesIO``."""
+    ``raw`` may be ``bytes`` (refigure accepts in-memory input, §2
+    stage2-public-api-wrapper) — ``zipfile.ZipFile`` doesn't read raw
+    ``bytes`` directly (only a path or a file-like object), so we wrap it in
+    ``io.BytesIO``."""
     source = raw if isinstance(raw, Path) else io.BytesIO(raw)
     with zipfile.ZipFile(source) as z:
         names = set(z.namelist())
@@ -208,26 +215,26 @@ def iter_chart_entries(raw: Path | bytes) -> list[tuple[XlsxChart, Any]]:
 
 
 def extract_charts(raw: Path) -> list[XlsxChart]:
-    """Все встроенные чарты workbook, лист за листом (метаданные — id12/sheet/
-    anchor/captions, БЕЗ распарсенного XML). Удобная обёртка над
-    ``iter_chart_entries`` для потребителей, которым не нужны roots
-    (напр. точечная проверка в тесте) — для совместного использования
-    метаданных И roots см. докстроку ``iter_chart_entries``."""
+    """All embedded charts of the workbook, sheet by sheet (metadata —
+    id12/sheet/anchor/captions, WITHOUT the parsed XML). A convenience
+    wrapper around ``iter_chart_entries`` for consumers that don't need the
+    roots (e.g. a one-off check in a test) — for using metadata AND roots
+    together, see the ``iter_chart_entries`` docstring."""
     return [entry for entry, _root in iter_chart_entries(raw)]
 
 
 def extract_chart_roots(raw: Path) -> dict[str, Any]:
-    """id12 -> распарсенный ``chart_root`` (spec chart-data-extraction §4.1) —
-    вход для ``chart_data.parse_chart``. Удобная обёртка над
-    ``iter_chart_entries`` для потребителей, которым не нужны метаданные
-    отдельно (напр. точечная проверка в тесте)."""
+    """id12 -> parsed ``chart_root`` (spec chart-data-extraction §4.1) — the
+    input for ``chart_data.parse_chart``. A convenience wrapper around
+    ``iter_chart_entries`` for consumers that don't need the metadata
+    separately (e.g. a one-off check in a test)."""
     return {entry.id12: root for entry, root in iter_chart_entries(raw)}
 
 
 def _chart_refs(chart_root: Any) -> list[tuple[str, str]]:
-    """(sheet_name, cell_range_text) для каждой ``<c:f>`` формулы серии чарта
-    (раскавычивание листа с пробелами: ``'My Sheet'!$A$1`` -> ``My Sheet``,
-    ``''``->``'`` — стандартное Excel-экранирование апострофа)."""
+    """(sheet_name, cell_range_text) for every ``<c:f>`` series formula of the
+    chart (unquoting a sheet name containing spaces: ``'My Sheet'!$A$1`` ->
+    ``My Sheet``, ``''``->``'`` — standard Excel apostrophe escaping)."""
     out: list[tuple[str, str]] = []
     for f in chart_root.findall(f".//{_q('c', 'f')}"):
         text = f.text or ""
@@ -243,8 +250,8 @@ def _chart_refs(chart_root: Any) -> list[tuple[str, str]]:
 
 
 def render_chart_marker(chart: XlsxChart) -> str:
-    # Английский литерал — см. docx_groups._render_group_marker (Б17, spec
-    # convert-knowledge-seam-hardening §1): текст маркера индексируется.
+    # English literal — see docx_groups._render_group_marker (B17, spec
+    # convert-knowledge-seam-hardening §1): the marker text gets indexed.
     caption_line = "; ".join(chart.captions) if chart.captions else "(no captions)"
     return (
         f"> [Figure, xlsx chart {chart.id12} on {chart.sheet}!{chart.anchor_cell} — "
