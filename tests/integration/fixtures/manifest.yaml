@@ -311,3 +311,123 @@ xlsx:
       Verified by direct XML inspection 2026-08-04: 13 native chart parts
       (area/line), 102 c:numCache + 8 c:strCache occurrences. Smaller
       companion to the Chapter 4 annex — useful as a quicker/lighter case.
+
+  - filename: daisy-trd2-radar-scoring.xlsx
+    source_url: https://zenodo.org/records/17160272
+    license: CC BY 4.0
+    attribution: >
+      DAISY Project (Horizon Europe grant 101181857). Annex C: Simplified
+      TRD2 scoring sheet, including explanatory notes and radar chart
+      output for TRD2 applications.
+    added_date: 2026-08-04
+    sha256: 48075d2b140a6eaf6686d6758940522665ea75a94d4e14e313d76d72576217cd
+    size_bytes: 51469
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 1 native chart part,
+      confirmed c:radarChart (4 c:numCache + 8 c:strCache). First and
+      smallest radar-chart fixture — closes a real gap, the rest of the
+      corpus was 100% bar/line/area/scatter/pie before this addition.
+
+  - filename: radiant-metrics-dashboard.xlsx
+    source_url: https://zenodo.org/records/15553016
+    license: CC BY 4.0
+    attribution: >
+      Acorn and Olives / RADIANT project. RADIANT-Metrics: state-of-the-art
+      quantitative framework and decision support tool.
+    added_date: 2026-08-04
+    sha256: da948d01050e11472d18baf2dc98c3c76b716b0f78416b5c6fdb20037103c7c0
+    size_bytes: 1532937
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 9 native chart parts —
+      5 confirmed c:radarChart, 4 confirmed c:bubbleChart (36 c:numCache +
+      40 c:strCache total). Best radar-chart fixture by far (5 vs. 1), plus
+      a bonus bubble-chart type not present anywhere else in the corpus.
+
+  - filename: electricity-production-market-2023.xlsx
+    source_url: >
+      https://ec.europa.eu/eurostat/statistics-explained/images/2/2b/Electricity_production_consumption_market_2023.xlsx
+    license: CC BY 4.0
+    attribution: >
+      Eurostat. Electricity production, consumption and market overview,
+      Statistics Explained.
+    added_date: 2026-08-04
+    sha256: 1a0a1aede3357ce568cc7275e77f3b0c3c52e75b1cccd64d8fc0b193ab9a6b11
+    size_bytes: 101507
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 5 native chart parts —
+      1 confirmed c:pieChart (net electricity generation by fuel source),
+      1 lineChart, 3 barChart (14 c:numCache + 16 c:strCache total).
+
+  - filename: foodrus-dashboard.xlsx
+    source_url: https://zenodo.org/records/8119271
+    license: CC BY 4.0
+    attribution: >
+      FOODRUS Project (Horizon 2020 grant 101000617). FOODRUS Dashboard —
+      IoT in the Food Supply Chain.
+    added_date: 2026-08-04
+    sha256: 977631728fb92fe77f9746e5ba26e9eba00940be2f543585e3727cd2cf463a3f
+    size_bytes: 1037758
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 5 native chart parts —
+      1 confirmed c:doughnutChart, 4 barChart (10 c:numCache + 12
+      c:strCache total). Only doughnut-chart fixture in the corpus —
+      distinct OOXML tag from pieChart, not covered by any pie fixture.
+
+  - filename: waste-statistics.xlsx
+    source_url: >
+      https://ec.europa.eu/eurostat/statistics-explained/images/1/1f/Waste_statistics_30_09_2024cor.xlsx
+    license: CC BY 4.0
+    attribution: Eurostat. Waste statistics, Statistics Explained.
+    added_date: 2026-08-04
+    sha256: a90ada3f95ea13db813754e4369c591fc7aeff544e67789d1501657e8c6c5111
+    size_bytes: 910554
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 22 native chart parts
+      (108 c:numCache + 128 c:strCache) — 1 confirmed c:pieChart (waste
+      generation by economic activity), 1 lineChart, 20 barChart. Largest
+      Eurostat fixture found, largest chart count outside the EIA files.
+
+  - filename: renewable-energy-stats.xlsx
+    source_url: >
+      https://ec.europa.eu/eurostat/statistics-explained/images/5/5b/Renewable_energy-tables_and_figures_2025_prov.xlsx
+    license: CC BY 4.0
+    attribution: Eurostat. Renewable energy statistics, Statistics Explained.
+    added_date: 2026-08-04
+    sha256: 2cff68e9228ce746680458972f9d885cc3a27c48e43c5ca5e88480d17a850d36
+    size_bytes: 121911
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 4 native chart parts,
+      ALL 4 confirmed true combo charts (barChart + lineChart overlaid in
+      the SAME chart part, not just present separately elsewhere in the
+      file) — 16 c:numCache + 32 c:strCache. Only true-combo fixture in the
+      corpus; chart_render.py's combo->xychart-beta path was previously
+      untested against a real document.
+
+  - filename: eia-aeo-2026-figures.xlsx
+    source_url: https://www.eia.gov/outlooks/aeo/excel/Narrative_Figures.xlsx
+    license: public domain (US federal government work)
+    attribution: null
+    added_date: 2026-08-04
+    sha256: df4f0f741d8521a7166501063fee12d1bacd5e72291ce5dd55876ded85fb0556
+    size_bytes: 1264246
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 43 native chart parts
+      (area=8, line=26, scatter=1, bar=11; 1614 c:numCache + 1078
+      c:strCache). Same publisher as eia-steo-chart-gallery.xlsx but a
+      distinct long-term-outlook dataset/topic (Annual Energy Outlook 2026
+      vs. Short-Term Energy Outlook).
+
+  - filename: eia-ieo-2023-figures.xlsx
+    source_url: >
+      https://www.eia.gov/outlooks/ieo/excel/IEO2023_Narrative_AllFigures.xlsx
+    license: public domain (US federal government work)
+    attribution: null
+    added_date: 2026-08-04
+    sha256: ee519690010c09320397fa98d70af8bb7bb45e48297c2ba1696ae3e280d9ccf7
+    size_bytes: 1849946
+    notes: >
+      Verified by direct XML inspection 2026-08-04: 93 native chart parts
+      (area=67, line=78, bar=15; 2590 c:numCache + 1774 c:strCache) —
+      highest chart count in the entire corpus (docx and xlsx combined).
+      International Energy Outlook — global scope, distinct from the two
+      other EIA fixtures (US-only STEO and AEO).
