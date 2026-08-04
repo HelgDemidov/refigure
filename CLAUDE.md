@@ -9,22 +9,30 @@ OOXML chart-data extraction (numCache/strCache, no rasterize/OCR/VLM) + position
 zero-loss markers for composite figures — market research found this genuinely
 absent even among well-funded incumbents (Docling issue #1287, >1yr open, unfixed).
 
-## Status (2026-08-04)
-Design phase complete. Execution stages 1 and 2 merged (PRs #1, #2):
-`refigure.docx.convert()`/`refigure.xlsx.convert()` are real and callable —
-`Config`, `ConversionResult`, 3 typed exceptions, `Path | bytes | BinaryIO`
-input. CI (PR #3) and a 40-test robustness/security suite (PR #4: XML
-security, adversarial input, Hypothesis property tests, concurrency) also
-merged same day, closing 4 real bugs — see `feedback_untrusted_input_handling`
-memory. Not yet done: English translation of stage-1-ported files (stage 4),
-real corpus-fixture tests (stage 5, gated on stage 3's licensing check).
+## Status (2026-08-05)
+Design phase complete. Stages 1-2 (PRs #1-#2: `docx.convert()`/`xlsx.convert()`
+callable, `ConversionResult`/3 typed exceptions/`Path|bytes|BinaryIO`), CI +
+40-test robustness suite (PRs #3-#5: 4 bugs fixed, CI triggers fixed), stage 4
+(PR #6: English translation) all merged. Stage 3 (corpus-fixture licensing)
+done ad hoc, not a numbered PR: 27 real-document fixtures (15 docx, 12 xlsx),
+provenance/license/sha256 in `tests/integration/fixtures/manifest.yaml`,
+binaries gitignored (~81MB) — see `fixtures/README.md`. Stage 5 (PR #7):
+ported 8 G2AI_ME test files + a new parametrized corpus-test layer
+(`test_docx_corpus.py`/`test_xlsx_corpus.py`) exercising all 27 fixtures —
+found and fixed 2 real bugs (chart-parsing crash on `#N/A` cached values,
+silent chart loss on grouped xlsx anchors) via
+`superpowers:systematic-debugging`, see `project_stage5_chart_parsing_bugs`
+memory. 191 tests total. Not yet done: stage 4b (VLM, deferred), stage 6 (CI
+extras matrix), stage 7 (README+demo), stage 8 (release gate).
 
 ## Dev environment
 `pyproject.toml` (extras `[docx]`/`[xlsx]`, ruff/mypy/pytest config) +
 `requirements.txt`/`requirements-dev.txt`, managed with `uv`. CI
 (`.github/workflows/ci.yml`): 3 parallel jobs — `quality` (ruff+mypy+
 pip-audit), `test-unit` (pytest `tests/unit` + coverage, no threshold gate
-yet), `test-integration` (placeholder for stage 5). Custom Claude Code
+yet), `test-integration` (pytest `tests/integration` — real corpus-fixture
+tests, stage 5; 0 collected in CI without the gitignored local fixture
+setup, graceful not a failure). Custom Claude Code
 commands in `.claude/commands/`: `/tech-spec` (draft a spec under `docs/`),
 `/feature-workflow` (implement one end-to-end), `/post-merge-sync` (this
 command), `/memory-sync` (audit memory against live code).
