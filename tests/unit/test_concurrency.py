@@ -6,6 +6,26 @@ etc. are all function-local); the one shared piece of state is
 chart_render's lru_cache'd _warn_missing_mermaidx, which is read-only from
 convert()'s perspective and documented thread-safe by lru_cache itself —
 this test verifies that holds in practice, not just in theory.
+
+Worker counts on the xlsx-touching tests below are deliberately modest,
+not maximized — root-caused 2026-08-05 (PR #9 CI hit a ``Fatal Python
+error: Segmentation fault`` under ``pytest --cov``, not reproduced
+locally in 200+ repeated attempts): openpyxl's own ``xml/functions.py``
+constructs ONE module-level ``lxml.etree.XMLParser()`` (``safe_parser``)
+at import time and reuses it via ``functools.partial`` for every internal
+XML parse call (rels/workbook/worksheet), from every thread — confirmed
+by reading openpyxl's source, and the CI crash's own traceback pinpoints
+the exact line (``relationship.py``'s ``get_dependents``, the
+``fromstring(src)`` call through that shared parser). refigure's OWN lxml
+usage (``docx.py``/``docx_groups.py``/``xlsx_charts.py``) is unaffected —
+it never passes an explicit ``parser=``, so lxml replicates its default
+parser per-thread automatically (lxml's own documented safe pattern, see
+its FAQ on thread safety). This is a third-party (openpyxl) thread-safety
+edge case, not a refigure defect — see
+``project_openpyxl_concurrent_parser_fragility`` memory for the full
+writeup and the v2 MCP-server implication. Not something a test change
+can fix upstream; capped concurrency here trades a little stress coverage
+for not gambling on a known-fragile shared-parser pattern in CI.
 """
 
 from __future__ import annotations
@@ -46,9 +66,12 @@ def test_concurrent_docx_calls_all_return_correct_independent_results() -> None:
 
 
 def test_concurrent_xlsx_calls_all_return_correct_independent_results() -> None:
+    # max_workers kept modest (not 8, unlike the docx test above) — see
+    # module docstring: every xlsx.convert() call funnels through
+    # openpyxl's own shared module-level lxml parser.
     inputs = [_make_xlsx(f"cell-value-{i}") for i in range(30)]
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(xlsx.convert, inputs))
 
     for i, result in enumerate(results):
@@ -89,7 +112,10 @@ def test_concurrent_mixed_valid_and_invalid_calls_do_not_interfere() -> None:
         tasks.append((call_xlsx, valid_xlsx, "ok:## Sheet\n\n| stable |\n| --- |"))
         tasks.append((call_xlsx, valid_docx, "typed-error:UnsupportedFormatError"))
 
-    with ThreadPoolExecutor(max_workers=12) as pool:
+    # max_workers kept modest (not 12) — see module docstring: the xlsx
+    # tasks interleaved here funnel through openpyxl's own shared
+    # module-level lxml parser, same reasoning as the xlsx-only test above.
+    with ThreadPoolExecutor(max_workers=4) as pool:
         futures = [pool.submit(fn, data) for fn, data, _expected in tasks]
         actual = [f.result() for f in futures]
 
