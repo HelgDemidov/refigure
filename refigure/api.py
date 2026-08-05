@@ -61,9 +61,63 @@ class Config:
     to a table-only render, itself a valid zero-loss result, not a broken
     one. ``strict`` starts branching real behavior once VLM (``use_vlm``)
     ships.
+
+    VLM fields (stage 4b, DOCX-only — ``xlsx.convert()`` treats
+    ``use_vlm=True`` as a silent no-op, XLSX has no VLM path at all, see
+    ``vlm.py``'s module docstring): gated behind the ``[vlm]`` extra, not
+    active/announced in v1.
     """
 
     strict: bool = False
+
+    use_vlm: bool = False
+    """Enable cloud VLM interpretation of composite DOCX figures that the
+    chart engine and ``docx_groups.py`` otherwise leave as an honest
+    "content not analyzed" marker. **Data egress**: turning this on sends
+    network requests to ``vlm_client``'s backing service (OpenRouter by
+    default) — but ONLY the cropped image of the specific figure/group
+    being interpreted, never the surrounding text or the rest of the
+    document. This is a guarantee of the technique itself (the object is
+    cropped before it's ever sent, by construction — see
+    ``vlm._render_via_soffice``/``vlm._docx_media_uri``), not a policy
+    layered on top of a less constrained call."""
+
+    vlm_model: str = "google/gemini-3-flash-preview"
+    """OpenRouter model slug used by the default ``OpenRouterClient``.
+    Ignored when ``vlm_client`` is set to a custom implementation, which may
+    have its own model-selection mechanism. Current default is a
+    placeholder inherited from the source pipeline's own pilot ("winner" of
+    its OCR+figures task) — pending this stage's own A/B calibration on
+    refigure's real corpus, see ``docs/vlm-layer-port-2026-08-05.md`` §5."""
+
+    vlm_api_key: str | None = None
+    """API key for the default ``OpenRouterClient``. Falls back to the
+    ``OPENROUTER_API_KEY`` environment variable when unset (explicit
+    parameter overrides the environment, the usual SDK convention).
+    Resolved lazily — only when a real (non-cached) VLM call is actually
+    about to happen, so a fully cache-hit conversion needs no key at all.
+    Ignored when ``vlm_client`` is set."""
+
+    vlm_client: VlmClient | None = None
+    """Pluggable VLM HTTP client (see the ``VlmClient`` Protocol above).
+    ``None`` falls back to ``OpenRouterClient(api_key=...)``. refigure is
+    LLM provider-agnostic by design: supply any other implementation (e.g.
+    a local Ollama/vLLM-backed client) here for confidentiality-sensitive
+    documents, with no other code change needed."""
+
+    vlm_cache: VlmCacheBackend | None = None
+    """Pluggable VLM response cache (see the ``VlmCacheBackend`` Protocol
+    above). ``None`` falls back to a fresh, empty ``InMemoryCacheBackend()``
+    — no disk I/O by default. Pass a ``FileCacheBackend(path)`` (or any
+    other implementation) to persist responses across ``convert()`` calls."""
+
+    vlm_witness_min_recall: float = 0.80
+    """Minimum token-recall (see ``vlm.token_recall``) of a composite
+    group's own captions against its VLM description before
+    ``vlm.witness_defects`` flags it. Current default is a placeholder —
+    pending this stage's own empirical calibration (not imported from
+    unrelated literature thresholds), see
+    ``docs/vlm-layer-port-2026-08-05.md`` §5."""
 
 
 @dataclass
