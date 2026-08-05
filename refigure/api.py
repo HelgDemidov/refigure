@@ -159,7 +159,14 @@ class Config:
     vlm-layer-port-2026-08-05.md`` §5's research). The manually-confirmed real defect
     classes (inappropriate mermaid fabrication, minor semantic drift) are
     NOT caught by this recall-only mechanism at all — a known, documented
-    blind spot, not something this threshold value can fix."""
+    blind spot, not something this threshold value can fix.
+
+    The real mitigation for both gaps is ``vlm_verify`` (``vlm.
+    judge_defects``): its ``language``/``hallucination``/``mermaid_fit``
+    questions check the description against the IMAGE itself, not a
+    caption witness, so none of them inherit this field's
+    language-sensitivity — see ``vlm_verify``'s own docstring and
+    ``witness_defects``'s."""
 
 
 @dataclass

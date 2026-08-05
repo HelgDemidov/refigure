@@ -286,7 +286,18 @@ def witness_defects(witness: str, markdown: str, obj_id: str, *, min_recall: flo
     legitimate (the VLM reads values off the chart itself that the caption
     never mentioned). An empty witness (standalone images never reach this
     function, but a group with genuinely empty captions can) -> gate does
-    not apply."""
+    not apply.
+
+    Word-recall is LANGUAGE-SENSITIVE, not just accuracy-sensitive: on a
+    non-English source document, a low recall here can mean "didn't
+    translate the caption's terms into English," not "got the figure
+    wrong" — confirmed empirically across two rounds of this stage's A/B
+    calibration (see ``Config.vlm_witness_min_recall``'s docstring and
+    ``docs/vlm/vlm-model-calibration/vlm-model-calibration-2026-08-05.md``).
+    ``judge_defects``'s ``language``/``hallucination`` questions check
+    against the image itself, not a caption witness, and so carry no such
+    blindness — enable ``Config.vlm_verify`` for multi-lingual documents
+    where that distinction matters."""
     if not witness.strip():
         return []
     defects: list[str] = []
