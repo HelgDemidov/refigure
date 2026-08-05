@@ -6,6 +6,30 @@ etc. are all function-local); the one shared piece of state is
 chart_render's lru_cache'd _warn_missing_mermaidx, which is read-only from
 convert()'s perspective and documented thread-safe by lru_cache itself —
 this test verifies that holds in practice, not just in theory.
+
+Root-caused 2026-08-05 (PR #9 CI hit a ``Fatal Python error: Segmentation
+fault`` under ``pytest --cov``; at lower concurrency, the SAME root cause
+also produced a silent WRONG result — one call returning another call's
+outcome, not a crash): openpyxl's own ``xml/functions.py`` constructs ONE
+module-level ``lxml.etree.XMLParser()`` (``safe_parser``) at import time
+and reuses it via ``functools.partial`` for every internal XML parse call
+(rels/workbook/worksheet), from every thread — confirmed by reading
+openpyxl's source, and the CI crash's own traceback pinpoints the exact
+line (``relationship.py``'s ``get_dependents``, the ``fromstring(src)``
+call through that shared parser). refigure's OWN lxml usage
+(``docx.py``/``docx_groups.py``/``xlsx_charts.py``) is unaffected — it
+never passes an explicit ``parser=``, so lxml replicates its default
+parser per-thread automatically (lxml's own documented safe pattern, see
+its FAQ on thread safety).
+
+This is a real correctness gap reachable by any concurrent caller of
+``refigure.xlsx.convert()`` today, not just a future v2 MCP server — so
+it's fixed at the source, not papered over here: ``xlsx.py`` now
+serializes ``openpyxl.load_workbook()`` behind a module-level
+``threading.Lock``. Worker counts below are back at their original,
+deliberately aggressive values ON PURPOSE — proving the lock holds under
+real stress is the whole point, not avoiding the stress. Full writeup:
+``project_openpyxl_concurrent_parser_fragility`` memory.
 """
 
 from __future__ import annotations
