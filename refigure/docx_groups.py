@@ -283,14 +283,20 @@ def extract_and_strip_groups(raw: Path | bytes) -> tuple[bytes, list[DocxGroup]]
         return buf.getvalue(), groups
 
 
-def extract_group_docx(raw: Path, id12: str) -> bytes | None:
+def extract_group_docx(raw: Path | bytes, id12: str) -> bytes | None:
     """Rebuild a mini-docx that contains ONLY the block with the given group
     (+ the original's ``sectPr`` for page geometry) — for an isolated
-    render via soffice (``figures_vlm._render_docx_group``). 2026-07-20
+    render via soffice (``vlm._render_docx_group``, stage 4b). 2026-07-20
     prototype: all 3 diagrams in the test excerpt rendered COMPLETELY this
     way. None means a group with this id12 wasn't found on re-detection
-    (did ``raw`` change?)."""
-    with zipfile.ZipFile(raw) as z:
+    (did ``raw`` change?).
+
+    ``raw`` can be ``bytes`` (widened 2026-08-05, stage 4b: refigure's
+    bytes-input path has no filesystem ``Path`` to re-detect from) — same
+    ``Path | bytes`` convention as ``extract_and_strip_groups``/
+    ``normalize_source`` elsewhere in the package."""
+    z_source = raw if isinstance(raw, Path) else io.BytesIO(raw)
+    with zipfile.ZipFile(z_source) as z:
         names = z.namelist()
         tree = etree.fromstring(z.read("word/document.xml"))
         body = tree.find(_q("w", "body"))
