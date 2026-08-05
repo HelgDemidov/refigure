@@ -12,9 +12,25 @@ by the stage-6 extras-isolation CI matrix (2026-08-05), which installs
 ``refigure`` into a venv with openpyxl genuinely absent, unlike every other
 CI job that installs the full dev environment at once and could never have
 caught this.
+
+``_OPENPYXL_LOAD_LOCK`` serializes ``openpyxl.load_workbook()`` calls
+across threads — openpyxl's own ``xml/functions.py`` reuses ONE
+module-level ``lxml.etree.XMLParser()`` for every internal XML parse
+(rels/workbook/worksheet/shared-strings), from every thread. Found
+2026-08-05 (PR #9 CI): a concurrent-xlsx stress test both segfaulted
+under load AND, at lower concurrency, silently returned one call's result
+for a DIFFERENT call's input — a genuine correctness bug reachable by any
+multi-threaded caller of this library today, not just a future one (see
+``project_openpyxl_concurrent_parser_fragility`` memory for the full
+investigation). refigure's own lxml usage elsewhere in this package never
+shares a parser instance across threads (lxml replicates its default
+parser per-thread automatically), so only THIS call needs the lock —
+scoped narrowly to avoid serializing work that doesn't need it.
 """
 
 from __future__ import annotations
+
+import threading
 
 try:
     import openpyxl
@@ -40,6 +56,8 @@ from .api import (
     CorruptArchiveError,
     UnsupportedFormatError,
 )
+
+_OPENPYXL_LOAD_LOCK = threading.Lock()
 
 
 def _xlsx_cell_str(value: Any) -> str:
@@ -87,7 +105,13 @@ def _render_xlsx_chart_block(chart: Any, chart_root: Any) -> tuple[str, bool]:
 
 
 def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) -> ConversionResult:
-    """Convert an XLSX file (path, bytes, or a file-like object) to Markdown."""
+    """Convert an XLSX file (path, bytes, or a file-like object) to Markdown.
+
+    Safe to call from multiple threads concurrently — internally
+    serialized around ``openpyxl.load_workbook()`` (see
+    ``_OPENPYXL_LOAD_LOCK`` above) to work around a thread-safety
+    limitation in openpyxl itself, not a constraint of this function's
+    own logic."""
     config = config or Config()
     normalized = normalize_source(source)
 
@@ -98,7 +122,8 @@ def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) ->
         # directly (verified live) — wrap only when needed.
         wb_source = normalized if isinstance(normalized, Path) else io.BytesIO(normalized)
         try:
-            wb = openpyxl.load_workbook(wb_source, data_only=True, read_only=False)
+            with _OPENPYXL_LOAD_LOCK:
+                wb = openpyxl.load_workbook(wb_source, data_only=True, read_only=False)
         except zipfile.BadZipFile:
             raise  # corrupted member CRC — let the outer handler classify this
         except Exception as exc:
