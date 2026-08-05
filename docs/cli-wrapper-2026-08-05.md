@@ -185,15 +185,15 @@ batch/directory-ввод, как у Docling/marker; (3) типизированн
 
 ## Чек-лист реализации
 
-- [ ] `refigure/cli.py` — парсер, single-file режим, типизированные коды
-- [ ] batch-режим (directory walk, keep-going/summary, `--fail-fast`)
-- [ ] `refigure/__main__.py` + `[project.scripts]` в `pyproject.toml`
-- [ ] `--json`/`--strict`/`-v`/`-q`/`--version`
-- [ ] `tests/unit/test_cli.py`
-- [ ] `test_optional_dependency_guards.py` расширен
-- [ ] `tests/extras/test_extras_isolation.py` расширен
-- [ ] интеграционный smoke-тест (весь корпус, batch-режим, byte-for-byte vs. `convert()`)
-- [ ] README CLI-раздел
+- [x] `refigure/cli.py` — парсер, single-file режим, типизированные коды
+- [x] batch-режим (directory walk, keep-going/summary, `--fail-fast`)
+- [x] `refigure/__main__.py` + `[project.scripts]` в `pyproject.toml`
+- [x] `--json`/`--strict`/`-v`/`-q`/`--version`
+- [x] `tests/unit/test_cli.py`
+- [x] `test_optional_dependency_guards.py` расширен
+- [x] `tests/extras/test_extras_isolation.py` расширен
+- [x] интеграционный smoke-тест (весь корпус, batch-режим, byte-for-byte vs. `convert()`)
+- [x] README CLI-раздел
 
 ## Вне скоупа
 
