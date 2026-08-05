@@ -1,15 +1,22 @@
 # Integration test fixtures
 
-Real DOCX/XLSX documents `tests/integration/` (stage 5) will convert against,
-complementing the synthetic minimal fixtures built in-line in `tests/unit/`.
+Real DOCX/XLSX documents `tests/integration/` converts against, complementing
+the synthetic minimal fixtures built in-line in `tests/unit/`.
 
-## Why these aren't committed to git
+## Committed vs. gitignored (2026-08-05)
 
-Mirrors the source pipeline's own pattern — its equivalent fixture directory
-(`pipeline/scripts/tests/fixtures/local/`) is gitignored there too, even in
-a private repo. ~81MB of binary office documents committed to git bloats the
-repository permanently; git doesn't shrink history back down without a
-rewrite. `manifest.yaml` is the tracked source of truth instead.
+26 of 27 fixtures (~133MB) are committed directly — clean, well-documented
+redistribution licenses (CC BY 4.0/CC BY 3.0 IGO/EU reuse right/US public
+domain), see `../../../ATTRIBUTION.md` and `manifest.yaml`'s
+`attribution:`/`license:` fields. This makes CI's `test-integration` and
+`test-unit` (stage 4b's soffice-render path) exercise the real corpus, not
+0 collected tests against an empty fixture directory.
+
+One exception stays gitignored: `docx/iot-report-2022-national-strategies-excerpt.docx`
+— authorship risk, not a license grant (`source: own`, no independent proof
+of authorship beyond file possession), explicitly accepted by the repo owner
+2026-08-04, see its `manifest.yaml` note. Not independently obtainable —
+only present if you are the repo owner with local access to it.
 
 ## Layout
 
@@ -18,20 +25,14 @@ rewrite. `manifest.yaml` is the tracked source of truth instead.
 - `manifest.yaml` — provenance, license, attribution text, and a sha256
   checksum for every fixture
 
-## Setting this up locally
+## Re-verifying integrity
 
-Fixtures are not downloaded automatically.
-
-1. For every `manifest.yaml` entry that has a `source_url`, download it into
-   the matching `docx/`/`xlsx/` subdirectory under its `filename`.
-2. Verify integrity: `sha256sum <file>` should match the manifest entry
-   (except `eia-steo-chart-gallery.xlsx` — its source URL always serves the
-   current month's edition, so its checksum will legitimately drift; see its
-   manifest note).
-3. The one `source: own` entry (`docx/iot-report-2022-national-strategies-excerpt.docx`)
-   has no public URL — it isn't independently obtainable, only present if you
-   are the repo owner with local access to it.
+`sha256sum <file>` should match the manifest entry for every committed
+fixture, except `eia-steo-chart-gallery.xlsx` — its source URL always serves
+the current month's edition, so a fresh re-download will legitimately drift
+from the checksum recorded here; see its manifest note.
 
 Integration tests are expected to skip individual fixture-dependent cases
-gracefully when the corresponding file isn't present on disk (stage 5), so a
-partial or empty local setup narrows coverage rather than breaking the suite.
+gracefully when the corresponding file isn't present on disk (currently only
+the one gitignored exception), so a checkout missing that one file narrows
+coverage by exactly one test case rather than breaking the suite.
