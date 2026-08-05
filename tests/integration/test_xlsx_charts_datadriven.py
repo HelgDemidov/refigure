@@ -5,8 +5,8 @@ govtech-2025-charts.xlsx``, World Bank GovTech Maturity Index Dataset, CC BY
 4.0, gitignored -> skipif on a fresh clone). ALL 55 embedded charts are
 preserved byte-identical (``xl/charts/*``/``xl/drawings/*`` untouched) —
 only redundant sheet rows/columns and bloated per-cell ``<hyperlinks>`` were
-trimmed (see G2AI_ME's ``make_govtech_charts_fixture.py``, which regenerates
-the fixture from the full workbook deterministically). This replaced the
+trimmed (see the source pipeline's ``make_govtech_charts_fixture.py``, which
+regenerates the fixture from the full workbook deterministically). This replaced the
 original FULL workbook (5.4 MB, 2 sheets with 700k+ live cells) on
 2026-07-22 by user decision: the full workbook was too heavy for a local
 full-gate run (``openpyxl.load_workbook`` alone took 16.5s, driven by the
@@ -27,7 +27,7 @@ dependencies: parse_chart/render_chart are pure functions, and
 Lives in ``tests/integration/`` (not ``unit/``) solely because of its
 dependency on a non-hermetic external file, not a system resource.
 
-Ported from G2AI_ME's private pipeline
+Ported from the source private pipeline
 (``pipeline/scripts/tests/integration/test_xlsx_charts_datadriven.py``) —
 the fixture file here is byte-identical (sha256-verified) to the one at the
 source path this test originally pointed at

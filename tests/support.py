@@ -3,7 +3,7 @@ external deps — no ``python-docx``, which isn't a dependency anywhere in this
 project), used by the ported docx-groups / chart-group-coexistence test
 suites.
 
-Ported from G2AI_ME's ``pipeline/scripts/tests/support.py`` (stage 5),
+Ported from the source pipeline's ``pipeline/scripts/tests/support.py`` (stage 5),
 pared down to only the builders/constants actually used by
 ``tests/unit/convert/test_docx_groups.py`` and
 ``tests/unit/convert/test_docx_chart_group_coexistence.py``. Dropped:

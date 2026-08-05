@@ -7,7 +7,7 @@ gitignored (~81MB of office documents; see ``fixtures/README.md``). A fresh
 clone or a CI run without the local fixture setup has an empty or partial
 ``fixtures/{docx,xlsx}/`` directory, so every manifest entry must resolve to
 a gracefully-skipped test case (not a failure) when its file isn't present
-on disk — mirrors G2AI_ME's own
+on disk — mirrors the source pipeline's own
 ``pytest.mark.skipif(not _FIXTURE.exists(), ...)`` pattern for the same
 reason.
 

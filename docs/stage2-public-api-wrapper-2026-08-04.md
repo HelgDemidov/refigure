@@ -9,7 +9,7 @@
 
 ## 0. Что и зачем
 
-`_convert_docx`/`_convert_xlsx` в G2AI_ME (`converters.py:425-477, 540-594`)
+`_convert_docx`/`_convert_xlsx` в исходном пайплайне (`converters.py:425-477, 540-594`)
 пишут в файл (`out: Path`), принимают неиспользуемые `language`/`record`
 (нужны только PDF/OCR-ветке того же реестра) и бросают голый `ConversionError`.
 Цель стадии: обёртка `refigure.docx.convert()`/`refigure.xlsx.convert()`,
@@ -18,7 +18,7 @@
 
 Новый код (`api.py`, `_io.py`, `docx.py`, `xlsx.py`, тесты) — **на английском
 с нуля** (docstring/комментарии), без grandfather-исключения стадии 1: то
-исключение было только для уже написанных G2AI_ME-файлов, ожидающих стадию 4.
+исключение было только для уже написанных файлов исходного пайплайна, ожидающих стадию 4.
 
 ## 1. Публичные типы — `refigure/api.py` (новый, core-tier: без mammoth/openpyxl)
 
@@ -46,8 +46,8 @@ class MissingOptionalDependencyError(Exception): ...
 и `zipfile.BadZipFile` (не zip вовсе). `UnsupportedFormatError` ← `docx.py`/
 `xlsx.py` ловят исключение самого `mammoth.convert_to_html`/
 `openpyxl.load_workbook` (структурно не docx/xlsx — напр. `.doc` под чужим
-расширением) и оборачивают, а не пропускают наружу сырым. Сегодня в G2AI_ME
-это исключение никем не ловится (не библиотечный код, ловушка per-doc выше по
+расширением) и оборачивают, а не пропускают наружу сырым. Сегодня в исходном
+пайплайне это исключение никем не ловится (не библиотечный код, ловушка per-doc выше по
 стеку) — для refigure оставлять утечку внутреннего исключения нельзя.
 `MissingOptionalDependencyError` ← импорт `docx.py`/`xlsx.py` без extra.
 
@@ -112,14 +112,14 @@ rendered_count) — не дублирую логику подсчёта в `docx
 Симметрично: перенос `_convert_xlsx` (`converters.py:540-594`), тот же
 паттерн `try/except ImportError -> MissingOptionalDependencyError` для
 `openpyxl`. Провенанс-рендер чарта (`_render_xlsx_chart_block`,
-`converters.py:521-537`) переезжает В `xlsx.py` (в G2AI_ME он живёт в
+`converters.py:521-537`) переезжает В `xlsx.py` (в исходном пайплайне он живёт в
 `converters.py`, не в `xlsx_charts.py`) — здесь же считаются
 `charts_found`/`charts_rendered` (по тому же принципу: рендер вернул не-`None`
 или нет). `groups_found` — всегда `0` (у xlsx нет composite-групп).
 
 ## 5. Пустой результат конвертации — warning, не исключение
 
-G2AI_ME бросает `ConversionError` на пустой doc.md (`converters.py:474, 593`)
+Исходный пайплайн бросает `ConversionError` на пустой doc.md (`converters.py:474, 593`)
 — оправдано ДЛЯ ПАЙПЛАЙНА (куратор корпуса должен заметить). Библиотеке это
 не подходит: легитимно пустой/бланковый docx/xlsx — валидный, не ошибочный,
 вход. Решение: `ConversionResult(markdown="", warnings=["no extractable
@@ -149,7 +149,7 @@ mammoth/openpyxl (§2 design-документа, уже проверено в с
 docx/xlsx программно, без внешних файлов — ноль вопросов лицензирования.
 Для xlsx — `openpyxl.Workbook()` (уже зависимость). Для docx — **не**
 `python-docx` (не зависимость нигде в проекте, проверено grep) — тот же
-приём, что уже есть в G2AI_ME `tests/support.py::build_minimal_docx`:
+приём, что уже есть в исходном пайплайне `tests/support.py::build_minimal_docx`:
 zip + сырой OOXML XML руками. Не переносить `support.py` целиком (это
 стадия 5, там фикстуры под конкретные тесты) — здесь достаточно одной
 локальной минимальной функции в `tests/test_docx.py`.
