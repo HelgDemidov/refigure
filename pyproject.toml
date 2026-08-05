@@ -26,6 +26,9 @@ dependencies = [
 docx = ["mammoth>=1.12,<2", "markdownify>=1.2,<2"]
 xlsx = ["openpyxl>=3.1,<4"]
 
+[project.scripts]
+refigure = "refigure.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/HelgDemidov/refigure"
 Repository = "https://github.com/HelgDemidov/refigure"
