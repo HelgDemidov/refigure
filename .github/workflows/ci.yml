@@ -150,7 +150,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        extras: [bare, docx, xlsx, both]
+        # vlm/docx+vlm added stage 4b (2026-08-05): same import-order risk
+        # class PR #8 found in xlsx.py — integrating VLM code into existing
+        # modules (chart_render.py/docx_groups.py) needs the same check, not
+        # just "we added a try/except so it must be isolated". No soffice
+        # needed here — this job verifies IMPORT isolation, not the
+        # soffice-render path itself (that's test-unit's real corpus tests).
+        extras: [bare, docx, xlsx, both, vlm, docx+vlm]
     steps:
       - uses: actions/checkout@v7
 
@@ -168,6 +174,8 @@ jobs:
             docx) uv pip install ".[docx]" ;;
             xlsx) uv pip install ".[xlsx]" ;;
             both) uv pip install ".[docx,xlsx]" ;;
+            vlm) uv pip install ".[vlm]" ;;
+            docx+vlm) uv pip install ".[docx,vlm]" ;;
           esac
           uv pip install pytest
 
