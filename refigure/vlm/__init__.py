@@ -630,6 +630,17 @@ def enhance_docx_markdown(
     markers are left exactly as ``docx.py`` produced them, an honest
     zero-loss result either way.
 
+    ``config.vlm_verify`` (default ``False``) additionally runs
+    ``judge_defects`` once per resolved marker (image or group): never on a
+    cache-miss's own resolution attempt failing, never twice for the same
+    marker (a cached ``judge_verdict`` is reused, not recomputed), and
+    never at all when ``vlm_verify`` is off — regardless of whether an
+    older cache entry happens to already carry a verdict from a prior
+    ``vlm_verify`` run. A cache entry whose ``judge_verdict`` is still
+    unset (``None``/absent — pre-``vlm_verify`` entries look like this)
+    triggers exactly one extra judge call to fill it in, without
+    re-generating the description itself.
+
     Re-runs ``zipsafe.check_archive`` on ``source`` even though
     ``docx.py``'s ``convert()`` already checked it once: unlike the source
     pipeline's ``apply_figures_pass`` (a genuinely separate process/stage,
@@ -682,9 +693,23 @@ def enhance_docx_markdown(
             )
             if text is None:
                 continue
-            entry = {"model": model, "markdown": text}
+            entry = {"model": model, "markdown": text, "judge_verdict": None}
+            if config.vlm_verify:
+                entry["judge_verdict"] = judge_defects(
+                    data_uri, text, client=_get_client(), model=model
+                )
             cache.set(marker_id, entry)
+        elif config.vlm_verify and entry.get("judge_verdict") is None:
+            data_uri = _docx_media_uri(source, marker_id, raw_name=raw_name)
+            if data_uri is not None:
+                entry["judge_verdict"] = judge_defects(
+                    data_uri, str(entry["markdown"]), client=_get_client(), model=model
+                )
+                cache.set(marker_id, entry)
         vlm_used = True
+        judge_verdict = entry.get("judge_verdict")
+        if config.vlm_verify and isinstance(judge_verdict, list):
+            warnings.extend(f"{d}: {marker_id}" for d in judge_verdict)
         replacements.append(
             (
                 m.start(),
@@ -706,13 +731,27 @@ def enhance_docx_markdown(
             )
             if text is None:
                 continue
-            entry = {"model": model, "markdown": text}
+            entry = {"model": model, "markdown": text, "judge_verdict": None}
+            if config.vlm_verify:
+                entry["judge_verdict"] = judge_defects(
+                    data_uri, text, client=_get_client(), model=model
+                )
             cache.set(gid, entry)
+        elif config.vlm_verify and entry.get("judge_verdict") is None:
+            data_uri = _render_docx_group(source, gid, raw_name=raw_name)
+            if data_uri is not None:
+                entry["judge_verdict"] = judge_defects(
+                    data_uri, str(entry["markdown"]), client=_get_client(), model=model
+                )
+                cache.set(gid, entry)
         vlm_used = True
         entry_markdown = str(entry["markdown"])
         warnings.extend(
             witness_defects(witness, entry_markdown, gid, min_recall=config.vlm_witness_min_recall)
         )
+        judge_verdict = entry.get("judge_verdict")
+        if config.vlm_verify and isinstance(judge_verdict, list):
+            warnings.extend(f"{d}: {gid}" for d in judge_verdict)
         replacements.append(
             (
                 m.start(),
