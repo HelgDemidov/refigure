@@ -82,6 +82,25 @@ class Config:
     ``vlm._render_via_soffice``/``vlm._docx_media_uri``), not a policy
     layered on top of a less constrained call."""
 
+    vlm_verify: bool = False
+    """Enable an additional ``VlmClient.send()`` call per resolved marker
+    (image or group) that asks the SAME model 3 fixed discriminative
+    yes/no/n-a questions about the description it already produced —
+    hallucination, mermaid-diagram fit, and English-output compliance —
+    instead of regenerating anything. See ``vlm.judge_defects``. Motivated
+    by the Generative-Discriminative Gap (a VLM answers a concrete yes/no
+    question about its own output more reliably than it generates accurate
+    text from scratch).
+
+    Off by default: this is a second network round-trip on top of
+    ``use_vlm`` alone, its own cost/latency commitment. Ignored entirely
+    when ``use_vlm=False``, and never triggers a call when a marker's
+    cached entry already carries a verdict from a previous ``vlm_verify``
+    run (cache-hit stays offline either way). Full rationale — including
+    the language-blindness gap in the free ``vlm_witness_min_recall`` path
+    below that this complements —
+    ``docs/vlm/witness-gate-redesign/witness-gate-redesign-2026-08-05.md``."""
+
     vlm_model: str = "google/gemini-3-flash-preview"
     """OpenRouter model slug used by the default ``OpenRouterClient``.
     Ignored when ``vlm_client`` is set to a custom implementation, which may
