@@ -388,15 +388,28 @@ TruLens/DeepEval/академическая литература; VLM captioning
 
 ## План коммитов/PR
 
+Выполнено автономно (`/feature-workflow`, 2026-08-05) — с 3 отклонениями
+от порядка ниже, зафиксированными по ходу дела как разрешённые развилки
+(подробности в итоговом отчёте PR):
+1) коммит 9 (расширение `Config`) физически выполнен ПЕРЕД коммитами 6-8
+   — `enhance_docx_markdown()`'s сигнатура требует уже существующих
+   VLM-полей `Config` для прохождения mypy strict, порядок ниже не мог
+   быть буквально исполним;
+2) коммиты 6/7/8 объединены в один — `vlm.py` внутренне слишком связан
+   (grammar/resolution/entry-point ссылаются друг на друга), физическое
+   разбиение на 3 коммита оставляло бы промежуточные состояния с mёртвыми
+   импортами, не проходящими ruff;
+3) README получил ещё один follow-up коммит (стиль `fixtures/README.md`/
+   `conftest.py`, устаревших после коммита 1) — не было в исходном плане,
+   мелкая правка того же PR.
+
 1. `chore: un-gitignore 26 licensed corpus fixtures + add ATTRIBUTION.md`
 2. `ci: install libreoffice-writer in test-unit (cached) — no untested soffice path`
 3. `feat: add VlmClient protocol to api.py + refigure/vlm_client.py's OpenRouterClient (ported from core/openrouter.py)`
 4. `feat: add VlmCacheBackend protocol to api.py + refigure/vlm_cache.py's in-memory/file backends`
 5. `feat: widen docx_groups.extract_group_docx to accept Path | bytes`
-6. `feat: add refigure/vlm.py — docx marker grammar, sanitize_vlm_markdown, witness_defects`
-7. `feat: refigure/vlm.py — docx image/group resolution (soffice render, VLM call, injection)`
-8. `feat: refigure/vlm.py — enhance_docx_markdown() public entry point`
-9. `feat: extend Config with use_vlm/vlm_model/vlm_api_key/vlm_client/vlm_cache/vlm_witness_min_recall`
+9. `feat: extend Config with use_vlm/vlm_model/vlm_api_key/vlm_client/vlm_cache/vlm_witness_min_recall` (перемещён раньше 6-8, см. выше)
+6-8. `feat: refigure/vlm.py — marker grammar, resolution, enhance_docx_markdown()` (объединены, см. выше)
 10. `feat: wire vlm.enhance_docx_markdown into docx.convert() behind lazy import + use_vlm gate`
 11. `feat: pyproject.toml — [vlm] extra (pdfplumber)`
 12. `test: tests/unit/test_vlm_client.py — ported retry-ladder coverage`
@@ -406,26 +419,26 @@ TruLens/DeepEval/академическая литература; VLM captioning
 16. `test: extend tests/extras/test_extras_isolation.py + ci.yml matrix — vlm leg`
 17. `test: port tests/integration/test_docx_groups_live.py against efsa-echinococcus-guide.docx (soffice-gated, real in CI)`
 18. `chore: A/B model comparison on real corpus — pick vlm_model + vlm_witness_min_recall defaults, document results`
-19. `docs: note [vlm] extra exists, not promoted — README/CLAUDE.md`
+19. `docs: note [vlm] extra exists, not promoted — README`
 
 ## Чек-лист реализации
 
-- [ ] 26 фикстур раскрыты из `.gitignore` + `ATTRIBUTION.md`
-- [ ] `libreoffice-writer` в CI (`test-unit`, кэшировано)
-- [ ] `VlmClient` protocol (`api.py`) + `refigure/vlm_client.py`'s `OpenRouterClient`
-- [ ] `VlmCacheBackend` protocol (`api.py`) + `refigure/vlm_cache.py`
-- [ ] `docx_groups.extract_group_docx` accepts `Path | bytes`
-- [ ] `refigure/vlm.py` — grammar + sanitize + witness_defects
-- [ ] `refigure/vlm.py` — docx image/group resolution
-- [ ] `refigure/vlm.py` — `enhance_docx_markdown()`
-- [ ] `Config` extended (включая `vlm_witness_min_recall`)
-- [ ] `docx.convert()` wired (lazy import, `use_vlm` gate)
-- [ ] `[vlm]` extra in `pyproject.toml`
-- [ ] `test_vlm_client.py`
-- [ ] `test_vlm_cache.py`
-- [ ] `test_vlm.py`
-- [ ] `test_optional_dependency_guards.py` extended
-- [ ] `test_extras_isolation.py` + `ci.yml` `vlm` leg
-- [ ] `test_docx_groups_live.py` ported (`efsa-echinococcus-guide.docx`)
-- [ ] A/B-калибровка проведена, `vlm_model`/`vlm_witness_min_recall` дефолты обновлены, результат задокументирован
-- [ ] README/CLAUDE.md note
+- [x] 26 фикстур раскрыты из `.gitignore` + `ATTRIBUTION.md`
+- [x] `libreoffice-writer` в CI (`test-unit`, кэшировано)
+- [x] `VlmClient` protocol (`api.py`) + `refigure/vlm_client.py`'s `OpenRouterClient`
+- [x] `VlmCacheBackend` protocol (`api.py`) + `refigure/vlm_cache.py`
+- [x] `docx_groups.extract_group_docx` accepts `Path | bytes`
+- [x] `refigure/vlm.py` — grammar + sanitize + witness_defects
+- [x] `refigure/vlm.py` — docx image/group resolution
+- [x] `refigure/vlm.py` — `enhance_docx_markdown()`
+- [x] `Config` extended (включая `vlm_witness_min_recall`)
+- [x] `docx.convert()` wired (lazy import, `use_vlm` gate)
+- [x] `[vlm]` extra in `pyproject.toml`
+- [x] `test_vlm_client.py`
+- [x] `test_vlm_cache.py`
+- [x] `test_vlm.py`
+- [x] `test_optional_dependency_guards.py` extended
+- [x] `test_extras_isolation.py` + `ci.yml` `vlm` leg
+- [x] `test_docx_groups_live.py` ported (`efsa-echinococcus-guide.docx`)
+- [x] A/B-калибровка проведена, `vlm_model` подтверждён/`vlm_witness_min_recall` осознанно оставлен без изменений (см. `docs/vlm-model-calibration-2026-08-05.md` — эмпирических данных для сдвига порога не нашлось, честно задокументировано, не выдумано)
+- [x] README note (CLAUDE.md — намеренно не тронут, обновит `/post-merge-sync` после мержа)
