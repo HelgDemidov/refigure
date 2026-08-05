@@ -1,5 +1,5 @@
 """``refigure`` console command — thin wrapper over ``refigure.docx.convert()``/
-``refigure.xlsx.convert()``. Design rationale: ``docs/cli-wrapper-2026-08-05.md``.
+``refigure.xlsx.convert()``. Design rationale: ``docs/cli/cli-wrapper/cli-wrapper-2026-08-05.md``.
 
 Format isolation extends to the CLI: this module must not import
 ``refigure.docx``/``refigure.xlsx`` at module level. A bare (or single-extra)

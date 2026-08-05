@@ -62,7 +62,7 @@ jobs:
   # libreoffice-writer (stage 4b, 2026-08-05): installed here, not skipped,
   # so refigure/vlm.py's soffice-render path (test_vlm.py, tests/integration/
   # test_docx_groups_live.py) runs for real in CI — an untested CI path was
-  # explicitly rejected for this feature (docs/vlm-layer-port-2026-08-05.md
+  # explicitly rejected for this feature (docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md
   # §3). Cached via actions/cache (apt's own .deb cache dir) so the ~10-20s
   # network download only happens once per cache-key generation, not every
   # run — dpkg unpack/configure still runs each time, apt-get itself decides

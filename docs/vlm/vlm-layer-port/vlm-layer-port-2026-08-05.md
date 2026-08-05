@@ -4,7 +4,7 @@
 **Ветка:** `feat/vlm-layer-port`
 
 > Существенно превышает ≤100 строк — это самая тяжёлая стадия (25% v1,
-> `docs/execution-sequence-2026-08-04.md`), с реальным архитектурным
+> `docs/project-meta/execution-sequence/execution-sequence-2026-08-04.md`), с реальным архитектурным
 > редизайном (не line-for-line переносом), полным списком новых
 > зависимостей/файлов и большим планом коммитов; сжатие ниже потеряло бы
 > проверяемость конкретных решений.
@@ -16,7 +16,7 @@ VLM-интерпретация составных фигур DOCX (`refigure.doc
 что chart-движок и `docx_groups.py` честно оставляют голым маркером
 («composite content not analyzed» / «raster content not analyzed»). За
 `[vlm]` extra + runtime-тоггл, **не активна/не анонсируется в v1**
-(`docs/v1-scope-and-api-design-2026-08-04.md` §1/§5) — код готов и
+(`docs/project-meta/v1-scope-and-api-design/v1-scope-and-api-design-2026-08-04.md` §1/§5) — код готов и
 протестирован, релиз v1 (стадия 8) её не ждёт.
 
 **Скоуп жёстко ограничен DOCX.** XLSX не имеет VLM-пути вообще — у
@@ -248,7 +248,7 @@ authorship risk явно принят, но не разрешён, решени�
   нужен отдельный синтетический тест с непустыми captions — уже в
   `test_vlm.py`, п. Тестовое покрытие). Не путать одно с другим при
   реализации.
-- `docs/execution-sequence-2026-08-04.md`/`CLAUDE.md`/
+- `docs/project-meta/execution-sequence/execution-sequence-2026-08-04.md`/`CLAUDE.md`/
   `project_fixture_corpus` memory нужно обновить постфактум
   (`/post-merge-sync`), не сейчас — фиксируется здесь как задел.
 
@@ -440,5 +440,5 @@ TruLens/DeepEval/академическая литература; VLM captioning
 - [x] `test_optional_dependency_guards.py` extended
 - [x] `test_extras_isolation.py` + `ci.yml` `vlm` leg
 - [x] `test_docx_groups_live.py` ported (`efsa-echinococcus-guide.docx`)
-- [x] A/B-калибровка проведена, `vlm_model` подтверждён/`vlm_witness_min_recall` осознанно оставлен без изменений (см. `docs/vlm-model-calibration-2026-08-05.md` — эмпирических данных для сдвига порога не нашлось, честно задокументировано, не выдумано)
+- [x] A/B-калибровка проведена, `vlm_model` подтверждён/`vlm_witness_min_recall` осознанно оставлен без изменений (см. `docs/vlm/vlm-model-calibration/vlm-model-calibration-2026-08-05.md` — эмпирических данных для сдвига порога не нашлось, честно задокументировано, не выдумано)
 - [x] README note (CLAUDE.md — намеренно не тронут, обновит `/post-merge-sync` после мержа)

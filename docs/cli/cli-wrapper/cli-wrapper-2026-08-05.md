@@ -10,7 +10,7 @@
 ## 0. Что и зачем
 
 Тонкая CLI-обёртка над уже готовым `convert()`/`ConversionResult`
-(стадия 6b, `docs/execution-sequence-2026-08-04.md`). Рыночный чек
+(стадия 6b, `docs/project-meta/execution-sequence/execution-sequence-2026-08-04.md`). Рыночный чек
 2026-08-05: для категории «документ→markdown» CLI — ожидаемый минимум, не
 опция (MarkItDown 139k★/Docling 64k★+/marker 38k★+ — все три поставляют
 его как равноправный интерфейс).
@@ -137,7 +137,7 @@ batch/directory-ввод, как у Docling/marker; (3) типизированн
   Единственный выходной канал переключается целиком (не второй
   параллельный формат, в отличие от Docling `--to`) — дёшево, потому что
   `ConversionResult` уже rich по решённому архитектурному принципу
-  (`v1-scope-and-api-design-2026-08-04.md` §3). Закрывает MarkItDown issue
+  (`docs/project-meta/v1-scope-and-api-design/v1-scope-and-api-design-2026-08-04.md` §3). Закрывает MarkItDown issue
   #2029 (нет структурированного вывода) почти бесплатно.
 - `--version` → печатает `refigure.__version__`.
 - `-h/--help` → argparse default.

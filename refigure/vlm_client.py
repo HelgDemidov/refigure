@@ -6,11 +6,12 @@ provider-agnostic by design; a caller can supply any other ``VlmClient``
 
 ``chat_request``/``InbandError``/``RETRY_SCHEDULE`` are a near-verbatim port
 of the source pipeline's ``core/openrouter.py`` (confirmed fully
-synchronous by reading it, not assumed — see
-``docs/v1-scope-and-api-design-2026-08-04.md`` §3): the retry/error-
-classification logic itself needs no redesign, only the payload-building
-layer around it (previously ``figures_vlm.py``'s ``_build_payload``/
-``_call_vlm_uri``) is new, folded into ``OpenRouterClient.send``.
+synchronous by reading it, not assumed — see ``docs/project-meta/
+v1-scope-and-api-design/v1-scope-and-api-design-2026-08-04.md`` §3): the
+retry/error-classification logic itself needs no redesign, only the
+payload-building layer around it (previously ``figures_vlm.py``'s
+``_build_payload``/``_call_vlm_uri``) is new, folded into
+``OpenRouterClient.send``.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Integration smoke test: ``refigure``'s CLI batch mode against the FULL
 real corpus (``tests/integration/fixtures/{docx,xlsx}/``), not 1-2
 hand-picked files — an amendment to the cli-wrapper spec's test plan
-(2026-08-05, user decision), see ``docs/cli-wrapper-2026-08-05.md``.
+(2026-08-05, user decision), see ``docs/cli/cli-wrapper/cli-wrapper-2026-08-05.md``.
 
 Proves two things ``tests/unit/test_cli.py`` (synthetic fixtures)
 structurally cannot: (1) the CLI is a pure pass-through over ``convert()``

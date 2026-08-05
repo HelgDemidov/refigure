@@ -20,7 +20,7 @@ interpretation of composite figures the chart engine can't reconstruct,
 `soffice`/LibreOffice binary, not installable via pip) — implemented and
 tested, but **not active or announced as a v1 feature yet**; no CLI flag
 exposes it. PDF is out of scope for this project (see
-`docs/converter-viability-assessment-2026-08-04.md`).
+`docs/project-meta/converter-viability-assessment/converter-viability-assessment-2026-08-04.md`).
 
 PyPI names `refigure` and `refigure-md` are reserved (placeholder 0.0.0).
 

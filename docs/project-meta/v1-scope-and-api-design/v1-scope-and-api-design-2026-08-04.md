@@ -1,6 +1,6 @@
 # refigure v1 — скоуп, архитектура пакета, дизайн API (решения зафиксированы 2026-08-04)
 
-Продолжение [`converter-viability-assessment-2026-08-04.md`](converter-viability-assessment-2026-08-04.md)
+Продолжение [`converter-viability-assessment-2026-08-04.md`](../converter-viability-assessment/converter-viability-assessment-2026-08-04.md)
 (тот документ — вердикт «стоит ли извлекать» и рыночное обоснование; этот —
 как именно). Все решения ниже приняты в диалоге с пользователем в тот же день.
 

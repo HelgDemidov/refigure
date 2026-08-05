@@ -99,7 +99,7 @@ class Config:
     documents this model tends to leave transcribed labels untranslated
     despite the prompt's "Output in English" instruction — a prompt-
     engineering fix, not a reason to switch models. Full comparison:
-    ``docs/vlm-model-calibration-2026-08-05.md``."""
+    ``docs/vlm/vlm-model-calibration/vlm-model-calibration-2026-08-05.md``."""
 
     vlm_api_key: str | None = None
     """API key for the default ``OpenRouterClient``. Falls back to the
@@ -127,8 +127,8 @@ class Config:
     group's own captions against its VLM description before
     ``vlm.witness_defects`` flags it. NOT empirically re-derived, across
     TWO rounds of this stage's A/B calibration, 2026-08-05, for two
-    independent reasons documented in ``docs/vlm-model-calibration-
-    2026-08-05.md``: (1) on English-caption content (the entire committed
+    independent reasons documented in ``docs/vlm/vlm-model-calibration/
+    vlm-model-calibration-2026-08-05.md``: (1) on English-caption content (the entire committed
     corpus) recall is a trivial 1.00 regardless of response quality — no
     separation signal exists; (2) on multi-lingual content (round 2, added
     after a review found round 1 too thin), recall DOES vary, but the
@@ -136,8 +136,8 @@ class Config:
     English, not which models are factually accurate — calibrating against
     that signal would tune the gate to penalize language choice, not real
     errors. 0.80 is kept as a plausible default, not imported from
-    unrelated literature thresholds either (see ``docs/vlm-layer-port-
-    2026-08-05.md`` §5's research). The manually-confirmed real defect
+    unrelated literature thresholds either (see ``docs/vlm/vlm-layer-port/
+    vlm-layer-port-2026-08-05.md`` §5's research). The manually-confirmed real defect
     classes (inappropriate mermaid fabrication, minor semantic drift) are
     NOT caught by this recall-only mechanism at all — a known, documented
     blind spot, not something this threshold value can fix."""

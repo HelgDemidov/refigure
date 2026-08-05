@@ -39,7 +39,7 @@ Thumbs.db
 CLAUDE.local.md
 
 # Real-document integration test fixtures (2026-08-05,
-# docs/vlm-layer-port-2026-08-05.md §4): 26/27 are checked in — clean,
+# docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md §4): 26/27 are checked in — clean,
 # well-documented redistribution licenses (see ATTRIBUTION.md +
 # tests/integration/fixtures/manifest.yaml). Exactly one stays gitignored:
 # authorship risk (not license risk), explicitly accepted 2026-08-04, see

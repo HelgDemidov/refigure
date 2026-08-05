@@ -4,7 +4,7 @@
 PDF/DOCX/XLSX→Markdown converters extracted from a private pipeline,
 scoped to one shared PyPI package for **DOCX+XLSX only** — PDF excluded from the
 project entirely (crowded market, not a differentiator; see
-`docs/converter-viability-assessment-2026-08-04.md`). Core differentiator: native
+`docs/project-meta/converter-viability-assessment/converter-viability-assessment-2026-08-04.md`). Core differentiator: native
 OOXML chart-data extraction (numCache/strCache, no rasterize/OCR/VLM) + positioned
 zero-loss markers for composite figures — market research found this genuinely
 absent even among well-funded incumbents (Docling issue #1287, >1yr open, unfixed).
@@ -31,7 +31,7 @@ memory. Stage 6b (PR #9, `refigure` console command): single-file
 `--fail-fast`), typed exit codes, `--json`/`--strict`/`-v`/`-q` — design
 synthesized a "triple gap" against MarkItDown/Docling/marker (no
 competitor combines stdio-first + native batch + typed exit codes), see
-`docs/cli-wrapper-2026-08-05.md`. Its CI run found a 4th real production
+`docs/cli/cli-wrapper/cli-wrapper-2026-08-05.md`. Its CI run found a 4th real production
 bug the same day: `xlsx.convert()` wasn't safe to call concurrently from
 multiple threads — openpyxl's own `xml/functions.py` reuses ONE
 module-level `lxml.etree.XMLParser()` across every thread, causing a rare
@@ -41,7 +41,7 @@ wrong result instead of a crash). Fixed for real with a
 `threading.Lock()` around `openpyxl.load_workbook()` in `xlsx.py`, not
 just a test change — see `project_openpyxl_concurrent_parser_fragility`
 memory. 188 unit tests total. Not yet done: stage 4b (VLM — spec drafted,
-`docs/vlm-layer-port-2026-08-05.md`, not yet implemented), stage 7
+`docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md`, not yet implemented), stage 7
 (README+demo), stage 8 (release gate).
 
 ## Dev environment
@@ -96,8 +96,8 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
   command, thin argparse layer over `convert()` — single-file, stdin, and
   batch modes, typed exit codes — market check found CLI is the category
   baseline, not an optional extra (MarkItDown/Docling/marker all ship one
-  as first-class). Details: `docs/cli-wrapper-2026-08-05.md`.
-- Full phase/effort breakdown: `docs/execution-sequence-2026-08-04.md` (10
+  as first-class). Details: `docs/cli/cli-wrapper/cli-wrapper-2026-08-05.md`.
+- Full phase/effort breakdown: `docs/project-meta/execution-sequence/execution-sequence-2026-08-04.md` (10
   numbered stages + 4b/6b insertions, dependency graph, %-effort per stage,
   mermaid-verified before publish).
 
@@ -130,7 +130,7 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
 
 ## Public API
 Rich, not a bare string — full rationale in
-`docs/v1-scope-and-api-design-2026-08-04.md` §3:
+`docs/project-meta/v1-scope-and-api-design/v1-scope-and-api-design-2026-08-04.md` §3:
 - `ConversionResult` dataclass: markdown + warnings + charts_found/rendered +
   groups_found + vlm_used.
 - Typed exceptions: `UnsupportedFormatError`, `CorruptArchiveError`,
@@ -179,9 +179,15 @@ obvious from the code itself.
   exist to cite (natural fit: stage 7 README, or post-release).
 
 ## Source docs (Russian, tracked in git — project documentation, not code)
-- `docs/converter-viability-assessment-2026-08-04.md` — market research +
+`docs/` is organized `<category>/<slug>/<slug>-<date>.md` (two-level,
+same principle as scopus-search's own `docs/`, adopted 2026-08-05 —
+categories so far: `project-meta`, `package-foundation`, `cli`, `vlm`),
+not flat. `/tech-spec`/`/feature-workflow` both know this convention.
+Foundational, non-stage-specific docs (listed below) live in
+`project-meta`; per-stage specs live under their own category.
+- `docs/project-meta/converter-viability-assessment/converter-viability-assessment-2026-08-04.md` — market research +
   code-review verdict on whether extraction is worth it.
-- `docs/v1-scope-and-api-design-2026-08-04.md` — scope/architecture/API
+- `docs/project-meta/v1-scope-and-api-design/v1-scope-and-api-design-2026-08-04.md` — scope/architecture/API
   decisions.
-- `docs/execution-sequence-2026-08-04.md` — phased plan, dependency graph,
+- `docs/project-meta/execution-sequence/execution-sequence-2026-08-04.md` — phased plan, dependency graph,
   effort % per stage.
