@@ -5,7 +5,7 @@ complementing the synthetic minimal fixtures built in-line in `tests/unit/`.
 
 ## Why these aren't committed to git
 
-Mirrors G2AI_ME's own pattern — its equivalent fixture directory
+Mirrors the source pipeline's own pattern — its equivalent fixture directory
 (`pipeline/scripts/tests/fixtures/local/`) is gitignored there too, even in
 a private repo. ~81MB of binary office documents committed to git bloats the
 repository permanently; git doesn't shrink history back down without a

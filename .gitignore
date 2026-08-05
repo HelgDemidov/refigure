@@ -39,8 +39,11 @@ Thumbs.db
 CLAUDE.local.md
 
 # Real-document integration test fixtures — large binaries, local-only
-# (mirrors G2AI_ME's own gitignored fixtures/local/ pattern). Provenance/
-# license/checksums tracked in tests/integration/fixtures/manifest.yaml
-# instead of the files themselves.
+# (mirrors the source pipeline's own gitignored fixtures/local/ pattern).
+# Provenance/license/checksums tracked in
+# tests/integration/fixtures/manifest.yaml instead of the files themselves.
+# NOTE (2026-08-05): most of this list is going away — 26/27 fixtures are
+# being un-gitignored per docs/vlm-layer-port-2026-08-05.md §4, not yet
+# executed as of this commit.
 tests/integration/fixtures/docx/*.docx
 tests/integration/fixtures/xlsx/*.xlsx

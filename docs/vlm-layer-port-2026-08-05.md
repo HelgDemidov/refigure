@@ -20,7 +20,7 @@ VLM-интерпретация составных фигур DOCX (`refigure.doc
 протестирован, релиз v1 (стадия 8) её не ждёт.
 
 **Скоуп жёстко ограничен DOCX.** XLSX не имеет VLM-пути вообще — у
-G2AI_ME `figures_vlm.py` это уже так (`xlsx-чарты БОЛЬШЕ НЕ идут через
+исходного пайплайна `figures_vlm.py` это уже так (`xlsx-чарты БОЛЬШЕ НЕ идут через
 VLM... резолюция data-driven» — прямая цитата из исходника, строки
 73-75): нечитаемый нативный чарт остаётся честным static-маркером
 навсегда, эскалации нет. `config.use_vlm=True`, переданный в
@@ -31,7 +31,7 @@ PDF-специфичный код (`_FIGURE_MARKER_RE`/`_IMAGE_MARKER_RE`,
 `_find_region`/`_find_raster_image`, `pdfplumber`-кроп PDF-СТРАНИЦЫ) —
 не переносится вовсе.
 
-## 1. Что реально переносится из G2AI_ME (файл-функция-строки)
+## 1. Что реально переносится из исходного пайплайна (файл-функция-строки)
 
 Из `pipeline/scripts/convert/figures_vlm.py` (676 строк) — только:
 `_DOCX_IMAGE_MARKER_RE`/`_docx_media_uri` (standalone-изображение →
@@ -63,7 +63,7 @@ OCR-специфика) не нужно.
 
 ## 2. Архитектурный редизайн (не line-for-line порт)
 
-G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
+У исходного пайплайна `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
 ОТДЕЛЬНЫЙ проход поверх уже ЗАПИСАННОГО на диск `doc.md`, кэш —
 `raw.parent / ".figures.yaml"`. У refigure нет ни файла на диске
 (`convert()` — одна in-memory функция, вход `Path | bytes | BinaryIO`),
@@ -96,7 +96,7 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
   Protocol ИЗ `api.py`, даёт конкретные реализации:
   `InMemoryCacheBackend` (дефолт, без диска, безопасно для библиотеки,
   не пайплайна) и `FileCacheBackend(path)` — удобство, не обязательно:
-  **JSON, не YAML** — G2AI_ME's `.figures.yaml` был человекочитаем ради
+  **JSON, не YAML** — у исходного пайплайна `.figures.yaml` был человекочитаем ради
   git-диффов корпуса, у refigure такого сценария нет, а PyYAML — новая
   зависимость, которой в проекте вообще нет нигде (`tests/integration/
   conftest.py`'s docstring это уже фиксирует для другого случая); JSON —
@@ -144,7 +144,7 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
   (переиспользует уже существующий `chart_render.mermaid_renders` для
   mermaid-гейта — ноль нового кода там), `witness_defects` (применим
   ТОЛЬКО к composite-группам, не к standalone-изображениям — в
-  G2AI_ME'шном исходнике `docx_image_matches`-цикл `witness_defects` не
+  исходном пайплайне `docx_image_matches`-цикл `witness_defects` не
   вызывает вовсе, `_DOCX_IMAGE_MARKER_RE` не несёт witness-группы; легко
   упустить при портировании, явно фиксируется здесь),
   `_docx_media_uri`/`_render_docx_group`/`_render_via_soffice`,
@@ -160,14 +160,14 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
 - `pyproject.toml`: `[project.optional-dependencies] vlm = ["pdfplumber>=…"]`.
   **`pdfplumber` — не PDF-конвертация**, это утилита кропа PDF,
   сгенерированного LibreOffice как ПРОМЕЖУТОЧНЫЙ рендер мини-docx (тот
-  же приём, что `_render_via_soffice` в G2AI_ME) — ни входной, ни
+  же приём, что `_render_via_soffice` в исходном пайплайне) — ни входной, ни
   выходной формат PDF не поддерживается, PDF никогда не покидает эту
   одну internal-функцию. Явно проговорено здесь, чтобы не читалось как
   тихий откат решения «PDF вне скоупа».
 - `soffice` (LibreOffice) — системный бинарник, не pip-пакет, не в
   extras (не может быть). `shutil.which("soffice") is None` →
   `logger.warning` + маркер остаётся как есть (zero-loss floor,
-  тот же приём, что G2AI_ME) — никогда hard-fail в самом коде.
+  тот же приём, что у исходного пайплайна) — никогда hard-fail в самом коде.
   **Решение по CI (пересмотрено 2026-08-05 — untested CI path
   неприемлем):** `libreoffice-writer` **устанавливается в CI**
   (`test-unit` job, `apt-get install -y libreoffice-writer`, с
@@ -179,8 +179,8 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
   красным), но в CI он больше не должен срабатывать никогда — если
   сработал, это сигнал, что apt-шаг сломался, не ожидаемое поведение.
 - `Config` (`api.py`) — новые поля: `use_vlm: bool = False`,
-  `vlm_model: str = "google/gemini-3-flash-preview"` (дефолт G2AI_ME,
-  «победитель пилота» — `cloud_ocr.DEFAULT_VLM_MODEL` — **временный
+  `vlm_model: str = "google/gemini-3-flash-preview"` (дефолт исходного
+  пайплайна, «победитель пилота» его OCR+figures-задач — **временный
   placeholder до коммита §5**, не финальное решение; заменяется
   результатом A/B-калибровки на реальном corpus refigure в рамках этой
   же стадии, не выдаётся за проверенное значение до тех пор),
@@ -293,7 +293,7 @@ TruLens/DeepEval/академическая литература; VLM captioning
   agnostic, см. §2, но сравнение удобнее вести через один API),
   разных семейств — не одна ценовая категория: (a) действующий
   дефолт-плейсхолдер (`google/gemini-3-flash-preview`, «победитель
-  пилота» G2AI_ME — baseline, не финал), (b) более сильная frontier-
+  пилота» исходного пайплайна — baseline, не финал), (b) более сильная frontier-
   модель другого семейства (Claude/GPT-класс) — точность инструкций
   на структурированном mermaid-синтаксисе часто отличается от
   качества чтения самой картинки, (c) опционально — открытая модель
@@ -347,8 +347,8 @@ TruLens/DeepEval/академическая литература; VLM captioning
   `vlm.py` остаётся 100% sync, как ядро.
 - Активация/анонс `[vlm]` в README как готовой фичи — v1.x, не сейчас.
 - XLSX VLM-путь — не существует, см. §0.
-- OCR/scan-VLM (`cloud_ocr.py`, второй потребитель `core/openrouter.py`
-  в G2AI_ME) — PDF/скан-специфика, вне проекта целиком.
+- OCR/scan-VLM (`cloud_ocr.py`, второй потребитель VLM-HTTP-клиента
+  в исходном пайплайне) — PDF/скан-специфика, вне проекта целиком.
 
 ## Тестовое покрытие
 
@@ -360,10 +360,10 @@ TruLens/DeepEval/академическая литература; VLM captioning
   `tmp_path`.
 - `tests/unit/test_vlm.py` — селективный порт релевантного (docx-only)
   подмножества `tests/unit/convert/test_figures_vlm.py` (1079 строк в
-  G2AI_ME, в основном PDF — переносится не файл целиком, а сценарии):
+  исходном пайплайне, в основном PDF — переносится не файл целиком, а сценарии):
   маркер-сканирование, `sanitize_vlm_markdown`, `witness_defects`,
   **cache-hit-only офлайн-путь** `enhance_docx_markdown` (тот же приём,
-  что G2AI_ME's golden self-check — предзаполненный `InMemoryCacheBackend`,
+  что golden self-check исходного пайплайна — предзаполненный `InMemoryCacheBackend`,
   ноль сети/API-ключа в тесте).
 - Расширить `tests/unit/test_optional_dependency_guards.py`:
   `("refigure.vlm", "pdfplumber")` в `_POISON_CASES` (уже анонсировано в

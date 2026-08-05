@@ -1,7 +1,7 @@
 # refigure — Claude Code memory
 
 ## Project
-PDF/DOCX/XLSX→Markdown converters extracted from a private pipeline (G2AI_ME),
+PDF/DOCX/XLSX→Markdown converters extracted from a private pipeline,
 scoped to one shared PyPI package for **DOCX+XLSX only** — PDF excluded from the
 project entirely (crowded market, not a differentiator; see
 `docs/converter-viability-assessment-2026-08-04.md`). Core differentiator: native
@@ -17,7 +17,7 @@ callable, `ConversionResult`/3 typed exceptions/`Path|bytes|BinaryIO`), CI +
 done ad hoc, not a numbered PR: 27 real-document fixtures (15 docx, 12 xlsx),
 provenance/license/sha256 in `tests/integration/fixtures/manifest.yaml`,
 binaries gitignored (~81MB) — see `fixtures/README.md`. Stage 5 (PR #7):
-ported 8 G2AI_ME test files + a new parametrized corpus-test layer
+ported 8 test files from the source pipeline + a new parametrized corpus-test layer
 (`test_docx_corpus.py`/`test_xlsx_corpus.py`) exercising all 27 fixtures —
 found and fixed 2 real bugs (chart-parsing crash on `#N/A` cached values,
 silent chart loss on grouped xlsx anchors) via
@@ -113,8 +113,8 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
   code touches `chart_render.py`/`docx_groups.py`.
 - `chart_data.py`/`chart_render.py` — core, always installed, lxml-only +
   `mermaidx` optional inside itself.
-- Optional-dependency pattern (proven, implemented+tested in G2AI_ME commit
-  `25ef657`): module-level `try/except ImportError` + capability flag +
+- Optional-dependency pattern (proven, implemented+tested in the source
+  pipeline first): module-level `try/except ImportError` + capability flag +
   `functools.lru_cache`-based warn-once via `logger.warning`. Reuse for
   mammoth/openpyxl/vlm-client — don't invent a new mechanism per dependency.
   `refigure/cli.py` extends the same discipline one step further: its
@@ -138,7 +138,8 @@ Rich, not a bare string — full rationale in
 - `strict: bool` — raise vs. degrade-with-warning on a missing capability.
 - Input: path or bytes/file-like, not path-only.
 - Config/client object, not a kwarg pile.
-- Sync by default (G2AI_ME's `openrouter.py` confirmed fully sync, not assumed).
+- Sync by default (the source pipeline's own VLM HTTP client confirmed fully
+  sync, not assumed).
   Async is NOT for the whole library — only a later, narrow VLM-batch entry
   point, decided when VLM ships, doesn't block v1.
 

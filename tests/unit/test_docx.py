@@ -1,7 +1,7 @@
 """Synthetic smoke tests for refigure.docx.convert().
 
 Fixtures are built by hand (zip + raw OOXML XML), same technique as
-G2AI_ME's tests/support.py::build_minimal_docx — not python-docx, which
+the source pipeline's tests/support.py::build_minimal_docx — not python-docx, which
 isn't a dependency anywhere in this project. These are not the real
 corpus-fixture behavioral tests (stage 5, gated on fixture licensing,
 stage 3) — just enough to confirm the new wrapper (stage 2) actually works

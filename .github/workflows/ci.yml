@@ -1,8 +1,8 @@
 name: CI
 
 # 3 independent parallel jobs (single-responsibility, clear failure
-# attribution) — same shape as G2AI_ME's own ci.yml, the closest analog to
-# this repo's scale (single Python package, no DB/frontend).
+# attribution) — same shape as the source pipeline's own ci.yml, the closest
+# analog to this repo's scale (single Python package, no DB/frontend).
 # No branch filters, deliberately — an enumerated branch-prefix list (feat/**,
 # fix/**, ...) silently skips anything outside it (ci/**, test/**, chore/**,
 # a stacked PR whose base isn't main — this is exactly how PR #4 merged with
@@ -85,7 +85,7 @@ jobs:
   # tests/integration/fixtures/manifest.yaml). Binaries are gitignored
   # (~81MB) and not present in a fresh CI checkout, so this still collects 0
   # tests in CI today — exit 5 ("no tests ran") is expected, not a failure,
-  # same graceful handling as G2AI_ME's own test-integration job. Starts
+  # same graceful handling as the source pipeline's own test-integration job. Starts
   # running something real once a local/CI fixture cache exists, no edit to
   # this file needed then either.
   # ---------------------------------------------------------------------------
