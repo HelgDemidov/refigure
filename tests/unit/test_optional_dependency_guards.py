@@ -43,6 +43,7 @@ _REPO_ROOT = Path(__file__).parent.parent.parent
 _POISON_CASES = [
     ("refigure.docx", "mammoth"),
     ("refigure.xlsx", "openpyxl"),
+    ("refigure.vlm", "pdfplumber"),
 ]
 
 
@@ -73,6 +74,43 @@ def test_missing_dependency_raises_typed_error_not_bare_import_error(
         f"{observed!r}, expected refigure.api.MissingOptionalDependencyError "
         f"(stderr: {result.stderr})"
     )
+
+
+def test_docx_convert_lazy_imports_vlm_only_when_use_vlm_true(tmp_path: Path) -> None:
+    """docx.convert() with the default use_vlm=False must not import
+    refigure.vlm — and therefore not pdfplumber — at all. Proves the lazy
+    import inside docx.py's use_vlm-gated block; a bare `import
+    refigure.vlm` succeeding/failing alone (the parametrized case above)
+    wouldn't catch a regression to a module-level `from . import vlm` in
+    docx.py, since that path is never exercised by importing docx.py with
+    use_vlm never mentioned."""
+    doc_path = tmp_path / "doc.docx"
+    doc_path.write_bytes(build_minimal_docx(["distinctive docx paragraph"]))
+
+    script = (
+        "import sys\n"
+        "sys.modules['pdfplumber'] = None\n"
+        "from pathlib import Path\n"
+        "from refigure.docx import convert\n"
+        "from refigure.api import Config\n"
+        f"result = convert(Path({str(doc_path)!r}), config=Config(use_vlm=False))\n"
+        "assert 'refigure.vlm' not in sys.modules, "
+        "'refigure.vlm was imported despite use_vlm=False'\n"
+        "assert 'distinctive docx paragraph' in result.markdown\n"
+        "print('OK')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        cwd=str(_REPO_ROOT),
+        timeout=30,
+    )
+    assert result.returncode == 0, (
+        f"convert(use_vlm=False) with pdfplumber poisoned failed unexpectedly: "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert result.stdout.strip() == "OK"
 
 
 def _write_minimal_xlsx(path: Path) -> None:
