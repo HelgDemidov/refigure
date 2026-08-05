@@ -94,18 +94,30 @@ def build_parser() -> argparse.ArgumentParser:
         description="Convert DOCX/XLSX to Markdown, preserving native charts.",
     )
     parser.add_argument(
-        "source",
-        nargs="?",
+        "sources",
+        nargs="*",
         metavar="SOURCE",
-        help="File to convert. Omit to read from stdin (requires --format).",
+        help=(
+            "File(s) and/or director(y/ies) to convert. 2+ sources or a "
+            "directory triggers batch mode (requires -o DIR). Omit entirely "
+            "to read a single document from stdin (requires --format)."
+        ),
     )
     parser.add_argument(
-        "-o", "--output", metavar="FILE", help="Write markdown to FILE instead of stdout."
+        "-o",
+        "--output",
+        metavar="PATH",
+        help="Single-source mode: output file. Batch mode: output directory (required).",
     )
     parser.add_argument(
         "--format",
         choices=sorted(_SUFFIX_TO_FORMAT.values()),
         help="Format hint, required when reading from stdin.",
+    )
+    parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Batch mode: abort on the first failed source instead of continuing.",
     )
     return parser
 
@@ -136,36 +148,160 @@ def _report_warnings(warnings: list[str]) -> None:
         print(f"warning: {warning}", file=sys.stderr)
 
 
+def _run_stdin(args: argparse.Namespace, config: Config, parser: argparse.ArgumentParser) -> int:
+    if args.format is None:
+        parser.error("--format is required when reading from stdin")
+    data = sys.stdin.buffer.read()
+    result, code, message = _convert_one(data, args.format, config)
+    if result is None:
+        print(f"error: {message}", file=sys.stderr)
+        return code
+    _report_warnings(result.warnings)
+    _emit(result.markdown, args.output)
+    return EXIT_OK
+
+
+def _run_single(
+    path: Path, args: argparse.Namespace, config: Config, parser: argparse.ArgumentParser
+) -> int:
+    if not path.is_file():
+        parser.error(f"{path}: no such file")
+    fmt = _format_for_path(path)
+    if fmt is None:
+        parser.error(f"{path}: unrecognized extension (expected .docx or .xlsx)")
+
+    result, code, message = _convert_one(path, fmt, config)
+    if result is None:
+        print(f"error: {message}", file=sys.stderr)
+        return code
+    _report_warnings(result.warnings)
+    _emit(result.markdown, args.output)
+    return EXIT_OK
+
+
+def _resolve_batch_sources(raw_sources: list[str], parser: argparse.ArgumentParser) -> list[Path]:
+    """Validate every positional argument up front (exists, and — for a
+    plain file — a recognized extension) so ``_plan_batch`` can assume
+    well-formed input and stay pure. Mirrors ``_run_single``'s validation,
+    for the same invocation-is-well-formed class of check."""
+    resolved: list[Path] = []
+    for raw in raw_sources:
+        path = Path(raw)
+        if path.is_dir():
+            resolved.append(path)
+        elif path.is_file():
+            if _format_for_path(path) is None:
+                parser.error(f"{raw}: unrecognized extension (expected .docx or .xlsx)")
+            resolved.append(path)
+        else:
+            parser.error(f"{raw}: no such file or directory")
+    return resolved
+
+
+def _plan_batch(sources: list[Path]) -> list[tuple[Path, Path]]:
+    """(input file, output-relative-path-with-.md-suffix source) pairs. A
+    directory source contributes every ``.docx``/``.xlsx`` file under it,
+    recursively, with its output path relative to that directory (preserves
+    structure — Docling issue #3811 avoided by construction, see spec §3).
+    A plain file source contributes itself, relative-pathed by its own
+    basename. Duplicate *input* paths (the same directory passed twice, or a
+    file reachable both directly and via a directory walk) are silently
+    deduplicated, keeping the first occurrence — not a collision."""
+    plan: list[tuple[Path, Path]] = []
+    seen_inputs: set[Path] = set()
+    for src in sources:
+        entries: list[tuple[Path, Path]]
+        if src.is_dir():
+            entries = [
+                (f, f.relative_to(src))
+                for f in sorted(src.rglob("*"))
+                if f.is_file() and _format_for_path(f) is not None
+            ]
+        else:
+            entries = [(src, Path(src.name))]
+        for file_path, rel in entries:
+            resolved = file_path.resolve()
+            if resolved in seen_inputs:
+                continue
+            seen_inputs.add(resolved)
+            plan.append((file_path, rel))
+    return plan
+
+
+def _detect_collisions(plan: list[tuple[Path, Path]]) -> dict[Path, list[Path]]:
+    """Distinct input files that would map to the identical output path
+    (e.g. two sources both containing an ``x.docx`` at their root) — the
+    general form of Docling issue #3811, not just the directory-walk case
+    §3 already avoids structurally."""
+    by_output: dict[Path, list[Path]] = {}
+    for file_path, rel in plan:
+        by_output.setdefault(rel.with_suffix(".md"), []).append(file_path)
+    return {out: srcs for out, srcs in by_output.items() if len(srcs) > 1}
+
+
+def _run_batch(
+    sources: list[Path],
+    args: argparse.Namespace,
+    config: Config,
+    parser: argparse.ArgumentParser,
+) -> int:
+    if args.output is None:
+        parser.error("-o/--output DIR is required in batch mode (2+ sources or a directory)")
+
+    plan = _plan_batch(sources)
+    if not plan:
+        parser.error("no .docx/.xlsx files found among the given sources")
+
+    collisions = _detect_collisions(plan)
+    if collisions:
+        for out, srcs in sorted(collisions.items()):
+            names = ", ".join(str(s) for s in srcs)
+            print(f"error: {out} would be written by multiple sources: {names}", file=sys.stderr)
+        return EXIT_USAGE
+
+    out_root = Path(args.output)
+    converted = 0
+    failures: list[tuple[Path, str]] = []
+    for file_path, rel in plan:
+        fmt = _format_for_path(file_path)
+        if fmt is None:  # pragma: no cover - _resolve_batch_sources/_plan_batch already filter
+            continue
+
+        result, code, message = _convert_one(file_path, fmt, config)
+        if result is None:
+            print(f"error: {file_path}: {message}", file=sys.stderr)
+            if args.fail_fast:
+                return code
+            failures.append((file_path, message or ""))
+            continue
+
+        for warning in result.warnings:
+            print(f"warning: {file_path}: {warning}", file=sys.stderr)
+        out_path = out_root / rel.with_suffix(".md")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(result.markdown, encoding="utf-8")
+        converted += 1
+
+    total = len(plan)
+    print(f"{converted}/{total} converted, {len(failures)} failed", file=sys.stderr)
+    return EXIT_BATCH_PARTIAL_FAILURE if failures else EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     config = Config()
 
-    source: Source
-    fmt: str
-    if args.source is None:
-        if args.format is None:
-            parser.error("--format is required when reading from stdin")
-        source = sys.stdin.buffer.read()
-        fmt = args.format
-    else:
-        path = Path(args.source)
-        if not path.is_file():
-            parser.error(f"{args.source}: no such file")
-        detected = _format_for_path(path)
-        if detected is None:
-            parser.error(f"{args.source}: unrecognized extension (expected .docx or .xlsx)")
-        source = path
-        fmt = detected
+    if not args.sources:
+        return _run_stdin(args, config, parser)
 
-    result, code, message = _convert_one(source, fmt, config)
-    if result is None:
-        print(f"error: {message}", file=sys.stderr)
-        return code
+    raw_paths = [Path(s) for s in args.sources]
+    is_batch = len(raw_paths) > 1 or raw_paths[0].is_dir()
+    if is_batch:
+        sources = _resolve_batch_sources(args.sources, parser)
+        return _run_batch(sources, args, config, parser)
 
-    _report_warnings(result.warnings)
-    _emit(result.markdown, args.output)
-    return EXIT_OK
+    return _run_single(raw_paths[0], args, config, parser)
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised via __main__.py/console script
