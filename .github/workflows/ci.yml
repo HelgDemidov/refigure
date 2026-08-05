@@ -58,12 +58,30 @@ jobs:
   # (stage 4/5 haven't landed real behavioral coverage for chart_data.py/
   # chart_render.py/docx_groups.py/xlsx_charts.py internals — a hard
   # threshold now would just be noise until that lands).
+  #
+  # libreoffice-writer (stage 4b, 2026-08-05): installed here, not skipped,
+  # so refigure/vlm.py's soffice-render path (test_vlm.py, tests/integration/
+  # test_docx_groups_live.py) runs for real in CI — an untested CI path was
+  # explicitly rejected for this feature (docs/vlm-layer-port-2026-08-05.md
+  # §3). Cached via actions/cache (apt's own .deb cache dir) so the ~10-20s
+  # network download only happens once per cache-key generation, not every
+  # run — dpkg unpack/configure still runs each time, apt-get itself decides
+  # whether a cached .deb is still valid.
   # ---------------------------------------------------------------------------
   test-unit:
     name: Unit tests + coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Cache libreoffice-writer apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-libreoffice-writer-${{ runner.os }}-v1
+
+      - name: Install libreoffice-writer
+        run: sudo apt-get update && sudo apt-get install -y libreoffice-writer
 
       - name: Install uv and set Python version
         uses: astral-sh/setup-uv@v9.0.0
@@ -82,12 +100,12 @@ jobs:
   # ---------------------------------------------------------------------------
   # Integration tests (tests/integration/) — real corpus fixtures (stage 5,
   # landed PR #7: 27 real documents, provenance/license in
-  # tests/integration/fixtures/manifest.yaml). Binaries are gitignored
-  # (~81MB) and not present in a fresh CI checkout, so this still collects 0
-  # tests in CI today — exit 5 ("no tests ran") is expected, not a failure,
-  # same graceful handling as the source pipeline's own test-integration job. Starts
-  # running something real once a local/CI fixture cache exists, no edit to
-  # this file needed then either.
+  # tests/integration/fixtures/manifest.yaml). 26 of 27 are committed
+  # directly (2026-08-05, ATTRIBUTION.md) and present in every CI checkout,
+  # so this job now actually exercises the corpus — the exit-5 ("no tests
+  # ran") tolerance below is kept only as a defensive fallback (e.g. a
+  # future manifest-only addition with no fixture yet), not the expected
+  # case anymore.
   # ---------------------------------------------------------------------------
   test-integration:
     name: Integration tests (CI-safe subset)
@@ -132,7 +150,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        extras: [bare, docx, xlsx, both]
+        # vlm/docx+vlm added stage 4b (2026-08-05): same import-order risk
+        # class PR #8 found in xlsx.py — integrating VLM code into existing
+        # modules (chart_render.py/docx_groups.py) needs the same check, not
+        # just "we added a try/except so it must be isolated". No soffice
+        # needed here — this job verifies IMPORT isolation, not the
+        # soffice-render path itself (that's test-unit's real corpus tests).
+        extras: [bare, docx, xlsx, both, vlm, docx+vlm]
     steps:
       - uses: actions/checkout@v7
 
@@ -150,6 +174,8 @@ jobs:
             docx) uv pip install ".[docx]" ;;
             xlsx) uv pip install ".[xlsx]" ;;
             both) uv pip install ".[docx,xlsx]" ;;
+            vlm) uv pip install ".[vlm]" ;;
+            docx+vlm) uv pip install ".[docx,vlm]" ;;
           esac
           uv pip install pytest
 

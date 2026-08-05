@@ -181,11 +181,26 @@ def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) ->
         # this from extract_and_strip_groups, well before mammoth ever runs.
         raise CorruptArchiveError(str(exc)) from exc
 
+    markdown = text + "\n" + fallback
+    vlm_used = False
+    if config.use_vlm:
+        # Lazy import (stage 4b): refigure[docx] without [vlm] must not
+        # require pdfplumber just to call convert() with the (default)
+        # use_vlm=False — only actually using the feature pulls it in. Same
+        # guard-ordering discipline as refigure/cli.py's per-format lazy
+        # import (project_extras_isolation_bug memory).
+        from . import vlm
+
+        markdown, vlm_used, vlm_warnings = vlm.enhance_docx_markdown(
+            markdown, normalized, config=config
+        )
+        warnings.extend(vlm_warnings)
+
     return ConversionResult(
-        markdown=text + "\n" + fallback,
+        markdown=markdown,
         warnings=warnings,
         charts_found=charts_found,
         charts_rendered=charts_rendered,
         groups_found=groups_found,
-        vlm_used=False,
+        vlm_used=vlm_used,
     )

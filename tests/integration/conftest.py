@@ -2,14 +2,14 @@
 
 ``tests/integration/fixtures/manifest.yaml`` is the tracked source of truth
 for the real DOCX/XLSX corpus (provenance/license/sha256) — the binaries
-themselves live under ``fixtures/docx/`` and ``fixtures/xlsx/`` but are
-gitignored (~81MB of office documents; see ``fixtures/README.md``). A fresh
-clone or a CI run without the local fixture setup has an empty or partial
-``fixtures/{docx,xlsx}/`` directory, so every manifest entry must resolve to
-a gracefully-skipped test case (not a failure) when its file isn't present
-on disk — mirrors the source pipeline's own
-``pytest.mark.skipif(not _FIXTURE.exists(), ...)`` pattern for the same
-reason.
+themselves live under ``fixtures/docx/`` and ``fixtures/xlsx/``. 26 of 27
+(~133MB) are committed directly (2026-08-05, see ``../../ATTRIBUTION.md`` +
+``fixtures/README.md``); one (``docx/iot-report-2022-national-strategies-
+excerpt.docx``) stays gitignored (authorship risk, not license risk). Every
+manifest entry still resolves to a gracefully-skipped test case (not a
+failure) when its file isn't present on disk — mirrors the source
+pipeline's own ``pytest.mark.skipif(not _FIXTURE.exists(), ...)`` pattern,
+now only actually exercised for that one exception.
 
 ``load_manifest_fixtures``/``fixture_params`` are format-agnostic (take a
 ``fmt`` of ``"docx"`` or ``"xlsx"``) so both ``test_docx_corpus.py`` and

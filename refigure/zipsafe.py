@@ -38,12 +38,12 @@ class ArchiveBombSuspected(RuntimeError):
     """The archive declares a decompressed size above the ceiling — we don't start
     reading it.
 
-    Inherits from ``RuntimeError``, NOT ``converters.ConversionError``: the gate is
-    called from two independent entry points (``converters`` and ``figures_vlm``),
-    and importing ``converters`` from here would create a circular import. This
-    doesn't affect routing — per-document failure isolation in
-    ``run_pipeline.process_docs`` catches ``Exception``; the dedicated type exists
-    for readability and tests.
+    Inherits from ``RuntimeError``, not a refigure-specific exception: the gate is
+    called from more than one entry point — ``docx.py``'s ``convert()`` and (stage
+    4b) ``vlm.py``'s ``enhance_docx_markdown()``, which re-enters the same archive
+    to read ``word/media/*``/render a group — and importing either from here would
+    risk a circular import. This doesn't affect routing — each caller classifies
+    the exception itself; the dedicated type exists for readability and tests.
     """
 
 

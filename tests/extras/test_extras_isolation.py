@@ -4,8 +4,10 @@ Confirms the extras architecture's core promise — asserted repeatedly in
 CLAUDE.md/design docs ("refigure/docx.py imports only mammoth+markdownify",
 "a bare pip install refigure never pulls in openpyxl") but never actually
 CI-checked before this file: ``pip install refigure[docx]`` doesn't pull in
-openpyxl, ``[xlsx]`` doesn't pull in mammoth, and importing the submodule
-for a format whose extra isn't installed raises
+openpyxl, ``[xlsx]`` doesn't pull in mammoth, ``[vlm]`` doesn't pull in
+mammoth/openpyxl (stage 4b, 2026-08-05 — same import-order risk class PR
+#8 found in ``xlsx.py``), and importing the submodule for a format/
+capability whose extra isn't installed raises
 ``MissingOptionalDependencyError`` with an actionable message — not a bare
 ``ModuleNotFoundError``. Also covers the ``refigure`` console command
 (stage 6b): it must work (``--help``/``--version``) in every leg including
@@ -48,8 +50,9 @@ if _EXTRAS is None:
         allow_module_level=True,
     )
 
-_HAS_DOCX = _EXTRAS in ("docx", "both")
+_HAS_DOCX = _EXTRAS in ("docx", "both", "docx+vlm")
 _HAS_XLSX = _EXTRAS in ("xlsx", "both")
+_HAS_VLM = _EXTRAS in ("vlm", "docx+vlm")
 
 
 def test_core_types_always_importable() -> None:
@@ -84,6 +87,16 @@ def test_xlsx_submodule_matches_extras() -> None:
             import refigure.xlsx  # noqa: F401
 
 
+def test_vlm_submodule_matches_extras() -> None:
+    from refigure import MissingOptionalDependencyError
+
+    if _HAS_VLM:
+        import refigure.vlm  # noqa: F401
+    else:
+        with pytest.raises(MissingOptionalDependencyError, match=r"refigure\[vlm\]"):
+            import refigure.vlm  # noqa: F401
+
+
 def test_mammoth_only_importable_when_docx_extra_present() -> None:
     try:
         import mammoth  # noqa: F401
@@ -107,6 +120,19 @@ def test_openpyxl_only_importable_when_xlsx_extra_present() -> None:
     assert importable == _HAS_XLSX, (
         f"openpyxl importable={importable}, expected={_HAS_XLSX} for extras={_EXTRAS!r} "
         "— a leaked/missing transitive dependency in the [xlsx] extra"
+    )
+
+
+def test_pdfplumber_only_importable_when_vlm_extra_present() -> None:
+    try:
+        import pdfplumber  # noqa: F401
+
+        importable = True
+    except ModuleNotFoundError:
+        importable = False
+    assert importable == _HAS_VLM, (
+        f"pdfplumber importable={importable}, expected={_HAS_VLM} for extras={_EXTRAS!r} "
+        "— a leaked/missing transitive dependency in the [vlm] extra"
     )
 
 
