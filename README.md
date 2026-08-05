@@ -14,8 +14,12 @@ reproducible offline.
 Pre-release. The converters are being extracted from a working
 document-analysis pipeline (government AI-policy corpus); first public release
 planned for **August 2026** as a single package with per-format extras
-(`[docx]` / `[xlsx]`) — VLM ships prepared behind `[vlm]` but inactive in v1.
-PDF is out of scope for this project (see
+(`[docx]` / `[xlsx]`). A `[vlm]` extra also exists (DOCX-only cloud
+interpretation of composite figures the chart engine can't reconstruct,
+`Config(use_vlm=True)`, provider-agnostic — also needs the system
+`soffice`/LibreOffice binary, not installable via pip) — implemented and
+tested, but **not active or announced as a v1 feature yet**; no CLI flag
+exposes it. PDF is out of scope for this project (see
 `docs/converter-viability-assessment-2026-08-04.md`).
 
 PyPI names `refigure` and `refigure-md` are reserved (placeholder 0.0.0).
