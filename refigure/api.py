@@ -3,6 +3,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Protocol
+
+
+class VlmClient(Protocol):
+    """Structural contract for a VLM HTTP client (stage 4b).
+
+    refigure is LLM provider-agnostic by design, not structurally tied to
+    OpenRouter: ``vlm_client.OpenRouterClient`` is the one bundled
+    implementation, not the only possible one. A caller with confidentiality
+    requirements can supply any other ``VlmClient`` — e.g. a local
+    Ollama/vLLM-backed client — without any change to ``vlm.py``/``docx.py``,
+    which only ever depend on this Protocol, never on a concrete provider.
+
+    Defined here (core, ``api.py``), not in ``vlm_client.py``: core must not
+    depend on a per-capability peripheral module, only the reverse (same
+    layering rule ``VlmCacheBackend`` below follows).
+    """
+
+    def send(self, prompt: str, image_uri: str, *, model: str) -> str:
+        """Send one prompt + one image (a data: URI) to the model, return its
+        text response. Raises on an unrecoverable failure — callers are
+        expected to catch broadly and degrade to the honest fallback marker
+        (never let one figure's VLM failure abort the whole conversion)."""
+        ...
 
 
 @dataclass
