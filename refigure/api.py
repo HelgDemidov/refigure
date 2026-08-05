@@ -16,7 +16,7 @@ class VlmClient(Protocol):
     Ollama/vLLM-backed client — without any change to ``vlm.py``/``docx.py``,
     which only ever depend on this Protocol, never on a concrete provider.
 
-    Defined here (core, ``api.py``), not in ``vlm_client.py``: core must not
+    Defined here (core, ``api.py``), not in ``vlm/client.py``: core must not
     depend on a per-capability peripheral module, only the reverse (same
     layering rule ``VlmCacheBackend`` below follows).
     """
@@ -36,7 +36,7 @@ class VlmCacheBackend(Protocol):
     ``doc.md`` next to it; refigure has neither (a single in-memory
     ``convert()`` call, input can be bytes with no filesystem path at all).
 
-    ``vlm_cache.py`` provides two concrete implementations
+    ``vlm/cache.py`` provides two concrete implementations
     (``InMemoryCacheBackend``/``FileCacheBackend``); a caller can supply any
     other backend via ``Config.vlm_cache`` (e.g. a shared Redis-backed one
     for a multi-process batch job) — same "core defines the contract,
@@ -72,7 +72,7 @@ class Config:
 
     use_vlm: bool = False
     """Enable cloud VLM interpretation of composite DOCX figures that the
-    chart engine and ``docx_groups.py`` otherwise leave as an honest
+    chart engine and ``docx/groups.py`` otherwise leave as an honest
     "content not analyzed" marker. **Data egress**: turning this on sends
     network requests to ``vlm_client``'s backing service (OpenRouter by
     default) — but ONLY the cropped image of the specific figure/group
@@ -165,7 +165,7 @@ class UnsupportedFormatError(Exception):
 
 
 class CorruptArchiveError(Exception):
-    """Input is not a valid/safe zip archive (see ``refigure.zipsafe``)."""
+    """Input is not a valid/safe zip archive (see ``refigure.core.zipsafe``)."""
 
 
 class MissingOptionalDependencyError(Exception):

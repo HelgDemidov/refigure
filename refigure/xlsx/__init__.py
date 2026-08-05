@@ -3,7 +3,7 @@
 Importing this module without ``refigure[xlsx]`` installed raises
 ``MissingOptionalDependencyError`` immediately, with an actionable message,
 instead of a bare ``ModuleNotFoundError`` — this guard MUST run before any
-other same-package import, because ``xlsx_charts.py`` also touches openpyxl
+other same-package import, because ``xlsx/charts.py`` also touches openpyxl
 directly (``openpyxl.utils.get_column_letter``, for cell-reference
 formatting) and has no guard of its own. A prior version imported
 ``xlsx_charts`` first, which raised an unguarded ``ModuleNotFoundError``
@@ -36,7 +36,7 @@ try:
     import openpyxl
     from openpyxl.utils.cell import coordinate_to_tuple
 except ImportError as exc:
-    from .api import MissingOptionalDependencyError
+    from ..api import MissingOptionalDependencyError
 
     raise MissingOptionalDependencyError(
         "refigure[xlsx] is required to convert XLSX files"
@@ -48,14 +48,15 @@ import zipfile
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from . import chart_data, chart_render, xlsx_charts, zipsafe
-from ._io import normalize_source
-from .api import (
+from .._io import normalize_source
+from ..api import (
     Config,
     ConversionResult,
     CorruptArchiveError,
     UnsupportedFormatError,
 )
+from ..core import chart_data, chart_render, zipsafe
+from . import charts as xlsx_charts
 
 _OPENPYXL_LOAD_LOCK = threading.Lock()
 

@@ -13,12 +13,13 @@ separate pass over an already-written ``doc.md`` on disk, cache keyed by
 single in-memory ``convert()`` call, input can be ``bytes`` with no parent
 directory at all) nor that on-disk cache convention. ``enhance_docx_markdown``
 below scans a markdown STRING instead of a file, and both the VLM HTTP
-client (``VlmClient``, ``vlm_client.py``) and the response cache
-(``VlmCacheBackend``, ``vlm_cache.py``) are pluggable Protocols defined in
+client (``VlmClient``, ``vlm/client.py``) and the response cache
+(``VlmCacheBackend``, ``vlm/cache.py``) are pluggable Protocols defined in
 ``api.py`` — not a hardcoded OpenRouter call or a hardcoded sidecar file.
 
 Guard is the first same-package-import-adjacent statement in this file
-(before ``from . import chart_render, docx_groups`` below): a module-level
+(before ``from ..core import chart_render``/``from ..docx import groups``
+below): a module-level
 ``try/except ImportError`` guard is only effective if it runs before any
 OTHER same-package import that could itself transitively raise an
 unguarded ``ImportError`` for the same dependency — the exact bug class PR
@@ -31,7 +32,7 @@ imports ``pdfplumber``), but that safety is circumstantial, not contractual
 
 from __future__ import annotations
 
-from .api import MissingOptionalDependencyError
+from ..api import MissingOptionalDependencyError
 
 try:
     import pdfplumber
@@ -54,16 +55,17 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from . import chart_render, docx_groups, zipsafe
-from .api import Config, VlmCacheBackend, VlmClient
-from .vlm_cache import InMemoryCacheBackend
-from .vlm_client import OpenRouterClient
+from ..api import Config, VlmCacheBackend, VlmClient
+from ..core import chart_render, zipsafe
+from ..docx import groups as docx_groups
+from .cache import InMemoryCacheBackend
+from .client import OpenRouterClient
 
 logger = logging.getLogger(__name__)
 
 BBox = tuple[float, float, float, float]
 
-# --- marker grammar: docx-only (mirrors docx.py's/docx_groups.py's own marker
+# --- marker grammar: docx-only (mirrors docx.py's/docx/groups.py's own marker
 # text exactly — verified 2026-08-05 by running both against a live fixture,
 # see docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md §2) -----------------------------------
 
@@ -76,7 +78,7 @@ _DOCX_IMAGE_MARKER_RE = re.compile(
 # ever runs — an empty extraction leaves the SAME marker text, but this regex
 # only matches the literal "docx group" noun, never "docx chart". A chart
 # with no numCache stays an honest static marker forever — see the module
-# docstring and docx_groups.py's own docstring for the full rationale.
+# docstring and docx/groups.py's own docstring for the full rationale.
 _DOCX_GROUP_MARKER_RE = re.compile(
     r"^> \[Figure, docx group (?P<id>[0-9a-f]{12}) — composite content not analyzed\]\n"
     r"> captions: (?P<witness>.*)$",
@@ -231,7 +233,7 @@ def sanitize_vlm_markdown(md: str) -> str:
 
 
 # --- witness gate: cross-check a VLM description against the document's OWN
-# independently-extracted captions (docx_groups.py's `captions`) ------------
+# independently-extracted captions (docx/groups.py's `captions`) ------------
 
 
 def token_recall(reference: str, candidate: str) -> float:
@@ -270,7 +272,7 @@ def format_missing_side(nums: Counter[str], other: Counter[str]) -> str:
 def witness_defects(witness: str, markdown: str, obj_id: str, *, min_recall: float) -> list[str]:
     """Cross-check a VLM figure description against an INDEPENDENT witness —
     the group's own captions, deterministically extracted by
-    ``docx_groups.py`` itself (zero-loss fallback text, not model output).
+    ``docx/groups.py`` itself (zero-loss fallback text, not model output).
 
     Applies ONLY to composite groups, never to standalone images: a
     standalone ``> [Image, docx media ...]`` marker carries no captions at

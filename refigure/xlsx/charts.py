@@ -1,5 +1,5 @@
 """Embedded xlsx charts (spec convert-xlsx §3): the architectural analog of
-``docx_groups.py``, adapted to the streamless (cell-anchored) model — an
+``docx/groups.py``, adapted to the streamless (cell-anchored) model — an
 xlsx chart has no "position within a paragraph", only a sheet + anchor cell,
 so instead of an in-stream sentinel the marker is declaratively placed right
 after its sheet's table (``converters._convert_xlsx``). Hence the different
