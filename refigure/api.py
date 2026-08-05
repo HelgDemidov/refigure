@@ -86,11 +86,20 @@ class Config:
     """OpenRouter model slug used by the default ``OpenRouterClient``.
     Ignored when ``vlm_client`` is set to a custom implementation, which may
     have its own model-selection mechanism. Confirmed (not just inherited
-    as an untested placeholder) by this stage's own A/B calibration against
-    refigure's real corpus, 2026-08-05: tied-best output quality against a
-    pricier competitor (``anthropic/claude-haiku-4.5``), cheapest of the 3
-    candidates tested, zero structural errors across the eval-set — see
-    ``docs/vlm-model-calibration-2026-08-05.md`` for the full comparison."""
+    as an untested placeholder) by this stage's own two-round A/B
+    calibration against refigure's real corpus, 2026-08-05 — round 1 (3
+    simple English-caption crops) found a quality tie with a pricier
+    competitor (``anthropic/claude-haiku-4.5``); round 2 (5 complex,
+    multi-lingual crops added after a review found round 1 too thin) found
+    ZERO manually-confirmed factual errors for this model against 2 for
+    Claude Haiku and 5 for ``openai/gpt-4o-mini`` (which fabricates an
+    inappropriate mermaid diagram in 100% of responses regardless of
+    structural fit — see the doc). Cheapest of the 3 candidates in both
+    rounds. One caveat, not a factual error: on non-English source
+    documents this model tends to leave transcribed labels untranslated
+    despite the prompt's "Output in English" instruction — a prompt-
+    engineering fix, not a reason to switch models. Full comparison:
+    ``docs/vlm-model-calibration-2026-08-05.md``."""
 
     vlm_api_key: str | None = None
     """API key for the default ``OpenRouterClient``. Falls back to the
@@ -116,16 +125,22 @@ class Config:
     vlm_witness_min_recall: float = 0.80
     """Minimum token-recall (see ``vlm.token_recall``) of a composite
     group's own captions against its VLM description before
-    ``vlm.witness_defects`` flags it. NOT empirically re-derived by this
-    stage's A/B calibration, 2026-08-05 — the real corpus's only
-    non-empty-caption groups all had short, directly-transcribable
-    captions, so every candidate model scored a trivial 1.00 recall
-    regardless of actual response quality (a real, documented finding, not
-    an oversight: see ``docs/vlm-model-calibration-2026-08-05.md``). 0.80
-    is kept as a plausible default pending a more diverse witness-caption
-    corpus to calibrate against, not imported from unrelated literature
-    thresholds either (see ``docs/vlm-layer-port-2026-08-05.md`` §5's
-    research)."""
+    ``vlm.witness_defects`` flags it. NOT empirically re-derived, across
+    TWO rounds of this stage's A/B calibration, 2026-08-05, for two
+    independent reasons documented in ``docs/vlm-model-calibration-
+    2026-08-05.md``: (1) on English-caption content (the entire committed
+    corpus) recall is a trivial 1.00 regardless of response quality — no
+    separation signal exists; (2) on multi-lingual content (round 2, added
+    after a review found round 1 too thin), recall DOES vary, but the
+    variation tracks which models translate transcribed labels into
+    English, not which models are factually accurate — calibrating against
+    that signal would tune the gate to penalize language choice, not real
+    errors. 0.80 is kept as a plausible default, not imported from
+    unrelated literature thresholds either (see ``docs/vlm-layer-port-
+    2026-08-05.md`` §5's research). The manually-confirmed real defect
+    classes (inappropriate mermaid fabrication, minor semantic drift) are
+    NOT caught by this recall-only mechanism at all — a known, documented
+    blind spot, not something this threshold value can fix."""
 
 
 @dataclass
