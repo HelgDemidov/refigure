@@ -160,10 +160,16 @@ batch/directory-ввод, как у Docling/marker; (3) типизированн
   4 legs): `refigure --version`/`--help` работает во всех 4 legs, включая
   `bare`; конвертация нужного формата в `bare`/не том extra падает с
   exit 5 и типизированным сообщением.
-- Интеграционный smoke-тест на 1-2 фикстурах `tests/integration/fixtures/`
-  end-to-end через CLI — stdout байт-в-байт совпадает с прямым вызовом
-  `convert()` (доказывает, что CLI — чистый pass-through, не дублирует
-  логику).
+- Интеграционный smoke-тест на **всём 27-файловом корпусе**
+  `tests/integration/fixtures/{docx,xlsx}/` через batch-режим CLI (не 1-2
+  файла — поправка 2026-08-05 по факту проверки: обе подпапки плоские, 27
+  файлов реально на диске, без дублей basename) — output каждого файла
+  байт-в-байт совпадает с прямым вызовом `convert()` на том же source
+  (доказывает, что CLI — чистый pass-through, не дублирует логику), плюс
+  сама сводка (`27/27 converted`) проверяется как отдельное утверждение.
+  Не заменяет синтетический анти-#3811-тест (коллизия имён) и тест на
+  вложенные директории — этот реальный корпус плоский, ни того ни другого
+  не содержит.
 
 ## План коммитов/PR
 
@@ -174,7 +180,7 @@ batch/directory-ввод, как у Docling/marker; (3) типизированн
 5. `test: tests/unit/test_cli.py — single-file/stdin/batch/exit-codes/flags`
 6. `test: extend test_optional_dependency_guards.py for CLI lazy-import isolation`
 7. `test: extend tests/extras/test_extras_isolation.py — CLI legs`
-8. `test: integration smoke test — CLI output matches convert() byte-for-byte`
+8. `test: integration smoke test — full 27-fixture corpus via CLI batch mode, byte-for-byte vs convert()`
 9. `docs: README CLI usage section + exit-code table`
 
 ## Чек-лист реализации
@@ -186,7 +192,7 @@ batch/directory-ввод, как у Docling/marker; (3) типизированн
 - [ ] `tests/unit/test_cli.py`
 - [ ] `test_optional_dependency_guards.py` расширен
 - [ ] `tests/extras/test_extras_isolation.py` расширен
-- [ ] интеграционный smoke-тест (byte-for-byte vs. `convert()`)
+- [ ] интеграционный smoke-тест (весь корпус, batch-режим, byte-for-byte vs. `convert()`)
 - [ ] README CLI-раздел
 
 ## Вне скоупа
