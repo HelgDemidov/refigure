@@ -29,6 +29,29 @@ class VlmClient(Protocol):
         ...
 
 
+class VlmCacheBackend(Protocol):
+    """Structural contract for a VLM-response cache (stage 4b): a pluggable
+    backend, not a hardcoded sidecar file — the source pipeline's
+    ``.figures.yaml`` was a fixed on-disk convention tied to a persistent
+    ``doc.md`` next to it; refigure has neither (a single in-memory
+    ``convert()`` call, input can be bytes with no filesystem path at all).
+
+    ``vlm_cache.py`` provides two concrete implementations
+    (``InMemoryCacheBackend``/``FileCacheBackend``); a caller can supply any
+    other backend via ``Config.vlm_cache`` (e.g. a shared Redis-backed one
+    for a multi-process batch job) — same "core defines the contract,
+    periphery implements it" layering as ``VlmClient`` above.
+    """
+
+    def get(self, key: str) -> dict[str, object] | None:
+        """The cached entry for ``key``, or ``None`` on a cache miss."""
+        ...
+
+    def set(self, key: str, value: dict[str, object]) -> None:
+        """Store ``value`` under ``key``, overwriting any prior entry."""
+        ...
+
+
 @dataclass
 class Config:
     """Runtime configuration for a conversion call.
