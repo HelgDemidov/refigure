@@ -21,7 +21,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 
-from refigure.docx_groups import (
+from refigure.docx.groups import (
     DocxGroup,
     all_media_ids,
     extract_and_strip_groups,

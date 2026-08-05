@@ -10,7 +10,7 @@
 
 A/B-калибровка (`docs/vlm/vlm-model-calibration/vlm-model-calibration-2026-08-05.md`,
 24 живых вызова) нашла 2 независимых, задокументированных пробела в
-существующем witness-гейте (`refigure/vlm.py`'s `witness_defects`/
+существующем witness-гейте (`refigure/vlm/__init__.py`'s `witness_defects`/
 `token_recall` + `chart_render.mermaid_renders()`):
 
 1. **`token_recall` языково-слеп.** На многоязычном eval-set recall разошёлся
@@ -72,15 +72,15 @@ model: str) -> list[str]` — построчный парсинг фиксиро
 свидетеля и поэтому group-only): `judge_defects` смотрит на саму картинку,
 свидетель не нужен, поэтому применим и к standalone-изображениям —
 устраняет для этого класса дефектов пробел, который у `witness_defects`
-был архитектурным решением (не багом), см. `vlm.py`'s текущую докстроку.
+был архитектурным решением (не багом), см. `vlm/__init__.py`'s текущую докстроку.
 Порог/threshold не нужен — да/нет-вердикт не требует калибровки числа
 (в отличие от `vlm_witness_min_recall`) — не плодим второй магический
 порог, который тоже пришлось бы откалибровывать.
 
 ## 3. Кэш — новое опциональное поле `judge_verdict`
 
-Формат записи кэша (`vlm_cache.py`'s backends не меняются — они уже
-хранят произвольный `dict[str, object]`, это чисто `vlm.py`-уровневое
+Формат записи кэша (`vlm/cache.py`'s backends не меняются — они уже
+хранят произвольный `dict[str, object]`, это чисто `vlm/__init__.py`-уровневое
 изменение формы записи): `{"model": str, "markdown": str,
 "judge_verdict": list[str] | None}` — `None`/отсутствует = ещё не
 проверено judge'ем.
@@ -96,7 +96,7 @@ markdown в кэше».
 
 ## 4. Документация ограничения (докстроки)
 
-`Config.vlm_witness_min_recall` и `witness_defects` (`vlm.py`) получают
+`Config.vlm_witness_min_recall` и `witness_defects` (`vlm/__init__.py`) получают
 явную формулировку: word-recall язык-чувствителен, на неанглоязычном
 исходнике низкий recall может означать «не перевёл», а не «ошибся» —
 см. `docs/vlm/vlm-model-calibration/vlm-model-calibration-2026-08-05.md`.
@@ -122,10 +122,10 @@ markdown в кэше».
 
 ## Тестовое покрытие
 
-- `tests/unit/test_vlm.py`: `judge_defects()` — мокнутый `VlmClient.send()`,
+- `tests/unit/vlm/test_vlm.py`: `judge_defects()` — мокнутый `VlmClient.send()`,
   все комбинации ответа (чистый/hallucination/mermaid_fit=no/language=no/
   нераспознанный формат) → верные строки-дефекты или warning.
-- `tests/unit/test_vlm.py`: `enhance_docx_markdown` — `vlm_verify=False`
+- `tests/unit/vlm/test_vlm.py`: `enhance_docx_markdown` — `vlm_verify=False`
   (дефолт) никогда не вызывает judge (тот же приём «без сети», что и
   существующий офлайн-тест); `vlm_verify=True` на cache-miss вызывает
   judge ровно раз на маркер; частичный cache-hit (кэш без verdict +
@@ -138,11 +138,11 @@ markdown в кэше».
 
 1. `docs: draft spec for witness-gate-redesign`
 2. `feat: add Config.vlm_verify flag`
-3. `feat: refigure/vlm.py — judge_defects() discriminative judge`
+3. `feat: refigure/vlm/__init__.py — judge_defects() discriminative judge`
 4. `feat: wire judge_defects into enhance_docx_markdown + cache upgrade path`
 5. `docs: witness_defects/vlm_witness_min_recall — document language-blindness`
-6. `test: tests/unit/test_vlm.py — judge_defects unit coverage`
-7. `test: tests/unit/test_vlm.py — vlm_verify wiring + partial cache-hit`
+6. `test: tests/unit/vlm/test_vlm.py — judge_defects unit coverage`
+7. `test: tests/unit/vlm/test_vlm.py — vlm_verify wiring + partial cache-hit`
 8. `chore: validate judge_defects against the 24 labeled calibration responses`
 
 ## Чек-лист реализации

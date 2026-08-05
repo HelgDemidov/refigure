@@ -24,8 +24,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from refigure.chart_data import ChartData, ChartSeries
-from refigure.chart_render import render_chart
+from refigure.core.chart_data import ChartData, ChartSeries
+from refigure.core.chart_render import render_chart
 
 _QUOTE_RE = re.compile(r'"')
 

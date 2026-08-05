@@ -34,7 +34,8 @@ from pathlib import Path
 
 import pytest
 
-from refigure import docx_groups, vlm
+from refigure import vlm
+from refigure.docx import groups as docx_groups
 
 _FIXTURE_PATH = Path(__file__).parent / "fixtures" / "docx" / "efsa-echinococcus-guide.docx"
 

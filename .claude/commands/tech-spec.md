@@ -9,8 +9,8 @@ Take the task description from the user's message (and any command args) as the 
 ## Cross-cutting principle — refigure's architectural invariants
 
 The spec is built against current industry best practices — code robustness, cleanliness, secure development — AND against the architecture decisions already locked in `CLAUDE.md` and `docs/project-meta/v1-scope-and-api-design/v1-scope-and-api-design-2026-08-04.md`. This isn't a separate step but a criterion applied at every stage — draft (Step 2), self-critique (Step 3), finalization (Step 4). Concretely, any spec touching converter code must respect:
-- **Format isolation**: `refigure/docx.py` imports only mammoth+markdownify; `refigure/xlsx.py` imports only openpyxl. Neither imports the other's heavy dependency.
-- **Core stays light**: `chart_data.py`/`chart_render.py` import only `lxml` (+ optional `mermaidx` inside `chart_render.py`) — never mammoth/openpyxl.
+- **Format isolation**: `refigure/docx/__init__.py` imports only mammoth+markdownify; `refigure/xlsx/__init__.py` imports only openpyxl. Neither imports the other's heavy dependency.
+- **Core stays light**: `refigure/core/chart_data.py`/`refigure/core/chart_render.py` import only `lxml` (+ optional `mermaidx` inside `chart_render.py`) — never mammoth/openpyxl.
 - **Optional-dependency pattern**: module-level `try/except ImportError` + capability flag + `functools.lru_cache` warn-once via `logger.warning` — reuse the existing pattern, don't invent a new one per dependency.
 - **Sync core**: `chart_data`/`chart_render`/`docx`/`xlsx` stay synchronous; async is reserved for a future narrow VLM-batch entry point only, not the whole library.
 - **Rich public API**: `ConversionResult` dataclass + typed exceptions + `strict: bool`, not a bare string or raised-kwarg pile.

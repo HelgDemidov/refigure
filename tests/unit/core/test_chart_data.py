@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from lxml import etree
 
-from refigure.chart_data import ChartData, ChartSeries, parse_chart
+from refigure.core.chart_data import ChartData, ChartSeries, parse_chart
 
 _C = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 _A = "http://schemas.openxmlformats.org/drawingml/2006/main"

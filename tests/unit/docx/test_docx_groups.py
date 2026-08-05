@@ -10,7 +10,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 
-from refigure.docx_groups import (
+from refigure.docx.groups import (
     SENTINEL_PREFIX,
     all_media_ids,
     extract_and_strip_groups,
@@ -121,7 +121,7 @@ def test_multiple_groups_get_distinct_ids_and_own_media(tmp_path: Path) -> None:
 
 
 def test_inject_group_markers_replaces_bare_sentinel() -> None:
-    from refigure.docx_groups import DocxGroup
+    from refigure.docx.groups import DocxGroup
 
     group = DocxGroup(id12="abc123def456", media_ids=frozenset(), captions=("Foo", "Bar"))
     text = f"Before.\n\n{SENTINEL_PREFIX}abc123def456\n\nAfter."
@@ -138,7 +138,7 @@ def test_inject_group_markers_consumes_bold_wrapping() -> None:
     rPr of the run the sentinel replaced — live case: a bold block in the
     fixture) — the regex must absorb the wrapping whole, leaving no dangling
     asterisks."""
-    from refigure.docx_groups import DocxGroup
+    from refigure.docx.groups import DocxGroup
 
     group = DocxGroup(id12="abc123def456", media_ids=frozenset(), captions=())
     text = f"Before. **{SENTINEL_PREFIX}abc123def456** After."
@@ -148,7 +148,7 @@ def test_inject_group_markers_consumes_bold_wrapping() -> None:
 
 
 def test_inject_group_markers_empty_captions_says_no_text() -> None:
-    from refigure.docx_groups import DocxGroup
+    from refigure.docx.groups import DocxGroup
 
     group = DocxGroup(id12="abc123def456", media_ids=frozenset(), captions=())
     result, _rendered_count = inject_group_markers(f"{SENTINEL_PREFIX}abc123def456", [group])
@@ -258,8 +258,8 @@ def test_inject_group_markers_chart_kind_empty_extraction_falls_back_to_marker()
     """A chart-kind with an empty extraction (no numCache) -> the SAME
     honest marker as before data-driven resolution existed (caption
     fallback, not a crash/empty output)."""
-    from refigure.chart_data import ChartData
-    from refigure.docx_groups import DocxGroup
+    from refigure.core.chart_data import ChartData
+    from refigure.docx.groups import DocxGroup
 
     empty = ChartData(
         chart_type="other",
@@ -306,7 +306,7 @@ def test_chart_inside_alternate_content_not_detected(tmp_path: Path) -> None:
 
 
 def test_inject_chart_marker_uses_chart_noun() -> None:
-    from refigure.docx_groups import DocxGroup
+    from refigure.docx.groups import DocxGroup
 
     chart = DocxGroup(id12="abc123def456", media_ids=frozenset(), captions=("Title",), kind="chart")
     result, rendered_count = inject_group_markers(f"{SENTINEL_PREFIX}abc123def456", [chart])
@@ -333,7 +333,7 @@ def test_extract_group_docx_finds_chart_and_keeps_chart_part(tmp_path: Path) -> 
 
 
 def test_all_media_ids_unions_across_groups() -> None:
-    from refigure.docx_groups import DocxGroup
+    from refigure.docx.groups import DocxGroup
 
     g1 = DocxGroup(
         id12="a" * 12, media_ids=frozenset({"111111111111", "222222222222"}), captions=()

@@ -18,15 +18,15 @@ running ``convert()`` twice per fixture for separately-named tiers):
   ``convert()`` against the real file on 2026-08-05 (git branch
   ``test/stage5-port-and-corpus-tests``) — NOT values inferred from
   ``manifest.yaml``'s raw-XML provenance notes. ``groups_found`` is
-  hardcoded to ``0`` in ``refigure/xlsx.py`` itself (xlsx has no
+  hardcoded to ``0`` in ``refigure/xlsx/__init__.py`` itself (xlsx has no
   composite-group concept — see its docstring/§ ``ConversionResult(...,
   groups_found=0, ...)``), so that part of the tuple is trivially always 0
   by construction, not something that could regress independently.
 
   For ``charts_found``/``charts_rendered`` specifically: unlike docx (whose
-  ``docx_groups.py`` narrows "every chart part" down to "only charts inside
+  ``docx/groups.py`` narrows "every chart part" down to "only charts inside
   a detected composite figure group"), xlsx chart discovery in
-  ``xlsx_charts.py`` is a much more direct "walk every sheet's drawing,
+  ``xlsx/charts.py`` is a much more direct "walk every sheet's drawing,
   every anchor, every ``c:chart`` reference" operation — so raw-XML part
   counts and refigure's reported counts were expected (per this task's
   brief) to match more often here than they did for docx.
@@ -80,10 +80,10 @@ from .conftest import FixtureInfo, fixture_params
 # purely from that warmup, not file size/content).
 _CONVERT_TIMEOUT_S = 120.0
 
-# Exact warning strings refigure/xlsx.py's convert() can append to
+# Exact warning strings refigure/xlsx/__init__.py's convert() can append to
 # ConversionResult.warnings, as of 2026-08-05 (read directly from source, not
 # guessed/copied from an older memory of it — keep this set in sync if
-# xlsx.py's warning text changes; it's not exposed as named constants there).
+# xlsx/__init__.py's warning text changes; it's not exposed as named constants there).
 _KNOWN_XLSX_WARNINGS = frozenset(
     {
         "no extractable content",
@@ -97,7 +97,7 @@ _KNOWN_XLSX_WARNINGS = frozenset(
 #
 # Bug #1 (crash): eia-steo-chart-gallery.xlsx made refigure.xlsx.convert()
 # RAISE an uncaught ValueError instead of returning a ConversionResult:
-# refigure/chart_data.py's _materialize_num did `float(v)` unconditionally
+# refigure/core/chart_data.py's _materialize_num did `float(v)` unconditionally
 # on every cached point text, and 19 of this file's 67 native chart parts
 # contain a literal "#N/A" (an Excel formula-error placeholder — common in
 # EIA forecast-vs-actual charts where a future period has no projection
@@ -108,11 +108,11 @@ _KNOWN_XLSX_WARNINGS = frozenset(
 # numeric coercion in chart_data.py, not just this one call site — two
 # further crash vectors in the same file (malformed `idx`/`ptCount`
 # attributes) were confirmed reproducible via synthetic XML before the fix
-# and are now covered by unit tests in test_chart_data.py.
+# and are now covered by unit tests in tests/unit/core/test_chart_data.py.
 #
 # Bug #2 (silent data loss): three fixtures showed charts_found LOWER than
 # manifest.yaml's raw xl/charts/chartN.xml part count.
-# refigure/xlsx_charts.py's _chart_anchors() used a singular lxml .find()
+# refigure/xlsx/charts.py's _chart_anchors() used a singular lxml .find()
 # to locate the c:chart reference inside one xdr:oneCellAnchor/
 # xdr:twoCellAnchor — when a single anchor was an xdr:grpSp (Excel's "group
 # these charts" feature) wrapping MULTIPLE charts at one shared position
@@ -164,13 +164,13 @@ _PINNED_XLSX_VALUES: dict[str, tuple[int, int, int]] = {
     # including the 4 bubble charts — even though bubbleChart is not one of
     # chart_render.py's known mermaid-producing types (confirmed: bubble is
     # NOT in _PIE_LIKE/_XYCHART_LIKE/radar; also confirmed structurally that
-    # xlsx_charts.py's _ALL_CHART_TAGS doesn't include "bubbleChart" at all,
+    # xlsx/charts.py's _ALL_CHART_TAGS doesn't include "bubbleChart" at all,
     # so chart_data.parse_chart classifies these as chart_type="other" —
     # their series/category data still gets extracted via the same
     # xVal/yVal fallback used for scatter charts, since bubbleChart's c:ser
     # happens to carry those same element names). This is the key finding
     # for "does charts_rendered drop for unmapped chart types": it does
-    # NOT. render_chart()/_render_xlsx_chart_block() in refigure/xlsx.py
+    # NOT. render_chart()/_render_xlsx_chart_block() in refigure/xlsx/__init__.py
     # count a chart as "rendered" whenever ANY markdown block (table with or
     # without a mermaid diagram) is produced — a mermaid diagram is only
     # ADDITIVE within that block, not a precondition for "rendered". Direct
@@ -255,7 +255,7 @@ def test_xlsx_corpus_fixture(fx: FixtureInfo) -> None:
     assert result.markdown != "", "none of our fixtures are blank workbooks"
     assert result.charts_rendered <= result.charts_found
     assert result.charts_found >= 0
-    # xlsx has no composite-group concept — refigure/xlsx.py hardcodes
+    # xlsx has no composite-group concept — refigure/xlsx/__init__.py hardcodes
     # groups_found=0 unconditionally (verified by reading the source, not
     # assumed), so this is a trivial-by-construction invariant, not an
     # empirical observation that could vary per fixture.

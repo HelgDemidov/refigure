@@ -19,9 +19,9 @@ import pytest
 
 from refigure import vlm
 from refigure.api import Config
-from refigure.vlm_cache import InMemoryCacheBackend
+from refigure.vlm.cache import InMemoryCacheBackend
 
-from .test_docx import build_minimal_docx
+from ..docx.test_docx import build_minimal_docx
 
 # --- shared fixture data ----------------------------------------------------
 

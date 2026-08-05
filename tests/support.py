@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import io
 import zipfile
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).parent.parent
 
 _DOCX_CONTENT_TYPES = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'

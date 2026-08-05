@@ -1,4 +1,4 @@
-"""Unit tests for refigure.vlm_cache's two VlmCacheBackend implementations
+"""Unit tests for refigure.vlm.cache's two VlmCacheBackend implementations
 (InMemoryCacheBackend, FileCacheBackend) against the Protocol contract
 defined in refigure.api (get/set) plus FileCacheBackend-specific disk
 persistence and corrupted-file handling.
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from refigure.vlm_cache import FileCacheBackend, InMemoryCacheBackend
+from refigure.vlm.cache import FileCacheBackend, InMemoryCacheBackend
 
 _BACKEND_FACTORIES = {
     "in_memory": lambda tmp_path: InMemoryCacheBackend(),

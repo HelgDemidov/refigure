@@ -44,7 +44,7 @@ import refigure.docx as docx
 import refigure.xlsx as xlsx
 from refigure.api import CorruptArchiveError, UnsupportedFormatError
 
-from .test_docx import build_minimal_docx
+from .docx.test_docx import build_minimal_docx
 
 
 def _make_xlsx(cell_value: str) -> bytes:

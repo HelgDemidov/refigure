@@ -27,10 +27,9 @@ from refigure.cli import (
     EXIT_USAGE,
     main,
 )
+from tests.support import REPO_ROOT
 
-from .test_docx import build_minimal_docx
-
-_REPO_ROOT = Path(__file__).parent.parent.parent
+from .docx.test_docx import build_minimal_docx
 
 
 def _write_docx(path: Path, paragraphs: list[str]) -> Path:
@@ -120,7 +119,7 @@ class TestTypedExitCodes:
             [sys.executable, "-c", script],
             capture_output=True,
             text=True,
-            cwd=str(_REPO_ROOT),
+            cwd=str(REPO_ROOT),
             timeout=30,
         )
         assert result.returncode == EXIT_MISSING_DEPENDENCY

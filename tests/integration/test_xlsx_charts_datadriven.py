@@ -48,9 +48,9 @@ from pathlib import Path
 
 import pytest
 
-import refigure.chart_data as chart_data
-import refigure.chart_render as chart_render
-import refigure.xlsx_charts as xlsx_charts
+import refigure.core.chart_data as chart_data
+import refigure.core.chart_render as chart_render
+import refigure.xlsx.charts as xlsx_charts
 from refigure.xlsx import convert
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "xlsx" / "govtech-2025-charts.xlsx"

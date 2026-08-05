@@ -17,7 +17,7 @@ from lxml import etree
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
 
-from refigure.xlsx_charts import (
+from refigure.xlsx.charts import (
     _chart_anchors,
     _chart_refs,
     _filter_caption_texts,
