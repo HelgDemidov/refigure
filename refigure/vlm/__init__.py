@@ -303,6 +303,82 @@ def witness_defects(witness: str, markdown: str, obj_id: str, *, min_recall: flo
     return defects
 
 
+# --- judge gate: discriminative VLM self-check (opt-in, Config.vlm_verify) -
+
+JUDGE_PROMPT_TEMPLATE = """You already produced this description of the attached figure:
+
+---
+{response}
+---
+
+Look at the attached image again and judge your OWN description above —
+do not regenerate it. Output EXACTLY these three lines, in this order,
+nothing else:
+
+hallucination: yes|no
+mermaid_fit: yes|no|n/a
+language: yes|no
+
+hallucination: does the description mention any object, relationship, or
+number that is NOT actually present in the image?
+mermaid_fit: if the description includes a ```mermaid fence, does this
+diagram type genuinely fit the figure's structure? Answer n/a if there is
+no mermaid fence, or the figure does not cleanly fit any diagram category.
+language: is the description written in English (labels transcribed
+verbatim from the original figure do not count as a violation)?"""
+
+_JUDGE_LINE_RE = re.compile(
+    r"^\s*(hallucination|mermaid_fit|language)\s*:\s*(yes|no|n/a)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def judge_defects(image_uri: str, response: str, *, client: VlmClient, model: str) -> list[str]:
+    """Discriminative self-check on an already-generated description: ask
+    the SAME model 3 fixed yes/no/n-a questions about its own output,
+    instead of generating anything new — the Generative-Discriminative Gap
+    (a VLM answers a concrete yes/no question about its own output more
+    reliably than it generates accurate text from scratch) is the
+    motivation, not a stylistic preference. One extra ``VlmClient.send()``
+    call, opt-in via ``Config.vlm_verify`` (see ``enhance_docx_markdown``).
+
+    Applies uniformly to BOTH marker kinds (image and group) — unlike
+    ``witness_defects``, which requires a caption witness and is therefore
+    group-only by construction (see its own docstring): this function only
+    looks at the image itself, no witness needed, closing that gap for
+    standalone images too.
+
+    Returns 0-3 defect strings (``vlm-judge-hallucination``/
+    ``vlm-judge-mermaid``/``vlm-judge-language``) — bare tags, not
+    ``obj_id``-qualified like ``witness_defects``'s output, since this
+    function has no ``obj_id`` parameter; the caller attaches one when
+    folding these into ``ConversionResult.warnings``. A failed call or an
+    unparseable/incomplete response degrades to an empty list (a warning is
+    logged, not raised) — same "signal, not failure" principle as
+    ``witness_defects``, and the same never-abort-the-conversion posture as
+    every other VLM call in this module."""
+    prompt = JUDGE_PROMPT_TEMPLATE.format(response=response)
+    try:
+        verdict = client.send(prompt, image_uri, model=model)
+    except Exception as exc:  # noqa: BLE001 — see _call_client's docstring; same principle
+        logger.warning("vlm_verify judge call failed (%s) — skipped", exc)
+        return []
+
+    answers = {m.group(1).lower(): m.group(2).lower() for m in _JUDGE_LINE_RE.finditer(verdict)}
+    if not {"hallucination", "mermaid_fit", "language"} <= answers.keys():
+        logger.warning("vlm_verify judge response did not match the expected format: %r", verdict)
+        return []
+
+    defects: list[str] = []
+    if answers["hallucination"] == "yes":
+        defects.append("vlm-judge-hallucination")
+    if answers["mermaid_fit"] == "no":
+        defects.append("vlm-judge-mermaid")
+    if answers["language"] == "no":
+        defects.append("vlm-judge-language")
+    return defects
+
+
 # --- rendering: standalone images (no render, already a raster file) and
 # composite groups (isolated mini-docx -> soffice -> PDF -> content-bbox crop)
 # --------------------------------------------------------------------------
