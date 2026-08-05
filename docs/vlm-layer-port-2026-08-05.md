@@ -119,6 +119,20 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
   параметр `send()` — реализационная деталь, не часть контракта
   Protocol'а).
 
+  **Явный архитектурный принцип (решение 2026-08-05): refigure — LLM
+  provider-agnostic, не привязан к OpenRouter структурно.**
+  `OpenRouterClient` — дефолтная, не единственно возможная реализация.
+  Прямое следствие — конфиденциальность решается не только тумблером
+  `use_vlm` (opt-in/opt-out), но и ВЫБОРОМ реализации: для
+  чувствительных документов можно подключить `LocalVlmClient`
+  (Ollama/vLLM/любой локальный multimodal-рантайм) вместо облачного —
+  данные тогда физически не покидают машину, это сильнее и честнее,
+  чем полагаться на то, что «opt-in сам по себе достаточная защита».
+  Локальный клиент не входит в скоуп этой стадии (никто не просил
+  конкретную реализацию) — но контракт (`VlmClient` Protocol) с
+  первого дня рассчитан на то, что кто-то его напишет, не требует
+  правок в `vlm.py`/`docx.py` для этого.
+
 ## 3. Новые модули и зависимости
 
 - `refigure/vlm_client.py` — `OpenRouterClient` (implements `VlmClient`
@@ -153,22 +167,24 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
 - `soffice` (LibreOffice) — системный бинарник, не pip-пакет, не в
   extras (не может быть). `shutil.which("soffice") is None` →
   `logger.warning` + маркер остаётся как есть (zero-loss floor,
-  тот же приём, что G2AI_ME) — никогда hard-fail. **Решение по CI**: не
-  устанавливать LibreOffice на раннер (~1GB, заметно утяжелит и
-  замедлит `test-unit`) — `test_docx_groups_live.py` и любой другой
-  soffice-зависимый тест остаются `skipif`-guarded, реально прогоняются
-  локально/вручную, не в CI. Та же «graceful degrade, не жёсткое
-  требование» философия, что уже принята для gitignored corpus-фикстур
-  в `test-integration` job — не новое исключение, продолжение
-  существующей конвенции.
+  тот же приём, что G2AI_ME) — никогда hard-fail в самом коде.
+  **Решение по CI (пересмотрено 2026-08-05 — untested CI path
+  неприемлем):** `libreoffice-writer` **устанавливается в CI**
+  (`test-unit` job, `apt-get install -y libreoffice-writer`, с
+  `actions/cache` на apt-пакеты, чтобы не платить полную цену на
+  каждый прогон) — `_render_docx_group`/`_render_via_soffice`
+  реально прогоняются в CI, не только локально. `skipif` на
+  `shutil.which("soffice")` остаётся в коде тестов как defensive
+  fallback (локальный дев-прогон без LibreOffice не должен падать
+  красным), но в CI он больше не должен срабатывать никогда — если
+  сработал, это сигнал, что apt-шаг сломался, не ожидаемое поведение.
 - `Config` (`api.py`) — новые поля: `use_vlm: bool = False`,
   `vlm_model: str = "google/gemini-3-flash-preview"` (дефолт G2AI_ME,
-  «победитель пилота» — `cloud_ocr.DEFAULT_VLM_MODEL`; **не
-  откалиброван на композитных фигурах refigure специфически** — унаследован
-  от смешанного PDF+DOCX пилота G2AI_ME, overridable, без вреда как
-  стартовая точка, но не «проверенный для refigure» дефолт — стоит
-  честно отметить в docstring `Config.vlm_model`, не выдавать за
-  калиброванный), `vlm_api_key: str | None = None` (фоллбэк на
+  «победитель пилота» — `cloud_ocr.DEFAULT_VLM_MODEL` — **временный
+  placeholder до коммита §5**, не финальное решение; заменяется
+  результатом A/B-калибровки на реальном corpus refigure в рамках этой
+  же стадии, не выдаётся за проверенное значение до тех пор),
+  `vlm_api_key: str | None = None` (фоллбэк на
   `OPENROUTER_API_KEY` env, explicit-param-overrides-env — конвенция
   типичных SDK, используется только для дефолтного `OpenRouterClient`),
   `vlm_client: VlmClient | None = None` (фоллбэк на `OpenRouterClient(
@@ -176,21 +192,154 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
   `InMemoryCacheBackend()`).
 - `ConversionResult.vlm_used` (уже есть в датаклассе с стадии 2, сейчас
   везде `False`) — становится реальным полем для docx-пути.
-- **Data-egress дисциплина**: `use_vlm=True` отправляет кроп содержимого
-  документа в облако (через `vlm_client`, по умолчанию OpenRouter) — это
-  уже архитектурное решение design-документа (opt-in тоггл именно ради
-  конфиденциальных документов), но сам факт нигде не написан явно на
-  уровне читаемого API. Требование к реализации: `Config.use_vlm`'s
-  docstring должен недвусмысленно это проговаривать, не полагаться на
-  то, что «opt-in» само по себе очевидно каждому вызывающему.
-- Порог witness-гейта (`FIGURE_WITNESS_MIN_RECALL = lint.
-  WITNESS_MIN_TOKEN_RECALL = 0.80`) — тоже унаследован без пересчёта, у
-  G2AI_ME сам делённый с OCR-гейтом «стартово, калибровать по живым
-  флагам» (собственная оговорка исходника). Переносится как стартовое
-  значение, не как проверенная для refigure константа — тот же класс
-  честности, что `vlm_model` выше.
+- **Data-egress дисциплина** (формулировка уточнена 2026-08-05):
+  `use_vlm=True` отправляет через `vlm_client` **только кроп самого
+  региона с фигурой** (страница/группа, обрезанная `_render_crop`/
+  `_render_via_soffice`) — **не документ целиком** и не окружающий
+  текст. Это гарантия самой техники (объект уже кропается ДО отправки
+  по построению кода), не отдельная политика поверх — но нигде не
+  написана явно на уровне читаемого API. Требование к реализации:
+  `Config.use_vlm`'s docstring должен явно проговаривать оба факта —
+  что отправка происходит, и что отправляется именно кроп, не весь
+  документ — не полагаться на то, что это очевидно каждому вызывающему.
+- Порог witness-гейта (`FIGURE_WITNESS_MIN_RECALL`) — калибруется не
+  из литературы, а эмпирически, как часть §5 (см. ниже). Экспортируется
+  как `Config.vlm_witness_min_recall: float = 0.80` (placeholder до
+  калибровки) — раз модель теперь pluggable, разумно дать гибкость и
+  здесь, не хардкодить модульную константу.
 
-## 4. Вне скоупа этой стадии
+## 4. Корпус: 26 из 27 фикстур перестают быть gitignored
+
+Решение 2026-08-05, вызвано требованием «нет untested CI path» (§3):
+`libreoffice` в CI решает только половину проблемы — фикстуры остаются
+недоступны в CI (`tests/integration/fixtures/*` gitignored, ~144MB, не
+81MB как ошибочно фиксировала память — актуальная цифра проверена
+`du`, старая исправляется отдельно). Лицензии по манифесту чистые у
+26 из 27: CC BY 4.0 ×16, CC BY 3.0 IGO ×2, EU reuse right ×5, US public
+domain ×3 — все стандартные, хорошо изученные для редистрибуции, у
+каждой записи в `manifest.yaml` уже есть готовая строка `attribution:`.
+**Единственное исключение — `iot-report-2022-national-strategies-
+excerpt.docx`** (`license: unpublished — repo owner's own draft`,
+authorship risk явно принят, но не разрешён, решение 2026-08-04) —
+остаётся gitignored, не коммитится.
+
+- Закрыть `.gitignore`-исключения для 26 файлов (все, кроме
+  `iot-report-2022-national-strategies-excerpt.docx`), закоммитить
+  бинарники (~133MB).
+- Новый файл `ATTRIBUTION.md` (или расширенный `NOTICE`) — реальный
+  текст, не факультативно: агрегирует уже существующие
+  `manifest.yaml`'s `attribution:`-поля по группам лицензий (CC BY 4.0/
+  CC BY 3.0 IGO/EU reuse right/public domain), с `source_url` на
+  каждую запись. `manifest.yaml` остаётся источником истины
+  (sha256/добавление даты/заметки) — `ATTRIBUTION.md` человекочитаемое
+  представление ровно тех же данных для лицензионного требования
+  видимости, не дублирующий источник.
+- **`test_docx_groups_live.py` (порт с стадии 5) — новая целевая
+  фикстура**, раз старая (`iot-report-...`) остаётся вне git:
+  `efsa-echinococcus-guide.docx` (CC BY 4.0, атрибуция уже в манифесте,
+  10 подтверждённых `wpg:wgp`-групп — больше всего в корпусе). Реальные
+  group-id уже извлечены локально (`docx_groups.extract_and_strip_groups`,
+  read-only, 2026-08-05), все `kind="group"`:
+  `a106c326d0e9`, `23da97fa9020`, `179dfcb933b4`, `fde6ff90fd0c`,
+  `1d84dbf972e7`, `4e3bc9ef73f2`, `559538feeabf`, `961722518e1d`,
+  `41e0f316a735`, `32aee94aaaeb`. **Нюанс**: у всех 10 групп этой
+  фикстуры пустые captions (`()`) — тест проверит сам механизм рендера
+  (`_render_docx_group`/soffice/PDF-кроп), НЕ witness-gate (для этого
+  нужен отдельный синтетический тест с непустыми captions — уже в
+  `test_vlm.py`, п. Тестовое покрытие). Не путать одно с другим при
+  реализации.
+- `docs/execution-sequence-2026-08-04.md`/`CLAUDE.md`/
+  `project_fixture_corpus` memory нужно обновить постфактум
+  (`/post-merge-sync`), не сейчас — фиксируется здесь как задел.
+
+## 5. Калибровка на реальных данных: A/B моделей + witness-порог
+
+Обе калибровки — **один процесс, не два отдельных**: обе требуют живых
+VLM-вызовов на реальном corpus, обе используют одну и ту же ручную
+разметку «хорошо/плохо» как источник истины. Выполняется в рамках
+стадии 4b (решение 2026-08-05), не отложено в v1.x.
+
+**Почему не берём готовое число из литературы** — 3 независимых агента
+исследовали аналогичные пороги (OCR/document-AI production-пороги —
+AWS/Google/Azure/Rossum/Docling; RAG faithfulness-метрики — RAGAS/
+TruLens/DeepEval/академическая литература; VLM captioning/chart-
+понимание бенчмарки — CHAIR/POPE/ChartQA/CharXiv/ChartX/PlotPick).
+Все три угла независимо сошлись на одном выводе: **никто не переносит
+чужой порог — везде, где вообще есть содержательная рекомендация, она
+про калибровку на своих размеченных данных**, не про импорт числа.
+Конкретно по нашей метрике (recall уникальных слов, без precision-
+члена):
+- Она структурно слабее, чем то, что вообще где-либо публикует порог
+  (LLM-as-judge claim-verification в RAG-мире; F1/WER-EER в document-AI;
+  POPE прямо показывает: recall-без-precision выигрывается моделью,
+  отвечающей "да" на всё — near-100% recall при провальном F1).
+- 0.80 — правдоподобная, но не безопасная цифра: CharXiv (реальные,
+  не шаблонные графики) даёт GPT-4o **84.5%** на «прочитать базовые
+  элементы» — то есть даже хорошая модель на реальных данных держится
+  чуть ВЫШЕ 0.80, запаса на дешёвую/маленькую модель почти нет. ChartX
+  (полное извлечение «всего», ближе всего по форме задачи к нашему
+  «recall всех уникальных слов») даёт GPT-4V всего **20-36%** — на
+  порядок ниже, если наша задача окажется структурно ближе к этому
+  классу, а не к более щадящему PlotPick (88-96%, но с 5%-допуском на
+  числа и более узкой задачей).
+- Вывод: диапазон возможных «правильных» значений для НАШЕЙ точной
+  метрики на НАШИХ данных — от «намного строже 0.80» до «намного мягче»
+  в зависимости от реальной формы задачи. Гадать бессмысленно, мерить
+  дёшево (та же A/B-инфраструктура уже нужна для §5.1).
+
+### 5.1 Отбор модели (industry-standard процесс 2026)
+
+- **Кандидаты**: 3-4 модели через OpenRouter (сам клиент — provider-
+  agnostic, см. §2, но сравнение удобнее вести через один API),
+  разных семейств — не одна ценовая категория: (a) действующий
+  дефолт-плейсхолдер (`google/gemini-3-flash-preview`, «победитель
+  пилота» G2AI_ME — baseline, не финал), (b) более сильная frontier-
+  модель другого семейства (Claude/GPT-класс) — точность инструкций
+  на структурированном mermaid-синтаксисе часто отличается от
+  качества чтения самой картинки, (c) опционально — открытая модель
+  через OpenRouter, для проверки «работает ли вообще без vendor
+  lock-in» (смыкается с provider-agnostic принципом, п.4 обсуждения).
+  Точный список фиксируется на момент исполнения (коммит из плана
+  ниже) против актуального каталога OpenRouter, не жёстко здесь.
+- **Eval-set**: реальные docx-фикстуры с `groups_found > 0` из
+  существующего корпуса (не синтетика) — `efsa-echinococcus-guide.docx`
+  (10 групп), `hackair-d7.7-pilot-evaluation.docx`, и другие с
+  ненулевым groups_found по уже известным pinned-значениям
+  `test_docx_corpus.py`. Ровно то «свои размеченные данные», на
+  которые независимо указали все три research-агента.
+- **Метрики — многоосевые, не одна цифра** (тот же вывод, что дала
+  witness-gate литература: одномерная метрика — слабый гейт):
+  1. Witness-recall (готовая механика) — автоматически, для каждого
+     output.
+  2. Numeric-defects (`format_missing_side`) — автоматически.
+  3. Mermaid-render success rate (`chart_render.mermaid_renders`) —
+     уже существующий гейт, бесплатно переиспользуется как метрика.
+  4. **Ручная разметка на выборке** — не на всём eval-set (не
+     масштабируется), а стратифицированно: все output'ы с НАИБОЛЬШИМ
+     расхождением по метрикам 1-3 (именно они несут информацию) +
+     небольшая случайная выборка для sanity-baseline. Простой рубрика
+     pass/fail + короткий комментарий, не Likert-шкала — цель
+     «находит ли recall-порог реальную границу», не полноценный UX-
+     research.
+  5. Стоимость/латентность на вызов — реальный, не «слепой к цене»
+     выбор: тот же принцип, что применяют все обследованные
+     production document-AI вендоры (не только качество).
+- **Процесс**: прогнать каждую модель-кандидата на всём eval-set →
+  собрать 3 автометрики + провести ручную разметку по правилу выше →
+  на размеченных данных найти точку разделения recall-распределения
+  между «хорошо»/«плохо» (эмпирический порог, не теоретический) →
+  агрегировать по моделям с учётом стоимости → зафиксировать
+  победителя как новый `Config.vlm_model` дефолт и найденный порог как
+  новый `Config.vlm_witness_min_recall` дефолт.
+- **Результат документируется** — не только в коде (новые дефолты), но
+  и отдельной заметкой (`docs/` или memory) с таблицей
+  модель×метрики×стоимость и обоснованием победителя — справочно для
+  будущих пользователей пакета, не потому что дефолт железно
+  зафиксирован (он остаётся override-able).
+- **Предпосылка**: живой `OPENROUTER_API_KEY` — уже добавлен в
+  `.env` (гитигнорится, не в репозитории) 2026-08-05.
+
+## 6. Вне скоупа этой стадии
 
 - Async batch-точка входа — явно отложено design-документом §3 до v1.x
   («решается когда VLM реально пойдёт в разработку... не блокирует
@@ -226,40 +375,50 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
   требование `execution-sequence` §4b, тот же урок про порядок импортов
   (PR #8), что уже нашла матрица для `xlsx.py`.
 - Порт `tests/integration/test_docx_groups_live.py` (отложен с стадии 5,
-  `project_deferred_docx_groups_live_test` memory) — известные group-id
-  (`31cb26ede622`, `863b94a50ac0`, `5fef7b6067d0`, `cf269e703022`,
-  `33be0a31a485`, `34d4b5014cb4`) против уже имеющейся фикстуры
-  `iot-report-2022-national-strategies-excerpt.docx`, `skipif` по
-  `shutil.which("soffice")`.
+  `project_deferred_docx_groups_live_test` memory) — **фикстура и
+  group-id пересмотрены 2026-08-05** (см. §4): не
+  `iot-report-2022-national-strategies-excerpt.docx` (остаётся
+  gitignored), а `efsa-echinococcus-guide.docx`, 10 групп
+  (`a106c326d0e9`/`23da97fa9020`/`179dfcb933b4`/`fde6ff90fd0c`/
+  `1d84dbf972e7`/`4e3bc9ef73f2`/`559538feeabf`/`961722518e1d`/
+  `41e0f316a735`/`32aee94aaaeb`, все `kind="group"`, уже верифицированы
+  живым прогоном `extract_and_strip_groups`). `skipif` на
+  `shutil.which("soffice")` остаётся как defensive fallback, но в CI
+  теперь реально прогоняется (§3 — `libreoffice-writer` в `test-unit`).
 
 ## План коммитов/PR
 
-1. `feat: add VlmClient protocol to api.py + refigure/vlm_client.py's OpenRouterClient (ported from core/openrouter.py)`
-2. `feat: add VlmCacheBackend protocol to api.py + refigure/vlm_cache.py's in-memory/file backends`
-3. `feat: widen docx_groups.extract_group_docx to accept Path | bytes`
-4. `feat: add refigure/vlm.py — docx marker grammar, sanitize_vlm_markdown, witness_defects`
-5. `feat: refigure/vlm.py — docx image/group resolution (soffice render, VLM call, injection)`
-6. `feat: refigure/vlm.py — enhance_docx_markdown() public entry point`
-7. `feat: extend Config with use_vlm/vlm_model/vlm_api_key/vlm_cache`
-8. `feat: wire vlm.enhance_docx_markdown into docx.convert() behind lazy import + use_vlm gate`
-9. `feat: pyproject.toml — [vlm] extra (pdfplumber)`
-10. `test: tests/unit/test_vlm_client.py — ported retry-ladder coverage`
-11. `test: tests/unit/test_vlm_cache.py — protocol conformance`
-12. `test: tests/unit/test_vlm.py — marker scan/sanitize/witness/offline cache-hit path`
-13. `test: extend test_optional_dependency_guards.py for refigure.vlm + lazy-import-when-use_vlm=False`
-14. `test: extend tests/extras/test_extras_isolation.py + ci.yml matrix — vlm leg`
-15. `test: port tests/integration/test_docx_groups_live.py (soffice-gated)`
-16. `docs: note [vlm] extra exists, not promoted — README/CLAUDE.md`
+1. `chore: un-gitignore 26 licensed corpus fixtures + add ATTRIBUTION.md`
+2. `ci: install libreoffice-writer in test-unit (cached) — no untested soffice path`
+3. `feat: add VlmClient protocol to api.py + refigure/vlm_client.py's OpenRouterClient (ported from core/openrouter.py)`
+4. `feat: add VlmCacheBackend protocol to api.py + refigure/vlm_cache.py's in-memory/file backends`
+5. `feat: widen docx_groups.extract_group_docx to accept Path | bytes`
+6. `feat: add refigure/vlm.py — docx marker grammar, sanitize_vlm_markdown, witness_defects`
+7. `feat: refigure/vlm.py — docx image/group resolution (soffice render, VLM call, injection)`
+8. `feat: refigure/vlm.py — enhance_docx_markdown() public entry point`
+9. `feat: extend Config with use_vlm/vlm_model/vlm_api_key/vlm_client/vlm_cache/vlm_witness_min_recall`
+10. `feat: wire vlm.enhance_docx_markdown into docx.convert() behind lazy import + use_vlm gate`
+11. `feat: pyproject.toml — [vlm] extra (pdfplumber)`
+12. `test: tests/unit/test_vlm_client.py — ported retry-ladder coverage`
+13. `test: tests/unit/test_vlm_cache.py — protocol conformance`
+14. `test: tests/unit/test_vlm.py — marker scan/sanitize/witness/offline cache-hit path`
+15. `test: extend test_optional_dependency_guards.py for refigure.vlm + lazy-import-when-use_vlm=False`
+16. `test: extend tests/extras/test_extras_isolation.py + ci.yml matrix — vlm leg`
+17. `test: port tests/integration/test_docx_groups_live.py against efsa-echinococcus-guide.docx (soffice-gated, real in CI)`
+18. `chore: A/B model comparison on real corpus — pick vlm_model + vlm_witness_min_recall defaults, document results`
+19. `docs: note [vlm] extra exists, not promoted — README/CLAUDE.md`
 
 ## Чек-лист реализации
 
+- [ ] 26 фикстур раскрыты из `.gitignore` + `ATTRIBUTION.md`
+- [ ] `libreoffice-writer` в CI (`test-unit`, кэшировано)
 - [ ] `VlmClient` protocol (`api.py`) + `refigure/vlm_client.py`'s `OpenRouterClient`
 - [ ] `VlmCacheBackend` protocol (`api.py`) + `refigure/vlm_cache.py`
 - [ ] `docx_groups.extract_group_docx` accepts `Path | bytes`
 - [ ] `refigure/vlm.py` — grammar + sanitize + witness_defects
 - [ ] `refigure/vlm.py` — docx image/group resolution
 - [ ] `refigure/vlm.py` — `enhance_docx_markdown()`
-- [ ] `Config` extended
+- [ ] `Config` extended (включая `vlm_witness_min_recall`)
 - [ ] `docx.convert()` wired (lazy import, `use_vlm` gate)
 - [ ] `[vlm]` extra in `pyproject.toml`
 - [ ] `test_vlm_client.py`
@@ -267,5 +426,6 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
 - [ ] `test_vlm.py`
 - [ ] `test_optional_dependency_guards.py` extended
 - [ ] `test_extras_isolation.py` + `ci.yml` `vlm` leg
-- [ ] `test_docx_groups_live.py` ported
+- [ ] `test_docx_groups_live.py` ported (`efsa-echinococcus-guide.docx`)
+- [ ] A/B-калибровка проведена, `vlm_model`/`vlm_witness_min_recall` дефолты обновлены, результат задокументирован
 - [ ] README/CLAUDE.md note
