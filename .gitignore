@@ -38,12 +38,10 @@ Thumbs.db
 !.claude/settings.json
 CLAUDE.local.md
 
-# Real-document integration test fixtures — large binaries, local-only
-# (mirrors the source pipeline's own gitignored fixtures/local/ pattern).
-# Provenance/license/checksums tracked in
-# tests/integration/fixtures/manifest.yaml instead of the files themselves.
-# NOTE (2026-08-05): most of this list is going away — 26/27 fixtures are
-# being un-gitignored per docs/vlm-layer-port-2026-08-05.md §4, not yet
-# executed as of this commit.
-tests/integration/fixtures/docx/*.docx
-tests/integration/fixtures/xlsx/*.xlsx
+# Real-document integration test fixtures (2026-08-05,
+# docs/vlm-layer-port-2026-08-05.md §4): 26/27 are checked in — clean,
+# well-documented redistribution licenses (see ATTRIBUTION.md +
+# tests/integration/fixtures/manifest.yaml). Exactly one stays gitignored:
+# authorship risk (not license risk), explicitly accepted 2026-08-04, see
+# that file's manifest.yaml note.
+tests/integration/fixtures/docx/iot-report-2022-national-strategies-excerpt.docx
