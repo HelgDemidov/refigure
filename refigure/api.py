@@ -85,10 +85,12 @@ class Config:
     vlm_model: str = "google/gemini-3-flash-preview"
     """OpenRouter model slug used by the default ``OpenRouterClient``.
     Ignored when ``vlm_client`` is set to a custom implementation, which may
-    have its own model-selection mechanism. Current default is a
-    placeholder inherited from the source pipeline's own pilot ("winner" of
-    its OCR+figures task) — pending this stage's own A/B calibration on
-    refigure's real corpus, see ``docs/vlm-layer-port-2026-08-05.md`` §5."""
+    have its own model-selection mechanism. Confirmed (not just inherited
+    as an untested placeholder) by this stage's own A/B calibration against
+    refigure's real corpus, 2026-08-05: tied-best output quality against a
+    pricier competitor (``anthropic/claude-haiku-4.5``), cheapest of the 3
+    candidates tested, zero structural errors across the eval-set — see
+    ``docs/vlm-model-calibration-2026-08-05.md`` for the full comparison."""
 
     vlm_api_key: str | None = None
     """API key for the default ``OpenRouterClient``. Falls back to the
@@ -114,10 +116,16 @@ class Config:
     vlm_witness_min_recall: float = 0.80
     """Minimum token-recall (see ``vlm.token_recall``) of a composite
     group's own captions against its VLM description before
-    ``vlm.witness_defects`` flags it. Current default is a placeholder —
-    pending this stage's own empirical calibration (not imported from
-    unrelated literature thresholds), see
-    ``docs/vlm-layer-port-2026-08-05.md`` §5."""
+    ``vlm.witness_defects`` flags it. NOT empirically re-derived by this
+    stage's A/B calibration, 2026-08-05 — the real corpus's only
+    non-empty-caption groups all had short, directly-transcribable
+    captions, so every candidate model scored a trivial 1.00 recall
+    regardless of actual response quality (a real, documented finding, not
+    an oversight: see ``docs/vlm-model-calibration-2026-08-05.md``). 0.80
+    is kept as a plausible default pending a more diverse witness-caption
+    corpus to calibrate against, not imported from unrelated literature
+    thresholds either (see ``docs/vlm-layer-port-2026-08-05.md`` §5's
+    research)."""
 
 
 @dataclass
