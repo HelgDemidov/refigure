@@ -26,12 +26,27 @@ memory. 191 tests total. Stage 6 (PR #8): extras-isolation CI matrix (fresh
 isolated venv per `bare`/`docx`/`xlsx`/`both` combo) — found and fixed a 3rd
 real bug the same day (`xlsx.py`'s openpyxl guard ran after an unguarded
 transitive import in `xlsx_charts.py`), see `project_extras_isolation_bug`
-memory. Not yet done: stage 4b (VLM, deferred — will need extending, not
-redoing, the stage-6 matrix), stage 6b (CLI wrapper, added to the roadmap
-2026-08-05, not yet built), stage 7 (README+demo), stage 8 (release gate).
+memory. Stage 6b (PR #9, `refigure` console command): single-file
+(stdin/stdout/`-o`), batch mode (directory walk, keep-going + summary,
+`--fail-fast`), typed exit codes, `--json`/`--strict`/`-v`/`-q` — design
+synthesized a "triple gap" against MarkItDown/Docling/marker (no
+competitor combines stdio-first + native batch + typed exit codes), see
+`docs/cli-wrapper-2026-08-05.md`. Its CI run found a 4th real production
+bug the same day: `xlsx.convert()` wasn't safe to call concurrently from
+multiple threads — openpyxl's own `xml/functions.py` reuses ONE
+module-level `lxml.etree.XMLParser()` across every thread, causing a rare
+segfault (first fix attempt, reducing test concurrency, only lowered the
+odds — a later local repro loop caught the SAME root cause as a silent
+wrong result instead of a crash). Fixed for real with a
+`threading.Lock()` around `openpyxl.load_workbook()` in `xlsx.py`, not
+just a test change — see `project_openpyxl_concurrent_parser_fragility`
+memory. 188 unit tests total. Not yet done: stage 4b (VLM — spec drafted,
+`docs/vlm-layer-port-2026-08-05.md`, not yet implemented), stage 7
+(README+demo), stage 8 (release gate).
 
 ## Dev environment
-`pyproject.toml` (extras `[docx]`/`[xlsx]`, ruff/mypy/pytest config) +
+`pyproject.toml` (extras `[docx]`/`[xlsx]`, `refigure` console script via
+`[project.scripts]`, ruff/mypy/pytest config) +
 `requirements.txt`/`requirements-dev.txt`, managed with `uv`. CI
 (`.github/workflows/ci.yml`): 4 parallel jobs — `quality` (ruff+mypy+
 pip-audit), `test-unit` (pytest `tests/unit` + coverage, no threshold gate
@@ -77,10 +92,11 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
   gated behind `[vlm]` extra + runtime `use_vlm` toggle — **not active/announced
   in v1**.
 - MCP server: **not v1** — v2's primary goal (replaces PDF as the v2 target).
-- CLI wrapper (stage 6b, added 2026-08-05, not yet built): thin argparse layer
-  over `convert()`, MarkItDown-parity scope only (single file in, markdown on
-  stdout/`-o`) — market check found CLI is the category baseline, not an
-  optional extra (MarkItDown/Docling/marker all ship one as first-class).
+- CLI wrapper (stage 6b, shipped PR #9, 2026-08-05): `refigure` console
+  command, thin argparse layer over `convert()` — single-file, stdin, and
+  batch modes, typed exit codes — market check found CLI is the category
+  baseline, not an optional extra (MarkItDown/Docling/marker all ship one
+  as first-class). Details: `docs/cli-wrapper-2026-08-05.md`.
 - Full phase/effort breakdown: `docs/execution-sequence-2026-08-04.md` (10
   numbered stages + 4b/6b insertions, dependency graph, %-effort per stage,
   mermaid-verified before publish).
@@ -101,6 +117,16 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
   `25ef657`): module-level `try/except ImportError` + capability flag +
   `functools.lru_cache`-based warn-once via `logger.warning`. Reuse for
   mammoth/openpyxl/vlm-client — don't invent a new mechanism per dependency.
+  `refigure/cli.py` extends the same discipline one step further: its
+  per-format dispatch imports `docx`/`xlsx` lazily (inside the call, not
+  at module level) so `refigure --help` works in a bare install.
+- `xlsx.py` serializes `openpyxl.load_workbook()` behind a module-level
+  `threading.Lock()` (`_OPENPYXL_LOAD_LOCK`) — openpyxl reuses ONE shared
+  `lxml.etree.XMLParser()` across every thread internally, a real
+  concurrency bug (not refigure's own code) found via PR #9's CI, see
+  `project_openpyxl_concurrent_parser_fragility` memory. `docx.py` has no
+  such constraint (refigure's own lxml usage never shares a parser
+  instance across threads).
 
 ## Public API
 Rich, not a bare string — full rationale in
