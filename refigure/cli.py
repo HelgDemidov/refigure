@@ -13,10 +13,14 @@ lazy, deferred to the moment a specific format is actually needed.
 from __future__ import annotations
 
 import argparse
+import json
+import logging
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import Protocol
 
+from . import __version__
 from ._io import Source
 from .api import Config, ConversionResult
 
@@ -119,7 +123,42 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Batch mode: abort on the first failed source instead of continuing.",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the full ConversionResult as JSON instead of markdown (single output channel).",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Passed through to Config(strict=...).",
+    )
+    verbosity = parser.add_mutually_exclusive_group()
+    verbosity.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show INFO-level logging and per-file progress.",
+    )
+    verbosity.add_argument(
+        "-q", "--quiet", action="store_true", help="Suppress warnings and per-file batch messages."
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
+
+
+def _configure_logging(args: argparse.Namespace) -> None:
+    # Reuses refigure's existing package logger (chart_render.py's warn-once
+    # mermaidx-missing message, etc.) rather than inventing a second
+    # mechanism — see the "refigure" logger hierarchy already in place.
+    logger = logging.getLogger("refigure")
+    if args.quiet:
+        logger.setLevel(logging.ERROR)
+    elif args.verbose:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
 
 
 def _write_stdout(text: str) -> None:
@@ -135,15 +174,31 @@ def _write_stdout(text: str) -> None:
     stdout.write(text)
 
 
-def _emit(markdown: str, output: str | None) -> None:
+def _serialize(result: ConversionResult, as_json: bool) -> str:
+    """The single output channel's content — markdown by default, or the
+    *entire* ConversionResult as JSON with ``--json`` (replaces the channel,
+    doesn't add a second parallel one; see spec §5)."""
+    if as_json:
+        return json.dumps(asdict(result), ensure_ascii=False, indent=2) + "\n"
+    return result.markdown
+
+
+def _output_suffix(as_json: bool) -> str:
+    return ".json" if as_json else ".md"
+
+
+def _emit(text: str, output: str | None) -> None:
     if output is None:
-        _write_stdout(markdown)
+        _write_stdout(text)
     else:
-        Path(output).write_text(markdown, encoding="utf-8")
+        Path(output).write_text(text, encoding="utf-8")
 
 
-def _report_warnings(warnings: list[str]) -> None:
-    # stdout is reserved for markdown alone — warnings always go to stderr.
+def _report_warnings(warnings: list[str], *, quiet: bool) -> None:
+    # stdout is reserved for the primary output alone — warnings always go
+    # to stderr, and -q suppresses them (errors/summary are never silenced).
+    if quiet:
+        return
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
 
@@ -156,8 +211,8 @@ def _run_stdin(args: argparse.Namespace, config: Config, parser: argparse.Argume
     if result is None:
         print(f"error: {message}", file=sys.stderr)
         return code
-    _report_warnings(result.warnings)
-    _emit(result.markdown, args.output)
+    _report_warnings(result.warnings, quiet=args.quiet)
+    _emit(_serialize(result, args.json), args.output)
     return EXIT_OK
 
 
@@ -174,8 +229,8 @@ def _run_single(
     if result is None:
         print(f"error: {message}", file=sys.stderr)
         return code
-    _report_warnings(result.warnings)
-    _emit(result.markdown, args.output)
+    _report_warnings(result.warnings, quiet=args.quiet)
+    _emit(_serialize(result, args.json), args.output)
     return EXIT_OK
 
 
@@ -228,14 +283,14 @@ def _plan_batch(sources: list[Path]) -> list[tuple[Path, Path]]:
     return plan
 
 
-def _detect_collisions(plan: list[tuple[Path, Path]]) -> dict[Path, list[Path]]:
+def _detect_collisions(plan: list[tuple[Path, Path]], as_json: bool) -> dict[Path, list[Path]]:
     """Distinct input files that would map to the identical output path
     (e.g. two sources both containing an ``x.docx`` at their root) — the
     general form of Docling issue #3811, not just the directory-walk case
     §3 already avoids structurally."""
     by_output: dict[Path, list[Path]] = {}
     for file_path, rel in plan:
-        by_output.setdefault(rel.with_suffix(".md"), []).append(file_path)
+        by_output.setdefault(rel.with_suffix(_output_suffix(as_json)), []).append(file_path)
     return {out: srcs for out, srcs in by_output.items() if len(srcs) > 1}
 
 
@@ -252,7 +307,7 @@ def _run_batch(
     if not plan:
         parser.error("no .docx/.xlsx files found among the given sources")
 
-    collisions = _detect_collisions(plan)
+    collisions = _detect_collisions(plan, args.json)
     if collisions:
         for out, srcs in sorted(collisions.items()):
             names = ", ".join(str(s) for s in srcs)
@@ -275,12 +330,15 @@ def _run_batch(
             failures.append((file_path, message or ""))
             continue
 
-        for warning in result.warnings:
-            print(f"warning: {file_path}: {warning}", file=sys.stderr)
-        out_path = out_root / rel.with_suffix(".md")
+        if not args.quiet:
+            for warning in result.warnings:
+                print(f"warning: {file_path}: {warning}", file=sys.stderr)
+        out_path = out_root / rel.with_suffix(_output_suffix(args.json))
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(result.markdown, encoding="utf-8")
+        out_path.write_text(_serialize(result, args.json), encoding="utf-8")
         converted += 1
+        if args.verbose:
+            print(f"converted: {file_path} -> {out_path}", file=sys.stderr)
 
     total = len(plan)
     print(f"{converted}/{total} converted, {len(failures)} failed", file=sys.stderr)
@@ -290,7 +348,8 @@ def _run_batch(
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    config = Config()
+    _configure_logging(args)
+    config = Config(strict=args.strict)
 
     if not args.sources:
         return _run_stdin(args, config, parser)
