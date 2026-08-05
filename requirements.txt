@@ -6,4 +6,3 @@ mammoth==1.12.0     # DOCX -> HTML (refigure/docx.py), [docx] extra
 markdownify==1.2.3  # HTML -> Markdown (refigure/docx.py), [docx] extra
 openpyxl==3.1.5     # XLSX read + chart access (refigure/xlsx.py), [xlsx] extra
 pdfplumber==0.11.10  # docx-group soffice-render crop (refigure/vlm.py), [vlm] extra
-                     # (stage 4b in progress — [vlm] not yet declared in pyproject.toml)

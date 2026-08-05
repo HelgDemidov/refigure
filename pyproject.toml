@@ -25,6 +25,14 @@ dependencies = [
 [project.optional-dependencies]
 docx = ["mammoth>=1.12,<2", "markdownify>=1.2,<2"]
 xlsx = ["openpyxl>=3.1,<4"]
+# Stage 4b: DOCX composite-figure VLM interpretation (refigure/vlm.py),
+# gated behind Config.use_vlm — not active/announced in v1. pdfplumber is
+# NOT PDF conversion: it crops the PDF LibreOffice renders as an
+# intermediate step for one isolated mini-docx; neither PDF input nor PDF
+# output is otherwise supported anywhere in this package. Also requires the
+# system `soffice` (LibreOffice) binary, not installable via pip/extras —
+# its absence degrades to an honest warning, never a hard failure.
+vlm = ["pdfplumber>=0.11,<0.12"]
 
 [project.scripts]
 refigure = "refigure.cli:main"
