@@ -28,6 +28,35 @@ from ..docx.test_docx import build_minimal_docx
 _IMAGE_ID = "0123456789ab"
 _GROUP_ID = "abcdef012345"
 
+_CLEAN_VERDICT = "hallucination: no\nmermaid_fit: n/a\nlanguage: yes"
+
+
+class _ScriptedVlmClient:
+    """Minimal VlmClient stand-in for judge_defects/enhance_docx_markdown
+    tests: returns ``verdict`` for a judge-shaped prompt (identified by the
+    literal "hallucination:" instruction line JUDGE_PROMPT_TEMPLATE always
+    contains, which a real figure description never does) and
+    ``description`` for anything else — lets one fake client serve both the
+    generation call and the judge call in the same test. Records every
+    prompt it receives so tests can assert exact call counts."""
+
+    def __init__(self, description: str = "A chart.", verdict: str = _CLEAN_VERDICT) -> None:
+        self.description = description
+        self.verdict = verdict
+        self.prompts: list[str] = []
+
+    def send(self, prompt: str, image_uri: str, *, model: str) -> str:
+        self.prompts.append(prompt)
+        return self.verdict if "hallucination:" in prompt else self.description
+
+
+class _RaisingVlmClient:
+    """VlmClient stand-in that always fails — for judge_defects's
+    never-abort-the-conversion degradation path."""
+
+    def send(self, prompt: str, image_uri: str, *, model: str) -> str:
+        raise RuntimeError("network exploded")
+
 
 # =============================================================================
 # 1. Marker regex scanning
@@ -329,3 +358,214 @@ def test_enhance_docx_markdown_cache_miss_soffice_unavailable_leaves_marker_unch
     assert vlm_used is False
     assert new_markdown == markdown
     assert warnings == []
+
+
+# =============================================================================
+# 8. judge_defects
+# =============================================================================
+
+
+def test_judge_defects_clean_response_produces_no_defects() -> None:
+    client = _ScriptedVlmClient(verdict=_CLEAN_VERDICT)
+    assert vlm.judge_defects("uri", "A chart.", client=client, model="m") == []
+
+
+def test_judge_defects_hallucination_yes_flags_it() -> None:
+    client = _ScriptedVlmClient(verdict="hallucination: yes\nmermaid_fit: n/a\nlanguage: yes")
+    defects = vlm.judge_defects("uri", "A chart.", client=client, model="m")
+    assert defects == ["vlm-judge-hallucination"]
+
+
+def test_judge_defects_mermaid_fit_no_flags_it() -> None:
+    client = _ScriptedVlmClient(verdict="hallucination: no\nmermaid_fit: no\nlanguage: yes")
+    defects = vlm.judge_defects("uri", "A chart.", client=client, model="m")
+    assert defects == ["vlm-judge-mermaid"]
+
+
+def test_judge_defects_mermaid_fit_yes_does_not_flag() -> None:
+    client = _ScriptedVlmClient(verdict="hallucination: no\nmermaid_fit: yes\nlanguage: yes")
+    assert vlm.judge_defects("uri", "A chart.", client=client, model="m") == []
+
+
+def test_judge_defects_language_no_flags_it() -> None:
+    client = _ScriptedVlmClient(verdict="hallucination: no\nmermaid_fit: n/a\nlanguage: no")
+    defects = vlm.judge_defects("uri", "A chart.", client=client, model="m")
+    assert defects == ["vlm-judge-language"]
+
+
+def test_judge_defects_all_three_flagged_and_ordered_hallucination_mermaid_language() -> None:
+    client = _ScriptedVlmClient(verdict="hallucination: yes\nmermaid_fit: no\nlanguage: no")
+    defects = vlm.judge_defects("uri", "A chart.", client=client, model="m")
+    assert defects == ["vlm-judge-hallucination", "vlm-judge-mermaid", "vlm-judge-language"]
+
+
+def test_judge_defects_parsing_is_case_insensitive_and_tolerates_surrounding_text() -> None:
+    client = _ScriptedVlmClient(
+        verdict="Sure, here goes:\nHallucination: YES\nMermaid_Fit: N/A\nLanguage: Yes\nThanks!"
+    )
+    defects = vlm.judge_defects("uri", "A chart.", client=client, model="m")
+    assert defects == ["vlm-judge-hallucination"]
+
+
+def test_judge_defects_unparseable_response_returns_empty_list() -> None:
+    client = _ScriptedVlmClient(verdict="I refuse to answer in that format.")
+    assert vlm.judge_defects("uri", "A chart.", client=client, model="m") == []
+
+
+def test_judge_defects_missing_one_of_the_three_fields_returns_empty_list() -> None:
+    client = _ScriptedVlmClient(verdict="hallucination: no\nlanguage: yes")  # mermaid_fit missing
+    assert vlm.judge_defects("uri", "A chart.", client=client, model="m") == []
+
+
+def test_judge_defects_client_exception_returns_empty_list_not_raised() -> None:
+    assert vlm.judge_defects("uri", "A chart.", client=_RaisingVlmClient(), model="m") == []
+
+
+def test_judge_defects_embeds_the_already_generated_response_in_the_prompt() -> None:
+    client = _ScriptedVlmClient(verdict=_CLEAN_VERDICT)
+    vlm.judge_defects("uri", "A UNIQUE description marker XYZ123.", client=client, model="m")
+    assert "A UNIQUE description marker XYZ123." in client.prompts[0]
+
+
+# =============================================================================
+# 9. enhance_docx_markdown — vlm_verify wiring
+# =============================================================================
+
+
+def _image_only_markdown(image_id: str) -> str:
+    return f"> [Image, docx media {image_id} — raster content not analyzed]"
+
+
+def _group_only_markdown(group_id: str, witness: str) -> str:
+    return (
+        f"> [Figure, docx group {group_id} — composite content not analyzed]\n> captions: {witness}"
+    )
+
+
+def test_enhance_docx_markdown_vlm_verify_false_never_calls_judge_even_on_cache_miss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vlm, "_docx_media_uri", lambda *a, **k: "data:image/jpeg;base64,x")
+    client = _ScriptedVlmClient()
+    docx_bytes = build_minimal_docx(["text"])
+    config = Config(
+        use_vlm=True, vlm_verify=False, vlm_cache=InMemoryCacheBackend(), vlm_client=client
+    )
+
+    _, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _image_only_markdown(_IMAGE_ID), docx_bytes, config=config
+    )
+
+    assert vlm_used is True
+    assert len(client.prompts) == 1  # only the generation call, no judge call
+    assert not any(w.startswith("vlm-judge-") for w in warnings)
+
+
+def test_enhance_docx_markdown_vlm_verify_true_cache_miss_calls_judge_once_per_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vlm, "_docx_media_uri", lambda *a, **k: "data:image/jpeg;base64,x")
+    client = _ScriptedVlmClient(verdict="hallucination: yes\nmermaid_fit: n/a\nlanguage: yes")
+    cache = InMemoryCacheBackend()
+    docx_bytes = build_minimal_docx(["text"])
+    config = Config(use_vlm=True, vlm_verify=True, vlm_cache=cache, vlm_client=client)
+
+    _, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _image_only_markdown(_IMAGE_ID), docx_bytes, config=config
+    )
+
+    assert vlm_used is True
+    assert len(client.prompts) == 2  # generation + judge
+    assert warnings == [f"vlm-judge-hallucination: {_IMAGE_ID}"]
+    cached_entry = cache.get(_IMAGE_ID)
+    assert cached_entry is not None
+    assert cached_entry["judge_verdict"] == ["vlm-judge-hallucination"]
+
+
+def test_enhance_docx_markdown_vlm_verify_true_full_cache_hit_needs_no_client_at_all() -> None:
+    cache = InMemoryCacheBackend()
+    cache.set(_IMAGE_ID, {"model": "test-model", "markdown": "A chart.", "judge_verdict": []})
+    # No vlm_client, no vlm_api_key: a fully-verified cache hit must never
+    # construct a real client — proves the offline guarantee holds even
+    # with vlm_verify=True, not just vlm_verify=False.
+    config = Config(use_vlm=True, vlm_verify=True, vlm_cache=cache)
+    docx_bytes = build_minimal_docx(["text"])
+
+    _, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _image_only_markdown(_IMAGE_ID), docx_bytes, config=config
+    )
+
+    assert vlm_used is True
+    assert warnings == []
+
+
+def test_enhance_docx_markdown_vlm_verify_true_partial_cache_hit_computes_judge_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vlm, "_docx_media_uri", lambda *a, **k: "data:image/jpeg;base64,x")
+    client = _ScriptedVlmClient(verdict="hallucination: no\nmermaid_fit: no\nlanguage: yes")
+    cache = InMemoryCacheBackend()
+    # Pre-existing entry with no judge_verdict key at all — a cache written
+    # before vlm_verify ever existed.
+    cache.set(_IMAGE_ID, {"model": "test-model", "markdown": "A chart."})
+    docx_bytes = build_minimal_docx(["text"])
+    config = Config(use_vlm=True, vlm_verify=True, vlm_cache=cache, vlm_client=client)
+
+    _, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _image_only_markdown(_IMAGE_ID), docx_bytes, config=config
+    )
+
+    assert vlm_used is True
+    assert len(client.prompts) == 1  # ONLY the judge call — no re-generation
+    assert "A chart." in client.prompts[0]  # judges the CACHED description, not a new one
+    assert warnings == [f"vlm-judge-mermaid: {_IMAGE_ID}"]
+    updated_entry = cache.get(_IMAGE_ID)
+    assert updated_entry is not None
+    assert updated_entry["judge_verdict"] == ["vlm-judge-mermaid"]
+
+
+def test_enhance_docx_markdown_vlm_verify_true_group_marker_uses_judge_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """judge_defects applies to GROUP markers too — unlike witness_defects,
+    which is group-only by construction, judge_defects has no such
+    restriction (see its own docstring)."""
+    monkeypatch.setattr(vlm, "_render_docx_group", lambda *a, **k: "data:image/jpeg;base64,x")
+    client = _ScriptedVlmClient(
+        description="A bar chart of sales by region.", verdict=_CLEAN_VERDICT
+    )
+    docx_bytes = build_minimal_docx(["text"])
+    cache = InMemoryCacheBackend()
+    config = Config(use_vlm=True, vlm_verify=True, vlm_cache=cache, vlm_client=client)
+
+    _, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _group_only_markdown(_GROUP_ID, "sales region"), docx_bytes, config=config
+    )
+
+    assert vlm_used is True
+    assert warnings == []  # clean witness match + clean judge verdict
+    cached_entry = cache.get(_GROUP_ID)
+    assert cached_entry is not None
+    assert cached_entry["judge_verdict"] == []
+
+
+def test_enhance_docx_markdown_vlm_verify_true_partial_cache_hit_image_unavailable_skips_gracefully(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vlm, "_docx_media_uri", lambda *a, **k: None)  # source changed/media gone
+    client = _ScriptedVlmClient()
+    cache = InMemoryCacheBackend()
+    cache.set(_IMAGE_ID, {"model": "test-model", "markdown": "A chart."})
+    docx_bytes = build_minimal_docx(["text"])
+    config = Config(use_vlm=True, vlm_verify=True, vlm_cache=cache, vlm_client=client)
+
+    _, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _image_only_markdown(_IMAGE_ID), docx_bytes, config=config
+    )
+
+    assert vlm_used is True  # description still injected from cache
+    assert warnings == []  # judge upgrade silently skipped, no crash
+    assert len(client.prompts) == 0
+    updated_entry = cache.get(_IMAGE_ID)
+    assert updated_entry is not None
+    assert "judge_verdict" not in updated_entry  # left untouched, not force-set
