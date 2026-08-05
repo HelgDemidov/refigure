@@ -105,11 +105,25 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
   существует** в refigure (не новый код) — но сигнатура `Path`-only;
   расширяется до `Path | bytes` (как `normalized` везде в пакете) —
   маленькая правка уже перенесённого файла, не риск.
+- **HTTP-клиент к VLM — тоже подключаемый Protocol, не хардкод под
+  OpenRouter** (решение 2026-08-05, по вопросу пользователя): та же
+  логика, что уже применена к кэшу — «библиотеке нужна гибкость под
+  чужой деплоймент» (design-документ §3) в равной мере относится и к
+  провайдеру VLM-вызова, не только к persistence. `VlmClient` Protocol
+  — `send(prompt: str, image_uri: str, *, model: str) -> str` —
+  определён в `api.py` рядом с `VlmCacheBackend` (тот же layering-довод:
+  core не должен знать про периферийные модули, только наоборот).
+  `OpenRouterClient` (в `vlm_client.py`) — единственная поставляемая
+  реализация, оборачивает `chat_request`/`InbandError` (порт
+  `core/openrouter.py`), держит `api_key` как поле экземпляра (не
+  параметр `send()` — реализационная деталь, не часть контракта
+  Protocol'а).
 
 ## 3. Новые модули и зависимости
 
-- `refigure/vlm_client.py` — `chat_request`/`InbandError` (порт
-  `core/openrouter.py`).
+- `refigure/vlm_client.py` — `OpenRouterClient` (implements `VlmClient`
+  Protocol from `api.py`, see §2), wrapping `chat_request`/`InbandError`
+  (порт `core/openrouter.py`).
 - `refigure/vlm_cache.py` — `InMemoryCacheBackend`, `FileCacheBackend`
   (both implement `VlmCacheBackend`, defined in `api.py` — see §2).
 - `refigure/vlm.py` — маркер-грамматика (docx-only), `sanitize_vlm_markdown`
@@ -139,15 +153,42 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
 - `soffice` (LibreOffice) — системный бинарник, не pip-пакет, не в
   extras (не может быть). `shutil.which("soffice") is None` →
   `logger.warning` + маркер остаётся как есть (zero-loss floor,
-  тот же приём, что G2AI_ME) — никогда hard-fail.
+  тот же приём, что G2AI_ME) — никогда hard-fail. **Решение по CI**: не
+  устанавливать LibreOffice на раннер (~1GB, заметно утяжелит и
+  замедлит `test-unit`) — `test_docx_groups_live.py` и любой другой
+  soffice-зависимый тест остаются `skipif`-guarded, реально прогоняются
+  локально/вручную, не в CI. Та же «graceful degrade, не жёсткое
+  требование» философия, что уже принята для gitignored corpus-фикстур
+  в `test-integration` job — не новое исключение, продолжение
+  существующей конвенции.
 - `Config` (`api.py`) — новые поля: `use_vlm: bool = False`,
   `vlm_model: str = "google/gemini-3-flash-preview"` (дефолт G2AI_ME,
-  «победитель пилота» — `cloud_ocr.DEFAULT_VLM_MODEL`),
-  `vlm_api_key: str | None = None` (фоллбэк на `OPENROUTER_API_KEY` env,
-  explicit-param-overrides-env — конвенция типичных SDK), `vlm_cache:
-  VlmCacheBackend | None = None` (фоллбэк на `InMemoryCacheBackend()`).
+  «победитель пилота» — `cloud_ocr.DEFAULT_VLM_MODEL`; **не
+  откалиброван на композитных фигурах refigure специфически** — унаследован
+  от смешанного PDF+DOCX пилота G2AI_ME, overridable, без вреда как
+  стартовая точка, но не «проверенный для refigure» дефолт — стоит
+  честно отметить в docstring `Config.vlm_model`, не выдавать за
+  калиброванный), `vlm_api_key: str | None = None` (фоллбэк на
+  `OPENROUTER_API_KEY` env, explicit-param-overrides-env — конвенция
+  типичных SDK, используется только для дефолтного `OpenRouterClient`),
+  `vlm_client: VlmClient | None = None` (фоллбэк на `OpenRouterClient(
+  api_key=...)`), `vlm_cache: VlmCacheBackend | None = None` (фоллбэк на
+  `InMemoryCacheBackend()`).
 - `ConversionResult.vlm_used` (уже есть в датаклассе с стадии 2, сейчас
   везде `False`) — становится реальным полем для docx-пути.
+- **Data-egress дисциплина**: `use_vlm=True` отправляет кроп содержимого
+  документа в облако (через `vlm_client`, по умолчанию OpenRouter) — это
+  уже архитектурное решение design-документа (opt-in тоггл именно ради
+  конфиденциальных документов), но сам факт нигде не написан явно на
+  уровне читаемого API. Требование к реализации: `Config.use_vlm`'s
+  docstring должен недвусмысленно это проговаривать, не полагаться на
+  то, что «opt-in» само по себе очевидно каждому вызывающему.
+- Порог witness-гейта (`FIGURE_WITNESS_MIN_RECALL = lint.
+  WITNESS_MIN_TOKEN_RECALL = 0.80`) — тоже унаследован без пересчёта, у
+  G2AI_ME сам делённый с OCR-гейтом «стартово, калибровать по живым
+  флагам» (собственная оговорка исходника). Переносится как стартовое
+  значение, не как проверенная для refigure константа — тот же класс
+  честности, что `vlm_model` выше.
 
 ## 4. Вне скоупа этой стадии
 
@@ -193,7 +234,7 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
 
 ## План коммитов/PR
 
-1. `feat: add refigure/vlm_client.py — sync OpenRouter chat client (ported from core/openrouter.py)`
+1. `feat: add VlmClient protocol to api.py + refigure/vlm_client.py's OpenRouterClient (ported from core/openrouter.py)`
 2. `feat: add VlmCacheBackend protocol to api.py + refigure/vlm_cache.py's in-memory/file backends`
 3. `feat: widen docx_groups.extract_group_docx to accept Path | bytes`
 4. `feat: add refigure/vlm.py — docx marker grammar, sanitize_vlm_markdown, witness_defects`
@@ -212,8 +253,8 @@ G2AI_ME's `apply_figures_pass(md_path: Path, raw: Path, *, model)` —
 
 ## Чек-лист реализации
 
-- [ ] `refigure/vlm_client.py`
-- [ ] `refigure/vlm_cache.py`
+- [ ] `VlmClient` protocol (`api.py`) + `refigure/vlm_client.py`'s `OpenRouterClient`
+- [ ] `VlmCacheBackend` protocol (`api.py`) + `refigure/vlm_cache.py`
 - [ ] `docx_groups.extract_group_docx` accepts `Path | bytes`
 - [ ] `refigure/vlm.py` — grammar + sanitize + witness_defects
 - [ ] `refigure/vlm.py` — docx image/group resolution
