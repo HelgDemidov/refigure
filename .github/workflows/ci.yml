@@ -156,7 +156,14 @@ jobs:
         # just "we added a try/except so it must be isolated". No soffice
         # needed here — this job verifies IMPORT isolation, not the
         # soffice-render path itself (that's test-unit's real corpus tests).
-        extras: [bare, docx, xlsx, both, vlm, docx+vlm]
+        #
+        # vlm-direct added for the OpenAIClient/AnthropicClient direct
+        # VlmClient implementations (docs/vlm/vlm-direct-clients/
+        # vlm-direct-clients-2026-08-06.md) — this exact leg is what caught
+        # vlm-direct's own extras-isolation bug locally before it ever
+        # reached CI (self-referential `refigure[vlm]` dependency, see
+        # pyproject.toml's vlm-direct comment).
+        extras: [bare, docx, xlsx, both, vlm, docx+vlm, vlm-direct]
     steps:
       - uses: actions/checkout@v7
 
@@ -176,6 +183,7 @@ jobs:
             both) uv pip install ".[docx,xlsx]" ;;
             vlm) uv pip install ".[vlm]" ;;
             docx+vlm) uv pip install ".[docx,vlm]" ;;
+            vlm-direct) uv pip install ".[vlm-direct]" ;;
           esac
           uv pip install pytest
 

@@ -52,7 +52,10 @@ if _EXTRAS is None:
 
 _HAS_DOCX = _EXTRAS in ("docx", "both", "docx+vlm")
 _HAS_XLSX = _EXTRAS in ("xlsx", "both")
-_HAS_VLM = _EXTRAS in ("vlm", "docx+vlm")
+# vlm-direct depends on [vlm] too (self-referential extra, see
+# pyproject.toml's vlm-direct comment) — pdfplumber is present there too.
+_HAS_VLM = _EXTRAS in ("vlm", "docx+vlm", "vlm-direct")
+_HAS_VLM_DIRECT = _EXTRAS == "vlm-direct"
 
 
 def test_core_types_always_importable() -> None:
@@ -134,6 +137,46 @@ def test_pdfplumber_only_importable_when_vlm_extra_present() -> None:
         f"pdfplumber importable={importable}, expected={_HAS_VLM} for extras={_EXTRAS!r} "
         "— a leaked/missing transitive dependency in the [vlm] extra"
     )
+
+
+def test_openai_and_anthropic_only_importable_when_vlm_direct_extra_present() -> None:
+    for pkg in ("openai", "anthropic"):
+        try:
+            __import__(pkg)
+            importable = True
+        except ModuleNotFoundError:
+            importable = False
+        assert importable == _HAS_VLM_DIRECT, (
+            f"{pkg} importable={importable}, expected={_HAS_VLM_DIRECT} for "
+            f"extras={_EXTRAS!r} — a leaked/missing transitive dependency in "
+            "the [vlm-direct] extra"
+        )
+
+
+def test_vlm_client_direct_classes_match_extras() -> None:
+    """3-tier boundary, found live 2026-08-05 while implementing vlm-direct
+    (see docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md §5):
+    refigure.vlm.client is a submodule of refigure.vlm, so importing it
+    ALWAYS runs refigure/vlm/__init__.py's pdfplumber guard first —
+    OpenAIClient/AnthropicClient's own guard only gets a chance to fire if
+    that first one already passed."""
+    from refigure.api import MissingOptionalDependencyError
+
+    if _HAS_VLM_DIRECT:
+        from refigure.vlm.client import AnthropicClient, OpenAIClient
+
+        OpenAIClient(api_key="x")
+        AnthropicClient(api_key="x")
+    elif _HAS_VLM:
+        from refigure.vlm.client import AnthropicClient, OpenAIClient
+
+        with pytest.raises(MissingOptionalDependencyError, match=r"refigure\[vlm-direct\]"):
+            OpenAIClient(api_key="x")
+        with pytest.raises(MissingOptionalDependencyError, match=r"refigure\[vlm-direct\]"):
+            AnthropicClient(api_key="x")
+    else:
+        with pytest.raises(MissingOptionalDependencyError, match=r"refigure\[vlm\]"):
+            from refigure.vlm.client import OpenAIClient  # noqa: F401
 
 
 # --- CLI (stage 6b) --------------------------------------------------------
