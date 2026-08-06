@@ -113,9 +113,9 @@ Substantial changes — `/tech-spec` → `/feature-workflow` → PR. **Repo went
 public 2026-08-06** (user's call, ahead of a release tag — unblocked
 branch protection + CodeQL default setup + Socket GitHub App free tier,
 all previously 403/unavailable on the private repo). Branch protection on
-`main` configured same day: `enforce_admins=true`,
-`allow_force_pushes=false`, `allow_deletions=false`, no required PR
-review (keeps the routine-direct-commit workflow above intact).
+`main` configured same day: `allow_force_pushes=false`,
+`allow_deletions=false`, no required PR review (keeps the
+routine-direct-commit workflow above intact).
 **GitHub Actions incident resolved 2026-08-07** — PR #15 got the first
 confirmed green run (all 11 jobs). `required_status_checks` now set on
 `main` (`strict=false`) requiring all 11 real job names: `Code quality
@@ -124,6 +124,18 @@ coverage`, `Integration tests (CI-safe subset)`, and all 7 `Extras
 isolation (<leg>)` legs. CodeQL's own first real run also confirmed
 live: `state: configured`, language auto-detected as `python` correctly
 (was unconfirmed before), 0 alerts.
+
+**`enforce_admins` flipped `true`→`false` same day**, immediately after
+the above: with it `true`, required-status-checks blocks literally any
+push to `main` (routine or not) until that exact commit SHA already
+carries 11 green check-runs — breaks the routine-direct-commit workflow
+outright, discovered live when a routine `CLAUDE.md` push was rejected.
+With it `false`, admins (repo owner) can still push straight to `main`
+bypassing required-checks (GitHub logs it as "Bypassed rule
+violations"), while non-admin PR merges still enforce all 11 checks.
+`allow_force_pushes`/`allow_deletions` stay `false` regardless — those
+aren't gated by `enforce_admins` the way required-checks are, still
+apply repo-wide.
 
 `delete_branch_on_merge: true` (a plain repo setting) — merged PR
 branches auto-delete on GitHub, but local tracking branches still need
