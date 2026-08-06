@@ -34,6 +34,19 @@ def _oversized_member_zip() -> bytes:
     return buf.getvalue()
 
 
+def _oversized_total_zip() -> bytes:
+    """5 members, each under zipsafe's 128MB per-member limit, whose
+    declared uncompressed sizes SUM past its 512MB total-decompressed
+    limit — the other zipsafe branch (aggregate, not any single member).
+    Same highly-compressible-data trick as ``_oversized_member_zip``."""
+    member_size = 110 * 1024 * 1024  # 5 * 110MB = 550MB > 512MB, each < 128MB
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for i in range(5):
+            z.writestr(f"word/media/image{i}.bin", b"A" * member_size)
+    return buf.getvalue()
+
+
 def _corrupt_member_crc(data: bytes) -> bytes:
     """Flip a handful of bytes in the middle of a valid zip — corrupts a
     member's compressed data (bad CRC-32) without touching the central
@@ -58,6 +71,20 @@ class TestZipBomb:
 
     def test_xlsx_convert_rejects_oversized_member(self) -> None:
         data = _oversized_member_zip()
+        t0 = time.time()
+        with pytest.raises(CorruptArchiveError):
+            xlsx.convert(data)
+        assert time.time() - t0 < 2.0
+
+    def test_docx_convert_rejects_oversized_total(self) -> None:
+        data = _oversized_total_zip()
+        t0 = time.time()
+        with pytest.raises(CorruptArchiveError):
+            docx.convert(data)
+        assert time.time() - t0 < 2.0  # rejected on declared size, never decompresses
+
+    def test_xlsx_convert_rejects_oversized_total(self) -> None:
+        data = _oversized_total_zip()
         t0 = time.time()
         with pytest.raises(CorruptArchiveError):
             xlsx.convert(data)
