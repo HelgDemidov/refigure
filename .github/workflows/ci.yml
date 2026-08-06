@@ -232,13 +232,25 @@ jobs:
       # secret needed.
       - name: Commit updated badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # Retries on a non-fast-forward push (found live 2026-08-06/07: a
+        # burst of direct pushes to main outran this step's own push
+        # several times in a row — see docs/security/security-hardening/
+        # security-hardening-2026-08-06.md). Rebase-and-retry, not
+        # force-push: this branch has allow_force_pushes=false.
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/assets/coverage-badge.json
           git diff --staged --quiet && exit 0
           git commit -m "chore: update coverage badge [skip ci]"
-          git push
+          for i in 1 2 3 4 5; do
+            git push && exit 0
+            echo "push rejected (attempt $i/5) — rebasing onto latest main and retrying"
+            git fetch origin main
+            git rebase origin/main
+          done
+          echo "::error::failed to push coverage badge after 5 attempts"
+          exit 1
 
   # ---------------------------------------------------------------------------
   # Extras isolation matrix (stage 6): verifies the extras architecture's core
