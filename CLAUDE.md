@@ -9,7 +9,7 @@ OOXML chart-data extraction (numCache/strCache, no rasterize/OCR/VLM) + position
 zero-loss markers for composite figures — market research found this genuinely
 absent even among well-funded incumbents (Docling issue #1287, >1yr open, unfixed).
 
-## Status (2026-08-05)
+## Status (2026-08-06)
 Design phase complete. Stages 1-2 (PRs #1-#2: `docx.convert()`/`xlsx.convert()`
 callable, `ConversionResult`/3 typed exceptions/`Path|bytes|BinaryIO`), CI +
 40-test robustness suite (PRs #3-#5: 4 bugs fixed, CI triggers fixed), stage 4
@@ -40,9 +40,34 @@ odds — a later local repro loop caught the SAME root cause as a silent
 wrong result instead of a crash). Fixed for real with a
 `threading.Lock()` around `openpyxl.load_workbook()` in `xlsx.py`, not
 just a test change — see `project_openpyxl_concurrent_parser_fragility`
-memory. 188 unit tests total. Not yet done: stage 4b (VLM — spec drafted,
-`docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md`, not yet implemented), stage 7
-(README+demo), stage 8 (release gate).
+memory. Stage 4b (PRs #10-#11, VLM — gated behind `Config.use_vlm` +
+`[vlm]` extra, not announced in v1) now merged: PR #10 ported the VLM
+layer (`VlmClient`/`VlmCacheBackend` protocols, `OpenRouterClient`, the
+free witness gate — `token_recall`/`numeric_counter`/
+`chart_render.mermaid_renders()`) and picked `vlm_model`'s default
+(`google/gemini-3-flash-preview`) via 2-round A/B calibration, see
+`docs/vlm/vlm-model-calibration/vlm-model-calibration-2026-08-05.md`. PR
+#11 (witness-gate-redesign) found the free gate is language-sensitive on
+non-English source docs and added an opt-in paid path
+(`Config.vlm_verify`), then live-validated it before merging (per its own
+spec's mandatory gate) — found the *original design itself* broken
+(same-model self-judge: 30%/12% hallucination/mermaid-fit recall against
+24 manually-labeled real responses, false positives, non-deterministic
+verdicts on repeat calls) and pivoted mid-PR to an independent-judge
+architecture (`Config.vlm_judge_mode` solo/panel, default panel = 2 fixed
+models unioned, 80%/88% recall, 100% of confirmed defects caught on at
+least one dimension) — see `docs/vlm/vlm-model-calibration/
+judge-defects-validation-2026-08-06.md`. Same PR also carried the
+`refigure/`+`tests/` package reorg (flat modules → `core`/`docx`/`xlsx`/
+`vlm` subpackages mirroring the extras) and found a 5th real production
+bug via the extras-isolation CI matrix: nesting `docx_groups.py` under
+`refigure/docx/` made `import refigure.vlm` transitively require
+`refigure[docx]`'s mammoth (importing any submodule always runs its
+package's `__init__.py` first) — invisible to the regular test suite
+(every extra installed there), caught only by the one CI leg built for
+exactly this. Fixed by keeping `docx_groups.py` a flat module, same
+lesson as `project_extras_isolation_bug` memory. 278 unit tests total.
+Not yet done: stage 7 (README+demo), stage 8 (release gate).
 
 ## Dev environment
 `pyproject.toml` (extras `[docx]`/`[xlsx]`, `refigure` console script via
