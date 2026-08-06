@@ -81,6 +81,57 @@ def test_missing_dependency_raises_typed_error_not_bare_import_error(
     )
 
 
+# (refigure.vlm.client class name, PyPI dependency to simulate as absent)
+_CLASS_LEVEL_POISON_CASES = [
+    ("OpenAIClient", "openai"),
+    ("AnthropicClient", "anthropic"),
+]
+
+
+@pytest.mark.parametrize("class_name,blocked_dependency", _CLASS_LEVEL_POISON_CASES)
+def test_vlm_client_guard_is_class_level_not_module_level(
+    class_name: str, blocked_dependency: str
+) -> None:
+    """OpenAIClient/AnthropicClient guard their SDK dependency inside
+    __init__, not at refigure/vlm/client.py's module level like every
+    other case above — OpenRouterClient has zero third-party deps and must
+    keep working with openai/anthropic both absent (see
+    docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md §4).
+    Proves both halves: the module imports cleanly with the dependency
+    poisoned, AND constructing the affected class still raises the typed
+    error, not a bare ImportError."""
+    script = (
+        f"import sys\n"
+        f"sys.modules[{blocked_dependency!r}] = None\n"
+        f"from refigure.vlm.client import OpenRouterClient, {class_name}\n"
+        f"print('MODULE_IMPORT_OK')\n"
+        f"try:\n"
+        f"    {class_name}(api_key='x')\n"
+        f"except Exception as e:\n"
+        f"    print(type(e).__module__ + '.' + type(e).__qualname__)\n"
+        f"else:\n"
+        f"    print('NO_EXCEPTION_RAISED')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+        timeout=30,
+    )
+    lines = result.stdout.strip().splitlines()
+    assert lines[:1] == ["MODULE_IMPORT_OK"], (
+        f"import refigure.vlm.client failed with {blocked_dependency!r} poisoned "
+        f"(should succeed — the guard is class-level, not module-level): "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert lines[1:2] == [_EXPECTED_MISSING_DEP_QUALNAME], (
+        f"constructing {class_name} with {blocked_dependency!r} blocked raised "
+        f"{lines[1:2]!r}, expected [{_EXPECTED_MISSING_DEP_QUALNAME!r}] "
+        f"(stderr: {result.stderr})"
+    )
+
+
 def test_docx_convert_lazy_imports_vlm_only_when_use_vlm_true(tmp_path: Path) -> None:
     """docx.convert() with the default use_vlm=False must not import
     refigure.vlm — and therefore not pdfplumber — at all. Proves the lazy
