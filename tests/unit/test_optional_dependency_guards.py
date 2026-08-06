@@ -49,6 +49,20 @@ _POISON_CASES = [
     ("refigure.docx", "mammoth"),
     ("refigure.xlsx", "openpyxl"),
     ("refigure.vlm", "pdfplumber"),
+    # refigure.vlm.client is a SUBMODULE of the refigure.vlm package, so
+    # importing it always runs refigure/vlm/__init__.py first — including
+    # its pdfplumber guard. Found live, 2026-08-06 (same bug CLASS as
+    # docx_groups.py, see project_extras_isolation_bug memory): `from
+    # refigure.vlm.client import OpenAIClient` failed with "refigure[vlm]
+    # is required" before ever reaching OpenAIClient's own guard. Unlike
+    # docx_groups.py, this one is NOT a bug to route around — pyproject.toml's
+    # vlm-direct extra deliberately depends on [vlm] too (self-referential
+    # extra), because Config.vlm_client's only real call site
+    # (enhance_docx_markdown) always needs pdfplumber to render a figure
+    # BEFORE any VlmClient sends it, regardless of which client is chosen.
+    # This case pins that intentional coupling, not the guard itself — see
+    # pyproject.toml's vlm-direct comment for the full rationale.
+    ("refigure.vlm.client", "pdfplumber"),
 ]
 
 
@@ -77,6 +91,57 @@ def test_missing_dependency_raises_typed_error_not_bare_import_error(
     assert observed == _EXPECTED_MISSING_DEP_QUALNAME, (
         f"importing {target_module} with {blocked_dependency} blocked raised "
         f"{observed!r}, expected {_EXPECTED_MISSING_DEP_QUALNAME} "
+        f"(stderr: {result.stderr})"
+    )
+
+
+# (refigure.vlm.client class name, PyPI dependency to simulate as absent)
+_CLASS_LEVEL_POISON_CASES = [
+    ("OpenAIClient", "openai"),
+    ("AnthropicClient", "anthropic"),
+]
+
+
+@pytest.mark.parametrize("class_name,blocked_dependency", _CLASS_LEVEL_POISON_CASES)
+def test_vlm_client_guard_is_class_level_not_module_level(
+    class_name: str, blocked_dependency: str
+) -> None:
+    """OpenAIClient/AnthropicClient guard their SDK dependency inside
+    __init__, not at refigure/vlm/client.py's module level like every
+    other case above — OpenRouterClient has zero third-party deps and must
+    keep working with openai/anthropic both absent (see
+    docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md §4).
+    Proves both halves: the module imports cleanly with the dependency
+    poisoned, AND constructing the affected class still raises the typed
+    error, not a bare ImportError."""
+    script = (
+        f"import sys\n"
+        f"sys.modules[{blocked_dependency!r}] = None\n"
+        f"from refigure.vlm.client import OpenRouterClient, {class_name}\n"
+        f"print('MODULE_IMPORT_OK')\n"
+        f"try:\n"
+        f"    {class_name}(api_key='x')\n"
+        f"except Exception as e:\n"
+        f"    print(type(e).__module__ + '.' + type(e).__qualname__)\n"
+        f"else:\n"
+        f"    print('NO_EXCEPTION_RAISED')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+        timeout=30,
+    )
+    lines = result.stdout.strip().splitlines()
+    assert lines[:1] == ["MODULE_IMPORT_OK"], (
+        f"import refigure.vlm.client failed with {blocked_dependency!r} poisoned "
+        f"(should succeed — the guard is class-level, not module-level): "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert lines[1:2] == [_EXPECTED_MISSING_DEP_QUALNAME], (
+        f"constructing {class_name} with {blocked_dependency!r} blocked raised "
+        f"{lines[1:2]!r}, expected [{_EXPECTED_MISSING_DEP_QUALNAME!r}] "
         f"(stderr: {result.stderr})"
     )
 
