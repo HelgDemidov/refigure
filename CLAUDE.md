@@ -66,21 +66,43 @@ bug via the extras-isolation CI matrix: nesting `docx_groups.py` under
 package's `__init__.py` first) — invisible to the regular test suite
 (every extra installed there), caught only by the one CI leg built for
 exactly this. Fixed by keeping `docx_groups.py` a flat module, same
-lesson as `project_extras_isolation_bug` memory. 278 unit tests total.
-Not yet done: stage 7 (README+demo), stage 8 (release gate).
+lesson as `project_extras_isolation_bug` memory. Stage 4b insertion (PR
+#12, `vlm-direct-clients`, 2026-08-06) added 2 more `VlmClient`
+implementations to `refigure/vlm/client.py`: `OpenAIClient` (openai SDK,
+`base_url`-configurable — covers direct OpenAI AND any OpenAI-compatible
+local server, Ollama/vLLM/LM Studio, one client not two) and
+`AnthropicClient` (anthropic SDK, injectable `client=` — accepts
+`anthropic.AnthropicBedrock`/`AnthropicVertex`/`AnthropicFoundry` as-is,
+since all 3 share the same `.messages.create()` interface, so Claude via
+Bedrock/Vertex/Foundry works with zero extra code in this class).
+LiteLLM was researched and rejected (PyPI supply-chain compromise March
+2026 + 2 CVEs on CISA KEV); `aisuite` also rejected (9 months stale, no
+confirmed vision support) — see `docs/vlm/vlm-direct-clients/
+vlm-direct-clients-2026-08-06.md`. Found a 6th real production bug the
+same day — 3rd occurrence of the `project_extras_isolation_bug` class,
+a new trigger this time (neither import-order nor package-nesting):
+`refigure/vlm/client.py` is a submodule of `refigure.vlm`, so importing
+it always runs `refigure/vlm/__init__.py`'s pdfplumber guard first —
+`pip install refigure[vlm-direct]` alone broke without `[vlm]` too.
+Fixed with a self-referential extra (`vlm-direct = ["refigure[vlm]",
+...]`), not a module move — the coupling is real, not incidental
+(`Config.vlm_client`'s only call site always renders via pdfplumber
+first, regardless of which client sends the result). 293 unit tests
+total. Not yet done: stage 7 (README+demo), stage 8 (release gate).
 
 ## Dev environment
-`pyproject.toml` (extras `[docx]`/`[xlsx]`, `refigure` console script via
+`pyproject.toml` (extras `[docx]`/`[xlsx]`/`[vlm]`/`[vlm-direct]`,
+`refigure` console script via
 `[project.scripts]`, ruff/mypy/pytest config) +
 `requirements.txt`/`requirements-dev.txt`, managed with `uv`. CI
 (`.github/workflows/ci.yml`): 4 parallel jobs — `quality` (ruff+mypy+
 pip-audit), `test-unit` (pytest `tests/unit` + coverage, no threshold gate
 yet), `test-integration` (pytest `tests/integration` — real corpus-fixture
 tests, stage 5; 0 collected in CI without the gitignored local fixture
-setup, graceful not a failure), `test-extras` (stage 6: 4-leg matrix,
-`bare`/`docx`/`xlsx`/`both`, each a FRESH isolated venv — not
-requirements-dev.txt like the other 3 jobs — the only way to actually
-catch a broken extras boundary). Custom Claude Code
+setup, graceful not a failure), `test-extras` (stage 6, now 7-leg matrix,
+`bare`/`docx`/`xlsx`/`both`/`vlm`/`docx+vlm`/`vlm-direct`, each a FRESH
+isolated venv — not requirements-dev.txt like the other 3 jobs — the only
+way to actually catch a broken extras boundary). Custom Claude Code
 commands in `.claude/commands/`: `/tech-spec` (draft a spec under `docs/`),
 `/feature-workflow` (implement one end-to-end), `/post-merge-sync` (this
 command), `/memory-sync` (audit memory against live code).
@@ -127,7 +149,8 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
   mermaid-verified before publish).
 
 ## Package architecture
-- One PyPI package, extras by format+capability: `[docx]`, `[xlsx]`, `[vlm]`.
+- One PyPI package, extras by format+capability: `[docx]`, `[xlsx]`,
+  `[vlm]`, `[vlm-direct]`.
 - Directory layout mirrors this exactly (reorganized 2026-08-05, same
   category/slug principle as `docs/`, scoped to what the package's own
   extras boundaries already imply — see `docs/project-meta/` for the
@@ -136,7 +159,8 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
   `refigure/docx/` (`__init__.py` — the public `refigure.docx.convert()`
   entry point, only submodule), `refigure/xlsx/` (`__init__.py` — public
   `refigure.xlsx.convert()` — + `charts.py`), `refigure/vlm/` (`__init__.py`
-  + `client.py` + `cache.py`). `api.py`/`_io.py`/`cli.py`/`__main__.py`
+  + `client.py` — `OpenRouterClient`/`OpenAIClient`/`AnthropicClient` —
+  + `cache.py`). `api.py`/`_io.py`/`cli.py`/`__main__.py`
   stay at the package root — `api.py` deliberately not moved into `core/`
   despite being core-only in spirit: its exception qualnames
   (`refigure.api.MissingOptionalDependencyError`) are asserted by string in
@@ -157,6 +181,26 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
   can't see this class of bug). `xlsx/charts.py` has the identical nesting
   and is fine, because nothing outside `xlsx/` imports it — `docx_groups.py`
   is the one case with a cross-package consumer.
+- `refigure/vlm/client.py`'s `OpenAIClient`/`AnthropicClient` (stage 4b
+  insertion, PR #12, 2026-08-06) hit the SAME extras-isolation bug class a
+  3rd time, a new trigger again (not import-order, not package-nesting):
+  `client.py` is a submodule of `refigure.vlm`, so importing it — even just
+  to reach `OpenAIClient`, which needs no `pdfplumber` at all — always runs
+  `refigure/vlm/__init__.py`'s pdfplumber guard first. Unlike the prior two
+  occurrences this ISN'T a bug to route around (`Config.vlm_client`'s only
+  real call site, `enhance_docx_markdown`, always renders via `pdfplumber`
+  regardless of which client sends the result) — fixed with a
+  self-referential extra instead (`vlm-direct = ["refigure[vlm]", "openai
+  ...", "anthropic..."]`), declaring the real dependency rather than
+  flattening the module out of its package. See `project_extras_isolation_bug`
+  memory for all 3 occurrences.
+- Same file's `OpenAIClient`/`AnthropicClient` also use a CLASS-level
+  (not module-level) variant of the optional-dependency guard below — a
+  deliberate adaptation, not a new mechanism: `client.py` hosts multiple
+  independent capabilities (`OpenRouterClient` has zero third-party deps
+  and must keep working without `openai`/`anthropic` installed), so each
+  class does its own `try/except ImportError` inside `__init__` instead
+  of one guard at the top of the file.
 - Independent per-format submodules (`refigure/docx/__init__.py` imports
   only mammoth+markdownify; `refigure/xlsx/__init__.py` imports only
   openpyxl) — avoids per-dependency try/except gymnastics. The guard must
