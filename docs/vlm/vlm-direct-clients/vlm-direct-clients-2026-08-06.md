@@ -3,9 +3,10 @@
 **Статус:** черновик v1 · 2026-08-06
 **Ветка:** `feat/vlm-direct-clients`
 
-*Превышает целевые ≤100 строк (171) — 2 новых клиента с разными wire-
-протоколами + отклонение от module-level guard-паттерна + пакетное
-решение требуют разбора, не влезающего в норму без потери конкретики.*
+*Превышает целевые ≤100 строк — 2 новых клиента с разными wire-протоколами
++ отклонение от module-level guard-паттерна + пакетное решение + живая
+верификация 3 облачных Claude-путей (Bedrock/Vertex/Foundry) требуют
+разбора, не влезающего в норму без потери конкретики.*
 
 ## 0. Что и зачем
 
@@ -17,11 +18,12 @@ api.py`) уже провайдер-агностичен, но в комплек�
 `OpenAIClient`/`AnthropicClient` в `refigure/vlm/client.py` — закрывающие
 и локальный инференс (confidentiality-драйвер), и прямой доступ к облаку
 в обход OpenRouter как единой точки отказа. `AnthropicClient` дополнительно
-спроектирован так, что Claude через Bedrock/Vertex/Foundry (Azure) уже
-доступны инъекцией готового клиента (§2), без отдельных реализаций — но
-тесты/докстроки под каждый конкретно вне скоупа этого PR. Полностью вне
-скоупа: Google Gemini direct, гетерогенная панель судей — см. «Вне
-скоупа».
+спроектирован так, что Claude через Bedrock/Vertex/Foundry (Azure) доступны
+инъекцией готового клиента (§2) — В СКОУПЕ этого PR: по одному живому
+интеграционному тесту и докстринг-рецепту на каждое облако (§3). Явно вне
+скоупа: сопровождение актуальности их model-ID/lifecycle (это забота
+каждой платформы, не `refigure`), Google Gemini direct, гетерогенная
+панель судей — см. «Вне скоупа».
 
 Архитектура согласована в диалоге (не веб-поиском, а живой проверкой PyPI/
 GitHub/офиц. документации 2026-08-06): LiteLLM отклонён (supply-chain
@@ -94,9 +96,8 @@ class AnthropicClient:
 Vertex/Foundry-эквивалент) `AnthropicClient.send()` не меняется ни
 строкой — вся auth/endpoint-специфика инкапсулирована внутри
 конструктора переданного объекта, не в `refigure`. Это делает
-Bedrock/Vertex/Foundry доступными **структурно уже сейчас**, без
-отдельных классов под каждый — см. «Вне скоупа» про фактическую границу
-(не реализация, а тесты/документация под каждый).
+Bedrock/Vertex/Foundry доступными без отдельных классов под каждый —
+живая проверка и документация для всех трёх добавлены в скоуп, §3.
 
 Модель-ID у Anthropic голый (`"claude-haiku-4-5-20251001"`), без
 `anthropic/`-префикса — **не совместим** с сегодняшними дефолтами
@@ -105,7 +106,43 @@ Bedrock/Vertex/Foundry доступными **структурно уже сей
 также переопределить эти строки — задокументировать явно в докстринге
 каждого поля `Config`, не полагаться на то, что это очевидно.
 
-## 3. Импорт-гварды — на уровне класса, не модуля
+## 3. Bedrock/Vertex/Foundry — живая проверка + документация
+
+Раз механизм `client=` (§2) уже покрывает все три структурно, в скоуп
+добавляется по одному живому интеграционному тесту и по одному
+докстринг-рецепту на каждое облако. Явно НЕ в скоупе (см. «Вне скоупа»):
+любое сопровождение актуальности их model-ID — lifecycle (Deprecated/
+Retired) независимо ведёт каждая платформа сама, не `refigure`.
+
+**Живые тесты** — `tests/integration/test_anthropic_{bedrock,vertex,
+foundry}_live.py`, по прецеденту `test_docx_groups_live.py` (`_live`-
+суффикс, `skipif`-гейт, `skip` не `fail` без окружения). Не гейтятся на
+«есть ли амбиентные креды на машине» — наличие AWS/GCP/Azure credentials
+для чего-то другого не согласие тратить реальные деньги на реальном
+enterprise-облаке. Каждый требует ЯВНОГО opt-in флага:
+
+- `REFIGURE_LIVE_BEDROCK=1` (+ обычный AWS credential chain или bearer-
+  токен)
+- `REFIGURE_LIVE_VERTEX=1` (+ `GOOGLE_CLOUD_PROJECT` + ADC)
+- `REFIGURE_LIVE_FOUNDRY=1` (+ `ANTHROPIC_FOUNDRY_API_KEY`/
+  `ANTHROPIC_FOUNDRY_RESOURCE`)
+
+Ни один не входит в `.github/workflows/ci.yml` — CI сегодня не хранит ни
+одного облачного секрета ни для одного VLM-клиента (проверено: живые
+проверки в этом проекте до сих пор были только ручными, включая
+`OpenRouterClient`'s собственные smoke-тесты при реализации PR #11).
+Заводить 3 отдельных enterprise-аккаунта + секреты в CI — отдельное
+решение с постоянной стоимостью, не часть этого спека; тесты запускаются
+вручную разработчиком перед мержем, тем же способом.
+
+**Документация** — по одному короткому рецепту в докстринге
+`AnthropicClient` (конструктор целевого клиента + пример `vlm_model` в
+формате нужной платформы: Bedrock — `"global.anthropic.claude-opus-4-6-
+v1"`, Vertex — `"claude-opus-5"`, Foundry — deployment-имя, по умолчанию
+совпадающее с модель-ID). Иллюстративные примеры, не проверяемые на
+актуальность — устаревание конкретного ID у платформы не баг `refigure`.
+
+## 4. Импорт-гварды — на уровне класса, не модуля
 
 `refigure/vlm/client.py` уже используется без единой сторонней
 зависимости (`OpenRouterClient` — чистый `urllib`) — это свойство
@@ -120,7 +157,7 @@ __init__.py`'s module-level `try/except` до любого same-package импо
 адаптация к файлу с несколькими независимыми классами разных
 зависимостей, а не одной капабилити на модуль.
 
-## 4. Упаковка — новый саб-экстра `vlm-direct`
+## 5. Упаковка — новый саб-экстра `vlm-direct`
 
 `pyproject.toml`: `vlm-direct = ["openai>=2.53,<3", "anthropic>=0.120,<1"]`
 — НЕ внутрь существующего `[vlm]` (сегодня 0 HTTP-зависимостей,
@@ -131,7 +168,7 @@ __init__.py`'s module-level `try/except` до любого same-package импо
 `typing-extensions`, проверено живьём через PyPI JSON API) — разделение
 почти не экономит вес, но удваивает CI-матрицу.
 
-## 5. Выбор клиента — без новых полей `Config`
+## 6. Выбор клиента — без новых полей `Config`
 
 `Config.vlm_client=OpenAIClient(...)`/`AnthropicClient(...)` — уже
 существующий механизм (`api.py`, тот же паттерн, что `VlmCacheBackend`'s
@@ -161,32 +198,43 @@ OpenRouter.
   установленных поднимает `MissingOptionalDependencyError`, не
   `ModuleNotFoundError`, и что `refigure.vlm.client` **успешно
   импортируется** в их отсутствие (регрессионный тест самого свойства
-  из §3).
+  из §4).
 - `.github/workflows/ci.yml`'s `test-extras` matrix: новый leg
   `vlm-direct` (`uv pip install ".[vlm-direct]"`) — проверить оба триггера
   из `project_extras_isolation_bug` memory (import-order, package-nesting)
   применимы ли к новому коду; вероятно нет (класс-уровневый гвард снимает
   оба класса проблем по конструкции), но проверить эмпирически, не
   постулировать.
+- 3 живых интеграционных теста (§3) — по одному на Bedrock/Vertex/
+  Foundry, `skipif`-гейт на явный opt-in флаг (`REFIGURE_LIVE_BEDROCK`/
+  `_VERTEX`/`_FOUNDRY`), запускаются вручную, не в CI.
 - Обновить `docs.md`/докстроки, ссылающиеся на «OpenRouter by default».
 
 ## План коммитов/PR
 
 1. `feat: add OpenAIClient (openai SDK, base_url-configurable)`
-2. `feat: add AnthropicClient (anthropic SDK, Messages API translation)`
+2. `feat: add AnthropicClient (anthropic SDK, Messages API translation + injectable client=)`
 3. `test: unit coverage for both clients + class-level guard tests`
 4. `chore: add vlm-direct extra to pyproject.toml`
 5. `ci: add vlm-direct leg to test-extras matrix`
 6. `docs: update Config docstrings (use_vlm egress, model-ID coupling)`
+7. `test: live opt-in integration test for AnthropicClient via Bedrock`
+8. `test: live opt-in integration test for AnthropicClient via Vertex`
+9. `test: live opt-in integration test for AnthropicClient via Foundry`
+10. `docs: add Bedrock/Vertex/Foundry recipes to AnthropicClient docstring`
 
 ## Чек-лист реализации
 
 - [ ] `OpenAIClient` реализован (коммит 1)
-- [ ] `AnthropicClient` реализован (коммит 2)
+- [ ] `AnthropicClient` реализован, включая `client=` инъекцию (коммит 2)
 - [ ] юнит-тесты обоих клиентов + класс-уровневые guard-тесты (коммит 3)
 - [ ] `vlm-direct` extra в `pyproject.toml` (коммит 4)
 - [ ] `test-extras` CI leg добавлен, проверен зелёным (коммит 5)
 - [ ] докстроки `Config`/`refigure/vlm/client.py` обновлены (коммит 6)
+- [ ] живой тест + прогон вручную — Bedrock (коммит 7)
+- [ ] живой тест + прогон вручную — Vertex (коммит 8)
+- [ ] живой тест + прогон вручную — Foundry (коммит 9)
+- [ ] докстринг-рецепты для всех трёх облаков (коммит 10)
 
 ## Вне скоупа
 
@@ -195,18 +243,14 @@ OpenRouter.
   формат внутри Bedrock/Vertex, не переиспользует `anthropic`-пакет;
   не запрошено, нет готового драйвера сопоставимого с local/OpenRouter-
   independence.
-- Claude через `AnthropicBedrock`/`AnthropicVertex`/`AnthropicFoundry`
-  (Azure) — **структурно уже поддержано** дизайном `client=` (§2), но
-  тесты/CI/докстроки/примеры под каждый из трёх конкретных
-  auth-путей (AWS SigV4/bearer, Google ADC, Azure API-key/Entra ID) —
-  отдельная работа, не в этом PR. `AnthropicFoundry` (проверено живьём)
-  ближе всего по wire-формату к прямому Anthropic — тот же `/v1/messages`
-  путь и `anthropic-version` как заголовок (не в теле, как у Bedrock/
-  Vertex) — и даёт более сильную enterprise-историю по data residency
-  («Hosted on Azure» держит prompts/completions внутри Azure) и биллингу
-  через Azure Marketplace — вероятно наиболее подходящий из трёх для
-  профиля «легаси .docx-энтерпрайз», но требует отдельного явного
-  запроса, не додумывать сейчас.
+- **Сопровождение актуальности model-ID/lifecycle** для Bedrock/Vertex/
+  Foundry (Deprecated/Retired-графики, независимые у каждой платформы) —
+  явное решение: докстринг-примеры (§3) иллюстративны и НЕ проверяются
+  на актуальность; устаревание конкретного ID у платформы — не баг
+  `refigure`, и не повод заводить внутренний реестр моделей.
+- Автоматизация 3 живых тестов (§3) в CI — остаются ручными
+  (`REFIGURE_LIVE_*`-гейт), заводить постоянные enterprise-cloud
+  секреты/аккаунты в CI — отдельное решение, не часть этого спека.
 - Гетерогенная панель судей (`vlm_judge_panel` на разных клиентах) —
   остаётся на одном `client`-инстансе, как сегодня.
 - Автовыбор `image_content_format` по `base_url`-эвристике.
