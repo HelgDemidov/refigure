@@ -9,8 +9,8 @@ documentation. The point of the tests is to catch a *regression*: a future
 lxml/Python version, or an accidental `XMLParser(resolve_entities=True)`/
 `huge_tree=True` somewhere, silently reopening one of these.
 
-Also covers the one real gap this research found: refigure/docx.py used to
-parse untrusted .rels content with stdlib xml.etree.ElementTree, which has
+Also covers the one real gap this research found: refigure/docx/__init__.py
+used to parse untrusted .rels content with stdlib xml.etree.ElementTree, which has
 no nesting-depth protection at all (fixed to use lxml — see that commit).
 """
 

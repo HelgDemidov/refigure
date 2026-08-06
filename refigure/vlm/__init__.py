@@ -13,12 +13,13 @@ separate pass over an already-written ``doc.md`` on disk, cache keyed by
 single in-memory ``convert()`` call, input can be ``bytes`` with no parent
 directory at all) nor that on-disk cache convention. ``enhance_docx_markdown``
 below scans a markdown STRING instead of a file, and both the VLM HTTP
-client (``VlmClient``, ``vlm_client.py``) and the response cache
-(``VlmCacheBackend``, ``vlm_cache.py``) are pluggable Protocols defined in
+client (``VlmClient``, ``vlm/client.py``) and the response cache
+(``VlmCacheBackend``, ``vlm/cache.py``) are pluggable Protocols defined in
 ``api.py`` — not a hardcoded OpenRouter call or a hardcoded sidecar file.
 
 Guard is the first same-package-import-adjacent statement in this file
-(before ``from . import chart_render, docx_groups`` below): a module-level
+(before ``from ..core import chart_render``/``from .. import docx_groups``
+below): a module-level
 ``try/except ImportError`` guard is only effective if it runs before any
 OTHER same-package import that could itself transitively raise an
 unguarded ``ImportError`` for the same dependency — the exact bug class PR
@@ -27,11 +28,27 @@ unguarded ``openpyxl`` import), see the ``project_extras_isolation_bug``
 memory. ``chart_render``/``docx_groups`` are safe today (neither transitively
 imports ``pdfplumber``), but that safety is circumstantial, not contractual
 — the ordering discipline holds regardless.
+
+``docx_groups.py`` deliberately stays a flat top-level module (``refigure/
+docx_groups.py``), not nested under ``refigure/docx/`` — the 2026-08-05
+package reorg briefly moved it to ``refigure/docx/groups.py``, which broke
+this module's own extras isolation: importing ANY submodule of a package
+always runs that package's ``__init__.py`` first, and ``docx/__init__.py``
+has its own module-level ``mammoth`` guard, so ``import refigure.vlm``
+transitively required ``refigure[docx]`` even though this module needs
+only ``[vlm]`` — caught by the extras-isolation CI matrix on the PR
+implementing this stage, not by the regular test suite (which runs with
+every extra installed and structurally cannot see this class of bug — see
+``project_extras_isolation_bug`` memory, same root cause class as the
+``xlsx_charts.py`` case above). ``xlsx/charts.py`` has the identical
+nesting and is fine, because nothing outside the ``xlsx`` package imports
+it; ``docx_groups.py`` is the one case with a cross-package consumer
+(this module) that must not require ``docx``'s own heavy dependency.
 """
 
 from __future__ import annotations
 
-from .api import MissingOptionalDependencyError
+from ..api import MissingOptionalDependencyError
 
 try:
     import pdfplumber
@@ -51,19 +68,21 @@ import subprocess
 import tempfile
 import zipfile
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from . import chart_render, docx_groups, zipsafe
-from .api import Config, VlmCacheBackend, VlmClient
-from .vlm_cache import InMemoryCacheBackend
-from .vlm_client import OpenRouterClient
+from .. import docx_groups
+from ..api import Config, VlmCacheBackend, VlmClient
+from ..core import chart_render, zipsafe
+from .cache import InMemoryCacheBackend
+from .client import OpenRouterClient
 
 logger = logging.getLogger(__name__)
 
 BBox = tuple[float, float, float, float]
 
-# --- marker grammar: docx-only (mirrors docx.py's/docx_groups.py's own marker
+# --- marker grammar: docx-only (mirrors docx.py's/docx/groups.py's own marker
 # text exactly — verified 2026-08-05 by running both against a live fixture,
 # see docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md §2) -----------------------------------
 
@@ -76,7 +95,7 @@ _DOCX_IMAGE_MARKER_RE = re.compile(
 # ever runs — an empty extraction leaves the SAME marker text, but this regex
 # only matches the literal "docx group" noun, never "docx chart". A chart
 # with no numCache stays an honest static marker forever — see the module
-# docstring and docx_groups.py's own docstring for the full rationale.
+# docstring and docx/groups.py's own docstring for the full rationale.
 _DOCX_GROUP_MARKER_RE = re.compile(
     r"^> \[Figure, docx group (?P<id>[0-9a-f]{12}) — composite content not analyzed\]\n"
     r"> captions: (?P<witness>.*)$",
@@ -231,7 +250,7 @@ def sanitize_vlm_markdown(md: str) -> str:
 
 
 # --- witness gate: cross-check a VLM description against the document's OWN
-# independently-extracted captions (docx_groups.py's `captions`) ------------
+# independently-extracted captions (docx/groups.py's `captions`) ------------
 
 
 def token_recall(reference: str, candidate: str) -> float:
@@ -270,7 +289,7 @@ def format_missing_side(nums: Counter[str], other: Counter[str]) -> str:
 def witness_defects(witness: str, markdown: str, obj_id: str, *, min_recall: float) -> list[str]:
     """Cross-check a VLM figure description against an INDEPENDENT witness —
     the group's own captions, deterministically extracted by
-    ``docx_groups.py`` itself (zero-loss fallback text, not model output).
+    ``docx/groups.py`` itself (zero-loss fallback text, not model output).
 
     Applies ONLY to composite groups, never to standalone images: a
     standalone ``> [Image, docx media ...]`` marker carries no captions at
@@ -284,7 +303,18 @@ def witness_defects(witness: str, markdown: str, obj_id: str, *, min_recall: flo
     legitimate (the VLM reads values off the chart itself that the caption
     never mentioned). An empty witness (standalone images never reach this
     function, but a group with genuinely empty captions can) -> gate does
-    not apply."""
+    not apply.
+
+    Word-recall is LANGUAGE-SENSITIVE, not just accuracy-sensitive: on a
+    non-English source document, a low recall here can mean "didn't
+    translate the caption's terms into English," not "got the figure
+    wrong" — confirmed empirically across two rounds of this stage's A/B
+    calibration (see ``Config.vlm_witness_min_recall``'s docstring and
+    ``docs/vlm/vlm-model-calibration/vlm-model-calibration-2026-08-05.md``).
+    ``judge_defects``'s ``language``/``hallucination`` questions check
+    against the image itself, not a caption witness, and so carry no such
+    blindness — enable ``Config.vlm_verify`` for multi-lingual documents
+    where that distinction matters."""
     if not witness.strip():
         return []
     defects: list[str] = []
@@ -298,6 +328,82 @@ def witness_defects(witness: str, markdown: str, obj_id: str, *, min_recall: flo
             f"figure-witness-numeric: {obj_id} "
             f"witness_only=[{format_missing_side(witness_nums, figure_nums)}]"
         )
+    return defects
+
+
+# --- judge gate: discriminative VLM self-check (opt-in, Config.vlm_verify) -
+
+JUDGE_PROMPT_TEMPLATE = """You already produced this description of the attached figure:
+
+---
+{response}
+---
+
+Look at the attached image again and judge your OWN description above —
+do not regenerate it. Output EXACTLY these three lines, in this order,
+nothing else:
+
+hallucination: yes|no
+mermaid_fit: yes|no|n/a
+language: yes|no
+
+hallucination: does the description mention any object, relationship, or
+number that is NOT actually present in the image?
+mermaid_fit: if the description includes a ```mermaid fence, does this
+diagram type genuinely fit the figure's structure? Answer n/a if there is
+no mermaid fence, or the figure does not cleanly fit any diagram category.
+language: is the description written in English (labels transcribed
+verbatim from the original figure do not count as a violation)?"""
+
+_JUDGE_LINE_RE = re.compile(
+    r"^\s*(hallucination|mermaid_fit|language)\s*:\s*(yes|no|n/a)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def judge_defects(image_uri: str, response: str, *, client: VlmClient, model: str) -> list[str]:
+    """Discriminative self-check on an already-generated description: ask
+    the SAME model 3 fixed yes/no/n-a questions about its own output,
+    instead of generating anything new — the Generative-Discriminative Gap
+    (a VLM answers a concrete yes/no question about its own output more
+    reliably than it generates accurate text from scratch) is the
+    motivation, not a stylistic preference. One extra ``VlmClient.send()``
+    call, opt-in via ``Config.vlm_verify`` (see ``enhance_docx_markdown``).
+
+    Applies uniformly to BOTH marker kinds (image and group) — unlike
+    ``witness_defects``, which requires a caption witness and is therefore
+    group-only by construction (see its own docstring): this function only
+    looks at the image itself, no witness needed, closing that gap for
+    standalone images too.
+
+    Returns 0-3 defect strings (``vlm-judge-hallucination``/
+    ``vlm-judge-mermaid``/``vlm-judge-language``) — bare tags, not
+    ``obj_id``-qualified like ``witness_defects``'s output, since this
+    function has no ``obj_id`` parameter; the caller attaches one when
+    folding these into ``ConversionResult.warnings``. A failed call or an
+    unparseable/incomplete response degrades to an empty list (a warning is
+    logged, not raised) — same "signal, not failure" principle as
+    ``witness_defects``, and the same never-abort-the-conversion posture as
+    every other VLM call in this module."""
+    prompt = JUDGE_PROMPT_TEMPLATE.format(response=response)
+    try:
+        verdict = client.send(prompt, image_uri, model=model)
+    except Exception as exc:  # noqa: BLE001 — see _call_client's docstring; same principle
+        logger.warning("vlm_verify judge call failed (%s) — skipped", exc)
+        return []
+
+    answers = {m.group(1).lower(): m.group(2).lower() for m in _JUDGE_LINE_RE.finditer(verdict)}
+    if not {"hallucination", "mermaid_fit", "language"} <= answers.keys():
+        logger.warning("vlm_verify judge response did not match the expected format: %r", verdict)
+        return []
+
+    defects: list[str] = []
+    if answers["hallucination"] == "yes":
+        defects.append("vlm-judge-hallucination")
+    if answers["mermaid_fit"] == "no":
+        defects.append("vlm-judge-mermaid")
+    if answers["language"] == "no":
+        defects.append("vlm-judge-language")
     return defects
 
 
@@ -535,6 +641,30 @@ def _resolve_api_key(config: Config) -> str:
     return key
 
 
+def _judge_with_config(
+    image_uri: str, response: str, config: Config, get_client: Callable[[], VlmClient]
+) -> list[str]:
+    """Dispatch ``judge_defects`` per ``Config.vlm_judge_mode`` — NEVER with
+    the generating model itself (self-judge measured 30%/12% recall live,
+    see ``Config.vlm_verify``'s docstring). ``"solo"``: one call, one model
+    (``vlm_judge_model``). ``"panel"`` (default): one call per model in
+    ``vlm_judge_panel`` (exactly 2), results unioned — a defect tag flagged
+    by either judge is kept, deduplicated, order-preserving. UNION is the
+    only supported panel policy; see ``Config.vlm_judge_mode``'s docstring
+    for why (this gate is signal-not-failure by design, recall matters more
+    than avoiding an extra warning line)."""
+    if config.vlm_judge_mode == "solo":
+        return judge_defects(image_uri, response, client=get_client(), model=config.vlm_judge_model)
+    defects: list[str] = []
+    seen: set[str] = set()
+    for judge_model in config.vlm_judge_panel:
+        for defect in judge_defects(image_uri, response, client=get_client(), model=judge_model):
+            if defect not in seen:
+                seen.add(defect)
+                defects.append(defect)
+    return defects
+
+
 def enhance_docx_markdown(
     markdown: str, source: Path | bytes, *, config: Config
 ) -> tuple[str, bool, list[str]]:
@@ -551,6 +681,19 @@ def enhance_docx_markdown(
     (soffice missing, VLM call failing, ...) returns ``False`` — the
     markers are left exactly as ``docx.py`` produced them, an honest
     zero-loss result either way.
+
+    ``config.vlm_verify`` (default ``False``) additionally runs
+    ``judge_defects`` (via ``_judge_with_config`` — dispatches solo/panel
+    per ``config.vlm_judge_mode``, NEVER with the generating model itself)
+    once per resolved marker (image or group): never on a cache-miss's own
+    resolution attempt failing, never twice for the same marker (a cached
+    ``judge_verdict`` is reused, not recomputed), and never at all when
+    ``vlm_verify`` is off — regardless of whether an older cache entry
+    happens to already carry a verdict from a prior ``vlm_verify`` run. A
+    cache entry whose ``judge_verdict`` is still unset (``None``/absent —
+    pre-``vlm_verify`` entries look like this) triggers exactly one extra
+    judge pass to fill it in (one call in ``"solo"`` mode, two in
+    ``"panel"`` mode), without re-generating the description itself.
 
     Re-runs ``zipsafe.check_archive`` on ``source`` even though
     ``docx.py``'s ``convert()`` already checked it once: unlike the source
@@ -604,9 +747,21 @@ def enhance_docx_markdown(
             )
             if text is None:
                 continue
-            entry = {"model": model, "markdown": text}
+            entry = {"model": model, "markdown": text, "judge_verdict": None}
+            if config.vlm_verify:
+                entry["judge_verdict"] = _judge_with_config(data_uri, text, config, _get_client)
             cache.set(marker_id, entry)
+        elif config.vlm_verify and entry.get("judge_verdict") is None:
+            data_uri = _docx_media_uri(source, marker_id, raw_name=raw_name)
+            if data_uri is not None:
+                entry["judge_verdict"] = _judge_with_config(
+                    data_uri, str(entry["markdown"]), config, _get_client
+                )
+                cache.set(marker_id, entry)
         vlm_used = True
+        judge_verdict = entry.get("judge_verdict")
+        if config.vlm_verify and isinstance(judge_verdict, list):
+            warnings.extend(f"{d}: {marker_id}" for d in judge_verdict)
         replacements.append(
             (
                 m.start(),
@@ -628,13 +783,25 @@ def enhance_docx_markdown(
             )
             if text is None:
                 continue
-            entry = {"model": model, "markdown": text}
+            entry = {"model": model, "markdown": text, "judge_verdict": None}
+            if config.vlm_verify:
+                entry["judge_verdict"] = _judge_with_config(data_uri, text, config, _get_client)
             cache.set(gid, entry)
+        elif config.vlm_verify and entry.get("judge_verdict") is None:
+            data_uri = _render_docx_group(source, gid, raw_name=raw_name)
+            if data_uri is not None:
+                entry["judge_verdict"] = _judge_with_config(
+                    data_uri, str(entry["markdown"]), config, _get_client
+                )
+                cache.set(gid, entry)
         vlm_used = True
         entry_markdown = str(entry["markdown"])
         warnings.extend(
             witness_defects(witness, entry_markdown, gid, min_recall=config.vlm_witness_min_recall)
         )
+        judge_verdict = entry.get("judge_verdict")
+        if config.vlm_verify and isinstance(judge_verdict, list):
+            warnings.extend(f"{d}: {gid}" for d in judge_verdict)
         replacements.append(
             (
                 m.start(),

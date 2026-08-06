@@ -1,7 +1,7 @@
 """Extras-isolation verification (stage 6, CI-only).
 
 Confirms the extras architecture's core promise — asserted repeatedly in
-CLAUDE.md/design docs ("refigure/docx.py imports only mammoth+markdownify",
+CLAUDE.md/design docs ("refigure/docx/__init__.py imports only mammoth+markdownify",
 "a bare pip install refigure never pulls in openpyxl") but never actually
 CI-checked before this file: ``pip install refigure[docx]`` doesn't pull in
 openpyxl, ``[xlsx]`` doesn't pull in mammoth, ``[vlm]`` doesn't pull in

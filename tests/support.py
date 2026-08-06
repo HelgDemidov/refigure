@@ -5,8 +5,8 @@ suites.
 
 Ported from the source pipeline's ``pipeline/scripts/tests/support.py`` (stage 5),
 pared down to only the builders/constants actually used by
-``tests/unit/convert/test_docx_groups.py`` and
-``tests/unit/convert/test_docx_chart_group_coexistence.py``. Dropped:
+``tests/unit/test_docx_groups.py`` and
+``tests/unit/test_docx_chart_group_coexistence.py``. Dropped:
 ``build_pdf`` (PDF is out of scope for this project entirely), ``valid_record``
 /``write_doc`` (corpus-pipeline record helpers, unrelated to docx/xlsx
 conversion), and the image-only builders ``build_docx_with_inline_image``/
@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import io
 import zipfile
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).parent.parent
 
 _DOCX_CONTENT_TYPES = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'

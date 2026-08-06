@@ -35,9 +35,14 @@ from pathlib import Path
 import openpyxl
 import pytest
 
-from .test_docx import build_minimal_docx
+from refigure.api import MissingOptionalDependencyError
+from tests.support import REPO_ROOT
 
-_REPO_ROOT = Path(__file__).parent.parent.parent
+from .docx.test_docx import build_minimal_docx
+
+_EXPECTED_MISSING_DEP_QUALNAME = (
+    f"{MissingOptionalDependencyError.__module__}.{MissingOptionalDependencyError.__qualname__}"
+)
 
 # (refigure module to import, PyPI dependency to simulate as absent)
 _POISON_CASES = [
@@ -65,13 +70,13 @@ def test_missing_dependency_raises_typed_error_not_bare_import_error(
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        cwd=str(_REPO_ROOT),
+        cwd=str(REPO_ROOT),
         timeout=30,
     )
     observed = result.stdout.strip()
-    assert observed == "refigure.api.MissingOptionalDependencyError", (
+    assert observed == _EXPECTED_MISSING_DEP_QUALNAME, (
         f"importing {target_module} with {blocked_dependency} blocked raised "
-        f"{observed!r}, expected refigure.api.MissingOptionalDependencyError "
+        f"{observed!r}, expected {_EXPECTED_MISSING_DEP_QUALNAME} "
         f"(stderr: {result.stderr})"
     )
 
@@ -103,7 +108,7 @@ def test_docx_convert_lazy_imports_vlm_only_when_use_vlm_true(tmp_path: Path) ->
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        cwd=str(_REPO_ROOT),
+        cwd=str(REPO_ROOT),
         timeout=30,
     )
     assert result.returncode == 0, (
@@ -159,7 +164,7 @@ def test_cli_lazy_import_isolates_formats(
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        cwd=str(_REPO_ROOT),
+        cwd=str(REPO_ROOT),
         timeout=30,
     )
     assert result.returncode == 0, (

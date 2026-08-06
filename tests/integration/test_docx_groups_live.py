@@ -23,7 +23,7 @@ All 10 groups in this fixture have empty captions (verified live,
 2026-08-05) — this test exercises the render mechanism itself (mini-docx
 -> soffice -> PDF -> content-bbox crop -> JPEG), NOT the witness gate
 (``vlm.witness_defects``), which needs non-empty captions and is covered
-separately by a synthetic fixture in ``tests/unit/test_vlm.py``.
+separately by a synthetic fixture in ``tests/unit/vlm/test_vlm.py``.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ def test_fixture_group_ids_match_pinned_baseline() -> None:
     assert all(g.captions == () for g in group_only), (
         "this test targets the render mechanism, not the witness gate — a "
         "fixture with non-empty captions would need a different test, see "
-        "tests/unit/test_vlm.py for that coverage"
+        "tests/unit/vlm/test_vlm.py for that coverage"
     )
 
 

@@ -43,8 +43,8 @@ from typing import Any
 
 from lxml import etree
 
-from . import chart_render
-from .chart_data import ChartData, parse_chart
+from .core import chart_render
+from .core.chart_data import ChartData, parse_chart
 
 _NS = {
     "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",

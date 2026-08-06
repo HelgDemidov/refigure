@@ -258,7 +258,7 @@ def test_inject_group_markers_chart_kind_empty_extraction_falls_back_to_marker()
     """A chart-kind with an empty extraction (no numCache) -> the SAME
     honest marker as before data-driven resolution existed (caption
     fallback, not a crash/empty output)."""
-    from refigure.chart_data import ChartData
+    from refigure.core.chart_data import ChartData
     from refigure.docx_groups import DocxGroup
 
     empty = ChartData(

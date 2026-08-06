@@ -1,4 +1,4 @@
-"""Unit tests for refigure.vlm_client: retry ladder, error classification
+"""Unit tests for refigure.vlm.client: retry ladder, error classification
 (HTTP 4xx/429/5xx, in-band HTTP-200 error bodies, URLError/TimeoutError),
 retry exhaustion, and OpenRouterClient.send()'s payload shape. All network
 calls are faked at the urllib.request.urlopen level — no real network/API
@@ -17,8 +17,8 @@ from typing import Any
 
 import pytest
 
-from refigure import vlm_client
-from refigure.vlm_client import RETRY_SCHEDULE, InbandError, OpenRouterClient, chat_request
+from refigure.vlm import client as vlm_client
+from refigure.vlm.client import RETRY_SCHEDULE, InbandError, OpenRouterClient, chat_request
 
 
 class _FakeResponse:

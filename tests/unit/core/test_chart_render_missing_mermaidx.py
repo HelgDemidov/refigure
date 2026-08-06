@@ -22,9 +22,10 @@ import logging
 
 import pytest
 
-from refigure import chart_render
-from refigure.chart_data import ChartData, ChartSeries
-from refigure.chart_render import mermaid_renders, render_chart
+import refigure.core.chart_render as _chart_render_module
+from refigure.core import chart_render
+from refigure.core.chart_data import ChartData, ChartSeries
+from refigure.core.chart_render import mermaid_renders, render_chart
 
 
 @pytest.fixture(autouse=True)
@@ -71,7 +72,7 @@ def test_warning_logged_when_mermaidx_missing(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     monkeypatch.setattr(chart_render, "mermaidx", None)
-    with caplog.at_level(logging.WARNING, logger="refigure.chart_render"):
+    with caplog.at_level(logging.WARNING, logger=_chart_render_module.__name__):
         mermaid_renders('pie title T\n"a" : 10')
     assert len(caplog.records) == 1
     assert "mermaidx" in caplog.records[0].message
@@ -84,7 +85,7 @@ def test_warning_logged_only_once_across_multiple_calls(
     """The whole point of lru_cache(maxsize=1): a document with 55 charts
     (the real govtech fixture) must not spam 55 identical warnings."""
     monkeypatch.setattr(chart_render, "mermaidx", None)
-    with caplog.at_level(logging.WARNING, logger="refigure.chart_render"):
+    with caplog.at_level(logging.WARNING, logger=_chart_render_module.__name__):
         for _ in range(5):
             mermaid_renders('pie title T\n"a" : 10')
         render_chart(_data())
@@ -98,7 +99,7 @@ def test_no_warning_when_mermaidx_present_and_render_succeeds(
     """Regression guard: the fix must not change the happy path at all —
     mermaidx IS installed in this test environment, a real render must
     still work."""
-    with caplog.at_level(logging.WARNING, logger="refigure.chart_render"):
+    with caplog.at_level(logging.WARNING, logger=_chart_render_module.__name__):
         result = mermaid_renders('pie title T\n"a" : 10')
     assert result is True
     assert len(caplog.records) == 0
@@ -110,7 +111,7 @@ def test_real_render_failure_returns_false_without_missing_dependency_warning(
     """A genuine bad render (mermaidx present, syntax mermaid.js rejects) must
     keep degrading via the existing `except Exception -> False` path, and must
     NOT be conflated with (or trigger) the missing-dependency warning."""
-    with caplog.at_level(logging.WARNING, logger="refigure.chart_render"):
+    with caplog.at_level(logging.WARNING, logger=_chart_render_module.__name__):
         result = mermaid_renders("this is not valid mermaid syntax at all {{{")
     assert result is False
     assert len(caplog.records) == 0

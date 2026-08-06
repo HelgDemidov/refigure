@@ -18,15 +18,16 @@ from typing import Any, BinaryIO
 
 from lxml import etree
 
-from . import chart_render, docx_groups, zipsafe
-from ._io import normalize_source
-from .api import (
+from .. import docx_groups
+from .._io import normalize_source
+from ..api import (
     Config,
     ConversionResult,
     CorruptArchiveError,
     MissingOptionalDependencyError,
     UnsupportedFormatError,
 )
+from ..core import chart_render, zipsafe
 
 try:
     import mammoth
@@ -189,7 +190,7 @@ def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) ->
         # use_vlm=False — only actually using the feature pulls it in. Same
         # guard-ordering discipline as refigure/cli.py's per-format lazy
         # import (project_extras_isolation_bug memory).
-        from . import vlm
+        from .. import vlm
 
         markdown, vlm_used, vlm_warnings = vlm.enhance_docx_markdown(
             markdown, normalized, config=config

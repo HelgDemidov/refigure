@@ -43,7 +43,7 @@ from .conftest import FixtureInfo, fixture_params
 # ~1.5s) and the slowest observed fixture (onehealth-ejp-d3.20.docx, ~23s).
 _CONVERT_TIMEOUT_S = 120.0
 
-# Exact warning strings refigure/docx.py's convert() can append to
+# Exact warning strings refigure/docx/__init__.py's convert() can append to
 # ConversionResult.warnings, as of 2026-08-05 (read directly from source, not
 # guessed/copied from an older memory of it — keep this set in sync if
 # docx.py's warning text changes; it's not exposed as named constants there).

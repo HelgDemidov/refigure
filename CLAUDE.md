@@ -103,16 +103,50 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
 
 ## Package architecture
 - One PyPI package, extras by format+capability: `[docx]`, `[xlsx]`, `[vlm]`.
-- Independent per-format submodules (`refigure/docx.py` imports only
-  mammoth+markdownify; `refigure/xlsx.py` imports only openpyxl) — avoids
-  per-dependency try/except gymnastics. The guard must run BEFORE any
-  same-package import, not just exist somewhere in the file: `xlsx_charts.py`
-  also touches openpyxl directly (`get_column_letter`) with no guard of its
-  own — a real bug (PR #8) when `xlsx.py` imported it before its own
-  try/except ran. Same discipline will need re-checking when stage 4b's VLM
-  code touches `chart_render.py`/`docx_groups.py`.
-- `chart_data.py`/`chart_render.py` — core, always installed, lxml-only +
-  `mermaidx` optional inside itself.
+- Directory layout mirrors this exactly (reorganized 2026-08-05, same
+  category/slug principle as `docs/`, scoped to what the package's own
+  extras boundaries already imply — see `docs/project-meta/` for the
+  general convention): `refigure/core/` (`chart_data.py`/`chart_render.py`/
+  `zipsafe.py` — always installed, no format-specific dependency),
+  `refigure/docx/` (`__init__.py` — the public `refigure.docx.convert()`
+  entry point, only submodule), `refigure/xlsx/` (`__init__.py` — public
+  `refigure.xlsx.convert()` — + `charts.py`), `refigure/vlm/` (`__init__.py`
+  + `client.py` + `cache.py`). `api.py`/`_io.py`/`cli.py`/`__main__.py`
+  stay at the package root — `api.py` deliberately not moved into `core/`
+  despite being core-only in spirit: its exception qualnames
+  (`refigure.api.MissingOptionalDependencyError`) are asserted by string in
+  tests, moving it would be a gratuitous public-surface break for no
+  functional gain. Public import paths are unaffected by any of this:
+  `refigure.docx.convert`/`refigure.xlsx.convert`/`refigure.vlm.
+  enhance_docx_markdown` resolve exactly as before (a subpackage's
+  `__init__.py` re-exports the same names a flat module used to).
+  `docx_groups.py` (group/composite-figure detection, `chart_render.py`'s
+  DOCX-side counterpart) deliberately stays a FLAT top-level module
+  (`refigure/docx_groups.py`), not nested under `refigure/docx/` — the
+  reorg briefly moved it to `refigure/docx/groups.py`, which broke `[vlm]`-
+  only installs (importing any submodule of a package always runs that
+  package's `__init__.py` first, and `docx/__init__.py`'s own module-level
+  `mammoth` guard fired even though `refigure.vlm` needs only `[vlm]`) —
+  caught by the extras-isolation CI matrix on the PR implementing stage 4b,
+  not by the regular test suite (every extra installed there, structurally
+  can't see this class of bug). `xlsx/charts.py` has the identical nesting
+  and is fine, because nothing outside `xlsx/` imports it — `docx_groups.py`
+  is the one case with a cross-package consumer.
+- Independent per-format submodules (`refigure/docx/__init__.py` imports
+  only mammoth+markdownify; `refigure/xlsx/__init__.py` imports only
+  openpyxl) — avoids per-dependency try/except gymnastics. The guard must
+  run BEFORE any same-package import, not just exist somewhere in the
+  file: `xlsx_charts.py` (now `refigure/xlsx/charts.py`) also touches
+  openpyxl directly (`get_column_letter`) with no guard of its own — a
+  real bug (PR #8) when `xlsx.py` imported it before its own try/except
+  ran. Same discipline holds for `chart_render.py`/`docx_groups.py`
+  (`refigure/core/chart_render.py`/`refigure/docx_groups.py`) — re-checked
+  after the 2026-08-05 package reorg, this time actually verified via the
+  extras-isolation CI matrix, not just the regular dev-venv test suite
+  (which has every extra installed and cannot catch this class of bug —
+  see `project_extras_isolation_bug` memory).
+- `refigure/core/chart_data.py`/`chart_render.py` — always installed,
+  lxml-only + `mermaidx` optional inside itself.
 - Optional-dependency pattern (proven, implemented+tested in the source
   pipeline first): module-level `try/except ImportError` + capability flag +
   `functools.lru_cache`-based warn-once via `logger.warning`. Reuse for
@@ -120,13 +154,13 @@ merge, which `git` can't always detect as "fully merged") — `git fetch
   `refigure/cli.py` extends the same discipline one step further: its
   per-format dispatch imports `docx`/`xlsx` lazily (inside the call, not
   at module level) so `refigure --help` works in a bare install.
-- `xlsx.py` serializes `openpyxl.load_workbook()` behind a module-level
-  `threading.Lock()` (`_OPENPYXL_LOAD_LOCK`) — openpyxl reuses ONE shared
-  `lxml.etree.XMLParser()` across every thread internally, a real
-  concurrency bug (not refigure's own code) found via PR #9's CI, see
-  `project_openpyxl_concurrent_parser_fragility` memory. `docx.py` has no
-  such constraint (refigure's own lxml usage never shares a parser
-  instance across threads).
+- `refigure/xlsx/__init__.py` serializes `openpyxl.load_workbook()` behind
+  a module-level `threading.Lock()` (`_OPENPYXL_LOAD_LOCK`) — openpyxl
+  reuses ONE shared `lxml.etree.XMLParser()` across every thread
+  internally, a real concurrency bug (not refigure's own code) found via
+  PR #9's CI, see `project_openpyxl_concurrent_parser_fragility` memory.
+  `refigure/docx/__init__.py` has no such constraint (refigure's own lxml
+  usage never shares a parser instance across threads).
 
 ## Public API
 Rich, not a bare string — full rationale in
