@@ -52,6 +52,7 @@ import subprocess
 import tempfile
 import zipfile
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -624,6 +625,30 @@ def _resolve_api_key(config: Config) -> str:
     return key
 
 
+def _judge_with_config(
+    image_uri: str, response: str, config: Config, get_client: Callable[[], VlmClient]
+) -> list[str]:
+    """Dispatch ``judge_defects`` per ``Config.vlm_judge_mode`` — NEVER with
+    the generating model itself (self-judge measured 30%/12% recall live,
+    see ``Config.vlm_verify``'s docstring). ``"solo"``: one call, one model
+    (``vlm_judge_model``). ``"panel"`` (default): one call per model in
+    ``vlm_judge_panel`` (exactly 2), results unioned — a defect tag flagged
+    by either judge is kept, deduplicated, order-preserving. UNION is the
+    only supported panel policy; see ``Config.vlm_judge_mode``'s docstring
+    for why (this gate is signal-not-failure by design, recall matters more
+    than avoiding an extra warning line)."""
+    if config.vlm_judge_mode == "solo":
+        return judge_defects(image_uri, response, client=get_client(), model=config.vlm_judge_model)
+    defects: list[str] = []
+    seen: set[str] = set()
+    for judge_model in config.vlm_judge_panel:
+        for defect in judge_defects(image_uri, response, client=get_client(), model=judge_model):
+            if defect not in seen:
+                seen.add(defect)
+                defects.append(defect)
+    return defects
+
+
 def enhance_docx_markdown(
     markdown: str, source: Path | bytes, *, config: Config
 ) -> tuple[str, bool, list[str]]:
@@ -642,15 +667,17 @@ def enhance_docx_markdown(
     zero-loss result either way.
 
     ``config.vlm_verify`` (default ``False``) additionally runs
-    ``judge_defects`` once per resolved marker (image or group): never on a
-    cache-miss's own resolution attempt failing, never twice for the same
-    marker (a cached ``judge_verdict`` is reused, not recomputed), and
-    never at all when ``vlm_verify`` is off — regardless of whether an
-    older cache entry happens to already carry a verdict from a prior
-    ``vlm_verify`` run. A cache entry whose ``judge_verdict`` is still
-    unset (``None``/absent — pre-``vlm_verify`` entries look like this)
-    triggers exactly one extra judge call to fill it in, without
-    re-generating the description itself.
+    ``judge_defects`` (via ``_judge_with_config`` — dispatches solo/panel
+    per ``config.vlm_judge_mode``, NEVER with the generating model itself)
+    once per resolved marker (image or group): never on a cache-miss's own
+    resolution attempt failing, never twice for the same marker (a cached
+    ``judge_verdict`` is reused, not recomputed), and never at all when
+    ``vlm_verify`` is off — regardless of whether an older cache entry
+    happens to already carry a verdict from a prior ``vlm_verify`` run. A
+    cache entry whose ``judge_verdict`` is still unset (``None``/absent —
+    pre-``vlm_verify`` entries look like this) triggers exactly one extra
+    judge pass to fill it in (one call in ``"solo"`` mode, two in
+    ``"panel"`` mode), without re-generating the description itself.
 
     Re-runs ``zipsafe.check_archive`` on ``source`` even though
     ``docx.py``'s ``convert()`` already checked it once: unlike the source
@@ -706,15 +733,13 @@ def enhance_docx_markdown(
                 continue
             entry = {"model": model, "markdown": text, "judge_verdict": None}
             if config.vlm_verify:
-                entry["judge_verdict"] = judge_defects(
-                    data_uri, text, client=_get_client(), model=model
-                )
+                entry["judge_verdict"] = _judge_with_config(data_uri, text, config, _get_client)
             cache.set(marker_id, entry)
         elif config.vlm_verify and entry.get("judge_verdict") is None:
             data_uri = _docx_media_uri(source, marker_id, raw_name=raw_name)
             if data_uri is not None:
-                entry["judge_verdict"] = judge_defects(
-                    data_uri, str(entry["markdown"]), client=_get_client(), model=model
+                entry["judge_verdict"] = _judge_with_config(
+                    data_uri, str(entry["markdown"]), config, _get_client
                 )
                 cache.set(marker_id, entry)
         vlm_used = True
@@ -744,15 +769,13 @@ def enhance_docx_markdown(
                 continue
             entry = {"model": model, "markdown": text, "judge_verdict": None}
             if config.vlm_verify:
-                entry["judge_verdict"] = judge_defects(
-                    data_uri, text, client=_get_client(), model=model
-                )
+                entry["judge_verdict"] = _judge_with_config(data_uri, text, config, _get_client)
             cache.set(gid, entry)
         elif config.vlm_verify and entry.get("judge_verdict") is None:
             data_uri = _render_docx_group(source, gid, raw_name=raw_name)
             if data_uri is not None:
-                entry["judge_verdict"] = judge_defects(
-                    data_uri, str(entry["markdown"]), client=_get_client(), model=model
+                entry["judge_verdict"] = _judge_with_config(
+                    data_uri, str(entry["markdown"]), config, _get_client
                 )
                 cache.set(gid, entry)
         vlm_used = True

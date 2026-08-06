@@ -464,11 +464,22 @@ def test_enhance_docx_markdown_vlm_verify_false_never_calls_judge_even_on_cache_
 def test_enhance_docx_markdown_vlm_verify_true_cache_miss_calls_judge_once_per_marker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Explicit solo mode: this test is about the cache-miss call-count
+    # contract itself, not panel dispatch (covered separately, see the
+    # "panel mode" section below) — pinning to solo keeps the call count
+    # deterministic regardless of Config's own default.
     monkeypatch.setattr(vlm, "_docx_media_uri", lambda *a, **k: "data:image/jpeg;base64,x")
     client = _ScriptedVlmClient(verdict="hallucination: yes\nmermaid_fit: n/a\nlanguage: yes")
     cache = InMemoryCacheBackend()
     docx_bytes = build_minimal_docx(["text"])
-    config = Config(use_vlm=True, vlm_verify=True, vlm_cache=cache, vlm_client=client)
+    config = Config(
+        use_vlm=True,
+        vlm_verify=True,
+        vlm_judge_mode="solo",
+        vlm_judge_model="test-judge-model",
+        vlm_cache=cache,
+        vlm_client=client,
+    )
 
     _, vlm_used, warnings = vlm.enhance_docx_markdown(
         _image_only_markdown(_IMAGE_ID), docx_bytes, config=config
@@ -502,6 +513,7 @@ def test_enhance_docx_markdown_vlm_verify_true_full_cache_hit_needs_no_client_at
 def test_enhance_docx_markdown_vlm_verify_true_partial_cache_hit_computes_judge_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Explicit solo mode — same rationale as the cache-miss test above.
     monkeypatch.setattr(vlm, "_docx_media_uri", lambda *a, **k: "data:image/jpeg;base64,x")
     client = _ScriptedVlmClient(verdict="hallucination: no\nmermaid_fit: no\nlanguage: yes")
     cache = InMemoryCacheBackend()
@@ -509,7 +521,14 @@ def test_enhance_docx_markdown_vlm_verify_true_partial_cache_hit_computes_judge_
     # before vlm_verify ever existed.
     cache.set(_IMAGE_ID, {"model": "test-model", "markdown": "A chart."})
     docx_bytes = build_minimal_docx(["text"])
-    config = Config(use_vlm=True, vlm_verify=True, vlm_cache=cache, vlm_client=client)
+    config = Config(
+        use_vlm=True,
+        vlm_verify=True,
+        vlm_judge_mode="solo",
+        vlm_judge_model="test-judge-model",
+        vlm_cache=cache,
+        vlm_client=client,
+    )
 
     _, vlm_used, warnings = vlm.enhance_docx_markdown(
         _image_only_markdown(_IMAGE_ID), docx_bytes, config=config
