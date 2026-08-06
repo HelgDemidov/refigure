@@ -33,6 +33,31 @@ xlsx = ["openpyxl>=3.1,<4"]
 # system `soffice` (LibreOffice) binary, not installable via pip/extras —
 # its absence degrades to an honest warning, never a hard failure.
 vlm = ["pdfplumber>=0.11,<0.12"]
+# Direct-provider VlmClient implementations (OpenAIClient/AnthropicClient,
+# refigure/vlm/client.py) — deliberately NOT folded into [vlm] above: the
+# default OpenRouterClient path has zero HTTP dependencies (stdlib urllib
+# only), and must stay that way for anyone who never touches these two
+# classes. openai/anthropic share 7 of 8 required dependencies (checked
+# live via PyPI JSON, 2026-08-06) — one combined extra, not vlm-openai/
+# vlm-anthropic split, since splitting barely reduces install weight but
+# doubles the extras-isolation CI matrix.
+#
+# Depends on [vlm] itself (self-referential extra, not just openai/
+# anthropic) — NOT optional in practice: refigure/vlm/client.py is a
+# submodule of the refigure.vlm PACKAGE, so importing it always runs
+# refigure/vlm/__init__.py first (same rule that caused the docx_groups.py
+# extras-isolation bug, see project_extras_isolation_bug memory) — which
+# has its own module-level pdfplumber guard. Reproduced live, 2026-08-06:
+# `from refigure.vlm.client import OpenAIClient` with pdfplumber poisoned
+# raised "refigure[vlm] is required" before ever reaching OpenAIClient's
+# own openai-specific guard. Unlike the docx_groups.py case, this coupling
+# is NOT incidental — Config.vlm_client's only real call site
+# (enhance_docx_markdown) always renders figures via pdfplumber first,
+# regardless of which VlmClient ends up sending the result, so requiring
+# [vlm] here reflects a genuine dependency, not a bug to route around by
+# flattening client.py out of the package. See
+# docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md §5.
+vlm-direct = ["refigure[vlm]", "openai>=2.53,<3", "anthropic>=0.120,<1"]
 
 [project.scripts]
 refigure = "refigure.cli:main"

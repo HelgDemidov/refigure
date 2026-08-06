@@ -159,14 +159,34 @@ __init__.py`'s module-level `try/except` до любого same-package импо
 
 ## 5. Упаковка — новый саб-экстра `vlm-direct`
 
-`pyproject.toml`: `vlm-direct = ["openai>=2.53,<3", "anthropic>=0.120,<1"]`
-— НЕ внутрь существующего `[vlm]` (сегодня 0 HTTP-зависимостей,
-`pdfplumber` — только LibreOffice-кроп; `[vlm]` обязан остаться нулевым
-для дефолтного `OpenRouterClient`-сценария). Один совмещённый экстра, не
-`vlm-openai`+`vlm-anthropic` раздельно: пакеты делят 7 из 8 обязательных
-зависимостей (`httpx`/`pydantic`/`anyio`/`distro`/`sniffio`/`jiter`/
-`typing-extensions`, проверено живьём через PyPI JSON API) — разделение
-почти не экономит вес, но удваивает CI-матрицу.
+`pyproject.toml`: `vlm-direct = ["refigure[vlm]", "openai>=2.53,<3",
+"anthropic>=0.120,<1"]` — НЕ внутрь существующего `[vlm]` (сегодня 0
+HTTP-зависимостей, `pdfplumber` — только LibreOffice-кроп; `[vlm]` обязан
+остаться нулевым для дефолтного `OpenRouterClient`-сценария). Один
+совмещённый экстра, не `vlm-openai`+`vlm-anthropic` раздельно: пакеты
+делят 7 из 8 обязательных зависимостей (`httpx`/`pydantic`/`anyio`/
+`distro`/`sniffio`/`jiter`/`typing-extensions`, проверено живьём через
+PyPI JSON API) — разделение почти не экономит вес, но удваивает
+CI-матрицу.
+
+**Реальный баг, найденный и исправленный при реализации (2026-08-06), тот
+же класс, что и `docx_groups.py`-инцидент** (`project_extras_isolation_bug`
+memory): `refigure/vlm/client.py` — подмодуль пакета `refigure.vlm`, а
+импорт любого подмодуля всегда сначала прогоняет `refigure/vlm/
+__init__.py`, где есть модульный `pdfplumber`-гвард. Значит
+`from refigure.vlm.client import OpenAIClient` падал с
+`"refigure[vlm] is required"` ещё до собственного гварда `OpenAIClient`,
+даже если `vlm-direct` был установлен изолированно. Воспроизведено живьём
+в чистом venv (`uv venv` + `uv pip install ".[vlm-direct]"` без `[vlm]`)
+до фикса, подтверждено зелёным после. В отличие от `docx_groups.py` —
+это НЕ случайная связка для обхода: единственная реальная точка
+использования `Config.vlm_client` (`enhance_docx_markdown`) всегда рендерит
+фигуру через `pdfplumber` ПЕРЕД тем, как передать её любому `VlmClient` —
+так что зависимость `vlm-direct` → `[vlm]` честная, не костыль. Фикс —
+self-referential extra (`"refigure[vlm]"` в списке `vlm-direct`), не
+вынос `client.py` из пакета. Регрессия закрыта: `("refigure.vlm.client",
+"pdfplumber")` добавлен в `_POISON_CASES`
+(`tests/unit/test_optional_dependency_guards.py`).
 
 ## 6. Выбор клиента — без новых полей `Config`
 
@@ -228,7 +248,7 @@ OpenRouter.
 - [x] `OpenAIClient` реализован (коммит 1)
 - [x] `AnthropicClient` реализован, включая `client=` инъекцию (коммит 2)
 - [x] юнит-тесты обоих клиентов + класс-уровневые guard-тесты (коммит 3)
-- [ ] `vlm-direct` extra в `pyproject.toml` (коммит 4)
+- [x] `vlm-direct` extra в `pyproject.toml` (коммит 4)
 - [ ] `test-extras` CI leg добавлен, проверен зелёным (коммит 5)
 - [ ] докстроки `Config`/`refigure/vlm/client.py` обновлены (коммит 6)
 - [ ] живой тест + прогон вручную — Bedrock (коммит 7)

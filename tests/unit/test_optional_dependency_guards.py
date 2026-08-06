@@ -49,6 +49,20 @@ _POISON_CASES = [
     ("refigure.docx", "mammoth"),
     ("refigure.xlsx", "openpyxl"),
     ("refigure.vlm", "pdfplumber"),
+    # refigure.vlm.client is a SUBMODULE of the refigure.vlm package, so
+    # importing it always runs refigure/vlm/__init__.py first — including
+    # its pdfplumber guard. Found live, 2026-08-06 (same bug CLASS as
+    # docx_groups.py, see project_extras_isolation_bug memory): `from
+    # refigure.vlm.client import OpenAIClient` failed with "refigure[vlm]
+    # is required" before ever reaching OpenAIClient's own guard. Unlike
+    # docx_groups.py, this one is NOT a bug to route around — pyproject.toml's
+    # vlm-direct extra deliberately depends on [vlm] too (self-referential
+    # extra), because Config.vlm_client's only real call site
+    # (enhance_docx_markdown) always needs pdfplumber to render a figure
+    # BEFORE any VlmClient sends it, regardless of which client is chosen.
+    # This case pins that intentional coupling, not the guard itself — see
+    # pyproject.toml's vlm-direct comment for the full rationale.
+    ("refigure.vlm.client", "pdfplumber"),
 ]
 
 
