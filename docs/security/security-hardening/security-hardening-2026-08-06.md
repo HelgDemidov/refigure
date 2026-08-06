@@ -188,10 +188,17 @@ Roadmap держит ~11% предварительно для security-поло�
 - [x] Trivy secret-scan добавлен, закреплён по SHA (SHA re-verified live
   at implementation time — `v0.36.0` unchanged as latest, still resolves
   to `ed142fd0673e97e23eac54620cfb913e5ce36c25`)
-- [ ] CodeQL статус задокументирован (уже включён, не новая работа)
-- [ ] Socket — чек-лист-пункт на пользователя, явно помечен как ручной
-- [ ] Аудит проведён (после восстановления Actions), находки
-  протриажены adversarial-verify
+- [x] CodeQL статус задокументирован (уже включён, не новая работа) —
+  re-verified live at implementation time
+  (`gh api .../code-scanning/default-setup`): всё ещё `state: configured`,
+  `query_suite: default`, `languages: []` — auto-detect по-прежнему не
+  подтверждён до первого реального прогона.
+- [ ] Socket — **на пользователя**, не автоматизируется отсюда:
+  `https://github.com/apps/socket-security`, установить на
+  `HelgDemidov/refigure`.
+- [ ] Аудит — **отложен**, по плану спека (§5): после первого реального
+  прогона Bandit-класса/CodeQL/Trivy в CI, который ждёт восстановления
+  GitHub Actions. Не в скоупе этого PR.
 
 ## Вне скоупа
 
