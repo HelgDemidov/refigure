@@ -235,7 +235,7 @@ sequence/execution-sequence-2026-08-04.md` не требует правки.
 - [x] 4 guard-ветки pragma-исключены с комментарием
 - [x] combined-coverage CI-джоб + `--fail-under=95`
 - [x] coverage-badge.json генерация+коммит на push в main
-- [ ] README-бейдж добавлен
+- [x] README-бейдж добавлен
 
 ## Вне скоупа
 

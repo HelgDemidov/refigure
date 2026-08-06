@@ -3,6 +3,7 @@
 **Converters where figures survive.**
 
 [![CI](https://github.com/HelgDemidov/refigure/actions/workflows/ci.yml/badge.svg)](https://github.com/HelgDemidov/refigure/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/HelgDemidov/refigure/main/docs/assets/coverage-badge.json)](https://github.com/HelgDemidov/refigure/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
@@ -123,7 +124,8 @@ Pre-release. Tested against 27 real documents (15 DOCX + 12 XLSX) — 407
 native charts found (400 rendered), 35 composite figures recovered as
 positioned zero-loss markers — see
 [`tests/integration/fixtures/manifest.yaml`](tests/integration/fixtures/manifest.yaml)
-for provenance, licenses and attribution.
+for provenance, licenses and attribution. CI gates on a combined
+unit+integration test-coverage floor of 95%.
 
 The converters are being extracted from a working document-analysis
 pipeline (government AI-policy corpus); first public release planned for
