@@ -52,6 +52,20 @@ jobs:
           uv pip install pip-audit
           pip-audit -r requirements.txt -r requirements-dev.txt
 
+      # Narrow role: secret-scanning only, not a second SCA (pip-audit
+      # above already covers CVEs). Pinned by commit SHA, not tag — the
+      # action itself was supply-chain-compromised 2026-03-19/20 (credential
+      # theft from the runner, all tags 0.0.1-0.34.2), see
+      # docs/security/security-hardening/security-hardening-2026-08-06.md §2.
+      # SHA is v0.36.0's dereferenced commit (git ls-remote --tags), the
+      # current stable release, verified live before pinning.
+      - name: Trivy secret scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: fs
+          scanners: secret
+          exit-code: "1"
+
   # ---------------------------------------------------------------------------
   # Unit tests (tests/unit/) — hermetic: synthetic fixtures built in the test
   # itself, no real corpus, no network.
