@@ -116,13 +116,14 @@ all previously 403/unavailable on the private repo). Branch protection on
 `main` configured same day: `enforce_admins=true`,
 `allow_force_pushes=false`, `allow_deletions=false`, no required PR
 review (keeps the routine-direct-commit workflow above intact).
-`required_status_checks` deliberately NOT set yet — no CI context has
-reported successfully since the ongoing GitHub Actions incident began
-(see `project_coverage_hardening`/`project_readme_and_demo` memory); add
-it, with real job names, only after the first confirmed green run on
-`main`. Until then, a merged PR's CI results show no "required checks"
-banner regardless — verify with `gh pr checks <n>` or the Checks API, not
-the merge box.
+**GitHub Actions incident resolved 2026-08-07** — PR #15 got the first
+confirmed green run (all 11 jobs). `required_status_checks` now set on
+`main` (`strict=false`) requiring all 11 real job names: `Code quality
+(ruff + mypy + pip-audit)`, `Combined coverage gate (95%)`, `Unit tests +
+coverage`, `Integration tests (CI-safe subset)`, and all 7 `Extras
+isolation (<leg>)` legs. CodeQL's own first real run also confirmed
+live: `state: configured`, language auto-detected as `python` correctly
+(was unconfirmed before), 0 alerts.
 
 `delete_branch_on_merge: true` (a plain repo setting) — merged PR
 branches auto-delete on GitHub, but local tracking branches still need
