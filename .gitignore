@@ -12,6 +12,11 @@ dist/
 build/
 *.egg-info/
 
+# uv auto-generates this on `uv run`/`uv pip` if absent — project's
+# dependency source of truth is requirements.txt/requirements-dev.txt
+# (CLAUDE.md, Dev environment), not a uv-managed project lockfile.
+uv.lock
+
 # Env files — .env.example (if any) stays tracked
 .env
 .env.local
