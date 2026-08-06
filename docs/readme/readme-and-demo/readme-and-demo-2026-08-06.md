@@ -141,24 +141,30 @@ verify+fallback, `chart_render.py`) — переиспользуем этот ж
 
 | Источник | Что демонстрирует | Файл |
 |---|---|---|
-| `hackair-d7.7-pilot-evaluation.docx` | нативное извлечение chart-данных (8 чартов, 6 — валидный mermaid) | `examples/hackair-native-charts.md` |
-| `onehealth-ejp-d3.20.docx` | комбо: 5 нативных чартов (все 5 — валидный mermaid, подписанные категории) + 1 composite-группа (zero-loss маркер) в одном документе | `examples/onehealth-combo.md` |
-| `govtech-2025-charts.xlsx` | XLSX в масштабе (55 чартов, 33 — валидный mermaid) | `examples/govtech-xlsx-charts.md` |
+| `hackair-d7.7-pilot-evaluation.docx` | нативное извлечение chart-данных (8 чартов, 6 — валидный mermaid); 280KB markdown | `examples/hackair-native-charts.md` |
+| `swd2018-254-marine-litter-ia-annex.docx` | комбо: 1 чарт (table-only — реальный verify+fallback в деле, не каждый чарт мапится на mermaid) + 2 composite-группы (zero-loss маркеры) в одном документе; 288KB markdown | `examples/swd2018-combo.md` |
+| `govtech-2025-charts.xlsx` | XLSX в масштабе (55 чартов, 33 — валидный mermaid); 78KB markdown | `examples/govtech-xlsx-charts.md` |
 
 Каждый файл — короткая шапка (источник/лицензия/attribution, тот же
 формат, что `ATTRIBUTION.md`) + полный `convert()`-выход целиком. Все три
 источника и все счётчики (charts/mermaid/groups) верифицированы живым
 `convert()`-вызовом 2026-08-06, не взяты из `manifest.yaml` на веру (см.
-§3). Открывая любой файл на github.com, читатель одновременно видит
+§3). Открывая hackair/govtech на github.com, читатель одновременно видит
 исходный ```` ```mermaid ```` -текст и его нативный GitHub-рендер — «картинка
-на выходе» без отдельного шага генерации (§3, «бесплатный бонус»).
+на выходе» без отдельного шага генерации (§3, «бесплатный бонус»); у
+swd2018 эта строка демонстрирует другую половину контракта — честный
+table-only fallback, не mermaid, см. ниже.
 
-`onehealth-ejp-d3.20.docx` заменяет исходно рассматривавшийся
-`swd2018-254-marine-litter-ia-annex.docx` — у последнего единственный чарт
-подтверждённо падает в table-only (0 mermaid-блоков, verify+fallback
-сработал на реальных данных), для комбо-примера с mermaid не подходит,
-хотя сам факт table-only fallback — тоже честный, просто не для ЭТОЙ
-демонстрации.
+**Ревизия при реализации (2026-08-06):** изначально комбо-строка целилась в
+`onehealth-ejp-d3.20.docx` (5/5 чартов — валидный mermaid + 1 группа) —
+технически лучше по mermaid-покрытию, но живой прогон показал 1.34MB
+markdown (исходник — 30MB отчёт). GitHub не рендерит Markdown-файлы такого
+размера в блоб-вьюере репозитория (порог заметно ниже 1MB, точное число не
+задокументировано публично, но подтверждено многократными issue на
+github/markup) — сломало бы именно «бесплатный бонус» из §3 для этого
+файла. Возврат к `swd2018-254-marine-litter-ia-annex.docx` (288KB) — тот же
+класс проверки («любой документ подтверждается живым вызовом»), просто
+проверка поймала и файл-размер, не только mermaid-пригодность.
 
 ## 5. Проверяемое заявление о зрелости
 
