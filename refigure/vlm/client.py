@@ -1,8 +1,10 @@
-"""Default ``VlmClient`` implementation (``api.py``'s Protocol, see its
-docstring): ``OpenRouterClient``, calling OpenRouter's ``chat/completions``
-endpoint. Not the only possible implementation — refigure is LLM
-provider-agnostic by design; a caller can supply any other ``VlmClient``
-(e.g. a local Ollama/vLLM-backed one) to ``Config.vlm_client`` instead.
+"""``VlmClient`` implementations (``api.py``'s Protocol, see its docstring):
+``OpenRouterClient`` (default, calling OpenRouter's ``chat/completions``
+endpoint), ``OpenAIClient`` (direct OpenAI or any OpenAI-compatible
+endpoint — Ollama/vLLM/LM Studio, via ``base_url``), and ``AnthropicClient``
+(direct Anthropic Messages API). refigure is LLM provider-agnostic by
+design; a caller can also supply any other ``VlmClient`` entirely to
+``Config.vlm_client``.
 
 ``chat_request``/``InbandError``/``RETRY_SCHEDULE`` are a near-verbatim port
 of the source pipeline's ``core/openrouter.py`` (confirmed fully
@@ -12,6 +14,21 @@ retry/error-classification logic itself needs no redesign, only the
 payload-building layer around it (previously ``figures_vlm.py``'s
 ``_build_payload``/``_call_vlm_uri``) is new, folded into
 ``OpenRouterClient.send``.
+
+``OpenAIClient``/``AnthropicClient`` are the one deliberate exception to
+this package's usual module-level ``try/except`` optional-dependency guard
+(see ``refigure/xlsx/__init__.py`` for the usual shape): ``OpenRouterClient``
+above has zero third-party dependencies (stdlib ``urllib`` only), and this
+property must survive adding the two SDK-backed clients — importing this
+module must NOT require ``openai``/``anthropic`` to be installed, only
+constructing ``OpenAIClient()``/``AnthropicClient()`` should. So each class
+does its own ``try/except ImportError`` INSIDE ``__init__``, not at module
+level — not a departure from the optional-dependency pattern's intent
+(typed ``MissingOptionalDependencyError``, not a bare ``ImportError``),
+just applied per-class instead of per-module, because this one module now
+hosts multiple independent capabilities with different dependencies rather
+than one capability per module. See
+``docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md`` §4.
 """
 
 from __future__ import annotations
@@ -21,7 +38,9 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, Literal
+
+from ..api import MissingOptionalDependencyError
 
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 RETRY_SCHEDULE = (1.0, 4.0, 15.0, 60.0)
@@ -134,3 +153,64 @@ class OpenRouterClient:
         response = chat_request(payload, api_key=self.api_key, timeout=self.timeout)
         content = response["choices"][0]["message"]["content"]
         return content  # type: ignore[no-any-return]
+
+
+class OpenAIClient:
+    """``VlmClient`` for direct OpenAI or any OpenAI-compatible endpoint,
+    via the official ``openai`` package (not a hand-rolled ``urllib`` call
+    like ``OpenRouterClient`` above — the SDK gives typed requests + its
+    own retry for a modest, well-audited dependency, see
+    ``docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md`` §1).
+
+    ``base_url`` covers more than "direct OpenAI": Ollama/vLLM/LM Studio
+    all speak the same ``/v1/chat/completions`` dialect (confirmed live
+    against ``docs.ollama.com/api/openai-compatibility``,
+    ``OpenAI(base_url="http://localhost:11434/v1/", api_key="ollama")``),
+    so pointing ``base_url`` at a local server is the whole story for
+    local/confidentiality-sensitive inference — no separate local client.
+
+    ``image_content_format="string"`` is REQUIRED when ``base_url`` targets
+    Ollama specifically: its vision endpoint wants
+    ``"image_url": "data:image/png;base64,..."`` (a bare string), not
+    ``{"url": "..."}`` (the nested dict real OpenAI and OpenRouter expect)
+    — confirmed live, not assumed. Not auto-detected from ``base_url`` (a
+    URL-pattern heuristic would be fragile) — an explicit constructor
+    parameter, same principle as ``Config.vlm_judge_mode``.
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        *,
+        base_url: str | None = None,
+        image_content_format: Literal["dict", "string"] = "dict",
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
+        timeout: float = 1800.0,
+    ) -> None:
+        try:
+            import openai
+        except ImportError as exc:
+            raise MissingOptionalDependencyError(
+                "refigure[vlm-direct] is required to use OpenAIClient"
+            ) from exc
+        self._client = openai.OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
+        self.image_content_format = image_content_format
+        self.max_tokens = max_tokens
+
+    def send(self, prompt: str, image_uri: str, *, model: str) -> str:
+        image_url: Any = image_uri if self.image_content_format == "string" else {"url": image_uri}
+        response = self._client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": image_url},
+                    ],
+                }
+            ],
+            max_tokens=self.max_tokens,
+        )
+        content = response.choices[0].message.content
+        return content or ""
