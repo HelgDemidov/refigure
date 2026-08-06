@@ -16,7 +16,8 @@ callable, `ConversionResult`/3 typed exceptions/`Path|bytes|BinaryIO`), CI +
 (PR #6: English translation) all merged. Stage 3 (corpus-fixture licensing)
 done ad hoc, not a numbered PR: 27 real-document fixtures (15 docx, 12 xlsx),
 provenance/license/sha256 in `tests/integration/fixtures/manifest.yaml`,
-binaries gitignored (~81MB) — see `fixtures/README.md`. Stage 5 (PR #7):
+26/27 binaries committed (144MB total), 1 gitignored (authorship risk) —
+see `tests/integration/fixtures/README.md`. Stage 5 (PR #7):
 ported 8 test files from the source pipeline + a new parametrized corpus-test layer
 (`test_docx_corpus.py`/`test_xlsx_corpus.py`) exercising all 27 fixtures —
 found and fixed 2 real bugs (chart-parsing crash on `#N/A` cached values,
