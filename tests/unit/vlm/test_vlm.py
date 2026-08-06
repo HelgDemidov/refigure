@@ -58,6 +58,25 @@ class _RaisingVlmClient:
         raise RuntimeError("network exploded")
 
 
+class _PerModelJudgeClient:
+    """VlmClient stand-in whose JUDGE verdict depends on WHICH model is
+    asked — _ScriptedVlmClient's single fixed verdict can't exercise true
+    panel UNION behavior (two judges genuinely disagreeing). Generation-
+    shaped prompts (no "hallucination:" line) always get the same fixed
+    description, regardless of model. Records (model, prompt) per call."""
+
+    def __init__(self, description: str, verdicts_by_model: dict[str, str]) -> None:
+        self.description = description
+        self.verdicts_by_model = verdicts_by_model
+        self.calls: list[tuple[str, str]] = []
+
+    def send(self, prompt: str, image_uri: str, *, model: str) -> str:
+        self.calls.append((model, prompt))
+        if "hallucination:" in prompt:
+            return self.verdicts_by_model[model]
+        return self.description
+
+
 # =============================================================================
 # 1. Marker regex scanning
 # =============================================================================
@@ -588,3 +607,142 @@ def test_enhance_docx_markdown_vlm_verify_true_partial_cache_hit_image_unavailab
     updated_entry = cache.get(_IMAGE_ID)
     assert updated_entry is not None
     assert "judge_verdict" not in updated_entry  # left untouched, not force-set
+
+
+def test_enhance_docx_markdown_default_judge_mode_is_panel_calls_both_default_judges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Config()'s own default (vlm_judge_mode="panel", vlm_judge_panel =
+    (gemini, claude-haiku)) is exercised WITHOUT the caller setting
+    anything explicitly — proves the actual default, not just that panel
+    mode works when asked for."""
+    monkeypatch.setattr(vlm, "_docx_media_uri", lambda *a, **k: "data:image/jpeg;base64,x")
+    client = _PerModelJudgeClient(
+        description="A chart.",
+        verdicts_by_model={
+            "google/gemini-3-flash-preview": _CLEAN_VERDICT,
+            "anthropic/claude-haiku-4.5": "hallucination: yes\nmermaid_fit: n/a\nlanguage: yes",
+        },
+    )
+    docx_bytes = build_minimal_docx(["text"])
+    config = Config(
+        use_vlm=True, vlm_verify=True, vlm_cache=InMemoryCacheBackend(), vlm_client=client
+    )
+
+    _, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _image_only_markdown(_IMAGE_ID), docx_bytes, config=config
+    )
+
+    assert vlm_used is True
+    judge_models = [m for m, p in client.calls if "hallucination:" in p]
+    assert judge_models == ["google/gemini-3-flash-preview", "anthropic/claude-haiku-4.5"]
+    assert warnings == [f"vlm-judge-hallucination: {_IMAGE_ID}"]
+
+
+def test_enhance_docx_markdown_panel_mode_partial_cache_hit_unions_both_judges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vlm, "_docx_media_uri", lambda *a, **k: "data:image/jpeg;base64,x")
+    client = _PerModelJudgeClient(
+        description="ignored — cache already has a description",
+        verdicts_by_model={
+            "judge-a": "hallucination: no\nmermaid_fit: no\nlanguage: yes",
+            "judge-b": "hallucination: yes\nmermaid_fit: n/a\nlanguage: yes",
+        },
+    )
+    cache = InMemoryCacheBackend()
+    cache.set(_IMAGE_ID, {"model": "test-model", "markdown": "A chart."})  # pre-vlm_verify entry
+    docx_bytes = build_minimal_docx(["text"])
+    config = Config(
+        use_vlm=True,
+        vlm_verify=True,
+        vlm_judge_mode="panel",
+        vlm_judge_panel=("judge-a", "judge-b"),
+        vlm_cache=cache,
+        vlm_client=client,
+    )
+
+    _, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _image_only_markdown(_IMAGE_ID), docx_bytes, config=config
+    )
+
+    assert vlm_used is True
+    # judge-a alone would only flag mermaid, judge-b alone would only flag
+    # hallucination — UNION means both end up in the final warnings.
+    assert set(warnings) == {
+        f"vlm-judge-hallucination: {_IMAGE_ID}",
+        f"vlm-judge-mermaid: {_IMAGE_ID}",
+    }
+    updated_entry = cache.get(_IMAGE_ID)
+    assert updated_entry is not None
+    judge_verdict = updated_entry["judge_verdict"]
+    assert isinstance(judge_verdict, list)
+    assert set(judge_verdict) == {"vlm-judge-hallucination", "vlm-judge-mermaid"}
+
+
+# =============================================================================
+# 10. _judge_with_config — solo/panel dispatch (direct, no marker scanning)
+# =============================================================================
+
+
+def test_judge_with_config_solo_mode_calls_only_vlm_judge_model() -> None:
+    client = _PerModelJudgeClient(
+        description="d",
+        verdicts_by_model={"judge-a": "hallucination: yes\nmermaid_fit: n/a\nlanguage: yes"},
+    )
+    config = Config(vlm_judge_mode="solo", vlm_judge_model="judge-a")
+
+    defects = vlm._judge_with_config("uri", "d", config, lambda: client)
+
+    assert defects == ["vlm-judge-hallucination"]
+    assert [m for m, _ in client.calls] == ["judge-a"]
+
+
+def test_judge_with_config_panel_mode_calls_both_models_in_declared_order() -> None:
+    client = _PerModelJudgeClient(
+        description="d", verdicts_by_model={"judge-a": _CLEAN_VERDICT, "judge-b": _CLEAN_VERDICT}
+    )
+    config = Config(vlm_judge_mode="panel", vlm_judge_panel=("judge-a", "judge-b"))
+
+    vlm._judge_with_config("uri", "d", config, lambda: client)
+
+    assert [m for m, _ in client.calls] == ["judge-a", "judge-b"]
+
+
+def test_judge_with_config_panel_unions_distinct_defects_from_each_judge() -> None:
+    client = _PerModelJudgeClient(
+        description="d",
+        verdicts_by_model={
+            "judge-a": "hallucination: yes\nmermaid_fit: n/a\nlanguage: yes",
+            "judge-b": "hallucination: no\nmermaid_fit: no\nlanguage: yes",
+        },
+    )
+    config = Config(vlm_judge_mode="panel", vlm_judge_panel=("judge-a", "judge-b"))
+
+    defects = vlm._judge_with_config("uri", "d", config, lambda: client)
+
+    assert defects == ["vlm-judge-hallucination", "vlm-judge-mermaid"]
+
+
+def test_judge_with_config_panel_dedups_the_same_defect_flagged_by_both_judges() -> None:
+    client = _PerModelJudgeClient(
+        description="d",
+        verdicts_by_model={
+            "judge-a": "hallucination: yes\nmermaid_fit: n/a\nlanguage: yes",
+            "judge-b": "hallucination: yes\nmermaid_fit: n/a\nlanguage: yes",
+        },
+    )
+    config = Config(vlm_judge_mode="panel", vlm_judge_panel=("judge-a", "judge-b"))
+
+    defects = vlm._judge_with_config("uri", "d", config, lambda: client)
+
+    assert defects == ["vlm-judge-hallucination"]  # not duplicated
+
+
+def test_judge_with_config_panel_both_clean_produces_no_defects() -> None:
+    client = _PerModelJudgeClient(
+        description="d", verdicts_by_model={"judge-a": _CLEAN_VERDICT, "judge-b": _CLEAN_VERDICT}
+    )
+    config = Config(vlm_judge_mode="panel", vlm_judge_panel=("judge-a", "judge-b"))
+
+    assert vlm._judge_with_config("uri", "d", config, lambda: client) == []
