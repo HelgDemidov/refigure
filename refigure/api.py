@@ -74,13 +74,17 @@ class Config:
     """Enable cloud VLM interpretation of composite DOCX figures that the
     chart engine and ``docx/groups.py`` otherwise leave as an honest
     "content not analyzed" marker. **Data egress**: turning this on sends
-    network requests to ``vlm_client``'s backing service (OpenRouter by
-    default) — but ONLY the cropped image of the specific figure/group
-    being interpreted, never the surrounding text or the rest of the
-    document. This is a guarantee of the technique itself (the object is
-    cropped before it's ever sent, by construction — see
-    ``vlm._render_via_soffice``/``vlm._docx_media_uri``), not a policy
-    layered on top of a less constrained call."""
+    network requests to ``vlm_client``'s backing service — OpenRouter by
+    default, or whichever service the configured ``vlm_client`` actually
+    talks to (e.g. direct OpenAI/Ollama/vLLM/LM Studio via ``OpenAIClient``,
+    direct Anthropic or Claude via Bedrock/Vertex/Foundry via
+    ``AnthropicClient`` — see ``refigure/vlm/client.py``) — but ONLY the
+    cropped image of the specific figure/group being interpreted, never the
+    surrounding text or the rest of the document. This is a guarantee of
+    the technique itself (the object is cropped before it's ever sent, by
+    construction — see ``vlm._render_via_soffice``/``vlm._docx_media_uri``),
+    not a policy layered on top of a less constrained call, and holds
+    regardless of which ``vlm_client`` is configured."""
 
     vlm_verify: bool = False
     """Enable additional ``VlmClient.send()`` call(s) per resolved marker
@@ -140,7 +144,12 @@ class Config:
     (``google/gemini-3-flash-preview``) used as a judge (50%/50%) — being a
     strong generator and being a strong critic turned out to be different
     skills, not correlated in the same direction. Ignored in ``"panel"``
-    mode."""
+    mode. **Format is coupled to ``vlm_client``**: this default is an
+    OpenRouter slug, meaningless if ``vlm_client`` is an ``AnthropicClient``
+    (bare dated ID, e.g. ``"claude-haiku-4-5-20251001"``) or an
+    ``OpenAIClient`` pointed at a non-OpenRouter endpoint — refigure does
+    NOT canonicalize model IDs across clients, see
+    ``docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md`` §2."""
 
     vlm_judge_panel: tuple[str, str] = (
         "google/gemini-3-flash-preview",
@@ -158,25 +167,32 @@ class Config:
     under a different panel — same caveat ``vlm_model`` already has (the
     cache is keyed by marker id, not by which config produced the cached
     entry); clear the cache backend to force a re-check under new
-    settings."""
+    settings. Same ``vlm_client``-coupled model-ID format caveat as
+    ``vlm_judge_model`` above applies to both entries of this tuple."""
 
     vlm_model: str = "google/gemini-3-flash-preview"
     """OpenRouter model slug used by the default ``OpenRouterClient``.
     Ignored when ``vlm_client`` is set to a custom implementation, which may
-    have its own model-selection mechanism. Confirmed (not just inherited
-    as an untested placeholder) by this stage's own two-round A/B
-    calibration against refigure's real corpus, 2026-08-05 — round 1 (3
-    simple English-caption crops) found a quality tie with a pricier
-    competitor (``anthropic/claude-haiku-4.5``); round 2 (5 complex,
-    multi-lingual crops added after a review found round 1 too thin) found
-    ZERO manually-confirmed factual errors for this model against 2 for
-    Claude Haiku and 5 for ``openai/gpt-4o-mini`` (which fabricates an
-    inappropriate mermaid diagram in 100% of responses regardless of
-    structural fit — see the doc). Cheapest of the 3 candidates in both
-    rounds. One caveat, not a factual error: on non-English source
-    documents this model tends to leave transcribed labels untranslated
-    despite the prompt's "Output in English" instruction — a prompt-
-    engineering fix, not a reason to switch models. Full comparison:
+    have its own model-selection mechanism — and, if so, its own model-ID
+    format: an ``OpenAIClient`` pointed at Ollama expects a bare model tag
+    (e.g. ``"llava"``), an ``AnthropicClient`` expects Anthropic's bare
+    dated ID (or a Bedrock/Vertex/Foundry-specific variant if ``client=``
+    injects one of those — see ``refigure/vlm/client.py``'s
+    ``AnthropicClient`` docstring), never this field's OpenRouter-slug
+    shape. Confirmed (not just inherited as an untested placeholder) by
+    this stage's own two-round A/B calibration against refigure's real
+    corpus, 2026-08-05 — round 1 (3 simple English-caption crops) found a
+    quality tie with a pricier competitor (``anthropic/claude-haiku-4.5``);
+    round 2 (5 complex, multi-lingual crops added after a review found
+    round 1 too thin) found ZERO manually-confirmed factual errors for this
+    model against 2 for Claude Haiku and 5 for ``openai/gpt-4o-mini``
+    (which fabricates an inappropriate mermaid diagram in 100% of responses
+    regardless of structural fit — see the doc). Cheapest of the 3
+    candidates in both rounds. One caveat, not a factual error: on
+    non-English source documents this model tends to leave transcribed
+    labels untranslated despite the prompt's "Output in English"
+    instruction — a prompt-engineering fix, not a reason to switch models.
+    Full comparison:
     ``docs/vlm/vlm-model-calibration/vlm-model-calibration-2026-08-05.md``."""
 
     vlm_api_key: str | None = None
