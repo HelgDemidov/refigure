@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # pdf/html-only install must not require it.
 try:
     import mermaidx
-except ImportError:
+except ImportError:  # pragma: no cover - see tests/unit/test_optional_dependency_guards.py
     mermaidx = None
 
 

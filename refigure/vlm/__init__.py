@@ -52,7 +52,7 @@ from ..api import MissingOptionalDependencyError
 
 try:
     import pdfplumber
-except ImportError as exc:
+except ImportError as exc:  # pragma: no cover - see tests/unit/test_optional_dependency_guards.py
     raise MissingOptionalDependencyError(
         "refigure[vlm] is required to use Config(use_vlm=True)"
     ) from exc

@@ -35,7 +35,7 @@ import threading
 try:
     import openpyxl
     from openpyxl.utils.cell import coordinate_to_tuple
-except ImportError as exc:
+except ImportError as exc:  # pragma: no cover - see tests/unit/test_optional_dependency_guards.py
     from ..api import MissingOptionalDependencyError
 
     raise MissingOptionalDependencyError(

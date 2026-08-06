@@ -95,6 +95,29 @@ def test_missing_dependency_raises_typed_error_not_bare_import_error(
     )
 
 
+def test_chart_render_mermaidx_absence_degrades_gracefully_not_raises() -> None:
+    """chart_render.py's mermaidx guard is a different SHAPE from every
+    _POISON_CASES entry above: mermaidx is a soft optional dependency (not
+    a pip extra at all — a render-verification layer, see chart_render.py's
+    own module docstring), so its absence must degrade
+    mermaidx_available() to False, not raise MissingOptionalDependencyError
+    like the 4 hard-dependency guards do."""
+    script = (
+        "import sys\n"
+        "sys.modules['mermaidx'] = None\n"
+        "from refigure.core import chart_render\n"
+        "print(chart_render.mermaidx_available())\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+        timeout=30,
+    )
+    assert result.stdout.strip() == "False", f"stdout={result.stdout!r} stderr={result.stderr!r}"
+
+
 # (refigure.vlm.client class name, PyPI dependency to simulate as absent)
 _CLASS_LEVEL_POISON_CASES = [
     ("OpenAIClient", "openai"),
