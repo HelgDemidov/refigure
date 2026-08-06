@@ -100,3 +100,44 @@ Exit codes:
 | 4 | input isn't a valid/safe archive |
 | 5 | the format's extra (`[docx]`/`[xlsx]`) isn't installed |
 | 6 | unexpected internal error |
+
+## Real examples
+
+Full `convert()` output on real, openly-licensed documents — not
+cherry-picked snippets. Each file's own header states its source, license
+and attribution.
+
+| Source | Demonstrates | Output |
+| --- | --- | --- |
+| `hackair-d7.7-pilot-evaluation.docx` | native chart extraction — 8 charts, 6 render as mermaid diagrams | [examples/hackair-native-charts.md](examples/hackair-native-charts.md) |
+| `swd2018-254-marine-litter-ia-annex.docx` | combo: 1 chart (table-only — real verify+fallback in action, not every chart maps to mermaid) + 2 composite-figure zero-loss markers | [examples/swd2018-combo.md](examples/swd2018-combo.md) |
+| `govtech-2025-charts.xlsx` | XLSX at scale — 55 charts, 33 render as mermaid diagrams | [examples/govtech-xlsx-charts.md](examples/govtech-xlsx-charts.md) |
+
+Open any of these on GitHub and both views are right there: the raw
+```` ```mermaid ```` fence an LLM/RAG pipeline would read, and its native
+GitHub rendering — no extra step, that's GitHub's own Markdown support.
+
+## Status
+
+Pre-release. Tested against 27 real documents (15 DOCX + 12 XLSX) — 407
+native charts found (400 rendered), 35 composite figures recovered as
+positioned zero-loss markers — see
+[`tests/integration/fixtures/manifest.yaml`](tests/integration/fixtures/manifest.yaml)
+for provenance, licenses and attribution.
+
+The converters are being extracted from a working document-analysis
+pipeline (government AI-policy corpus); first public release planned for
+**August 2026** as a single package with per-format extras (`[docx]` /
+`[xlsx]`). A `[vlm]` extra also exists (DOCX-only cloud interpretation of
+composite figures the chart engine can't reconstruct,
+`Config(use_vlm=True)`, provider-agnostic — also needs the system
+`soffice`/LibreOffice binary, not installable via pip) — implemented and
+tested, but **not active or announced as a v1 feature yet**; no CLI flag
+exposes it. PDF is out of scope for this project (see
+[`docs/project-meta/converter-viability-assessment/converter-viability-assessment-2026-08-04.md`](docs/project-meta/converter-viability-assessment/converter-viability-assessment-2026-08-04.md)).
+
+PyPI names `refigure` and `refigure-md` are reserved (placeholder 0.0.0).
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
