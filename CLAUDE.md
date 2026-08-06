@@ -101,24 +101,33 @@ uploaded coverage data, gates the combined total at 95%, generates+commits
 the README coverage badge on push to `main`), `test-extras` (7-leg matrix
 — `bare`/`docx`/`xlsx`/`both`/`vlm`/`docx+vlm`/`vlm-direct`, each a FRESH
 isolated venv, not `requirements-dev.txt` — the only way to catch a broken
-extras boundary). Commands in `.claude/commands/`: `/tech-spec`,
-`/feature-workflow`, `/post-merge-sync`, `/memory-sync`.
+extras boundary). Plus CodeQL (Python, default query suite) via GitHub's
+native code-scanning default setup — configured 2026-08-06, NOT a file in
+`.github/workflows/`, lives entirely in repo Settings/the Code Scanning
+API. Commands in `.claude/commands/`: `/tech-spec`, `/feature-workflow`,
+`/post-merge-sync`, `/memory-sync`.
 
 ## Git workflow
 Routine changes (≤1-2 commits) — direct commit to `main`, no PR.
-Substantial changes — `/tech-spec` → `/feature-workflow` → PR. No branch
-protection on `main` yet (solo pre-release velocity, revisit at stage 8) —
-also structurally unavailable regardless: repo is **private**,
-`branches/main/protection` 403s ("Upgrade to GitHub Pro or make this
-repository public"), resolves once the repo goes public for the PyPI
-release. No required-status-checks rule means a merged PR's CI results
-show no "required checks" banner — easy to misread as "CI didn't run,"
-verify with `gh pr checks <n>` or the Checks API, not the merge box.
+Substantial changes — `/tech-spec` → `/feature-workflow` → PR. **Repo went
+public 2026-08-06** (user's call, ahead of a release tag — unblocked
+branch protection + CodeQL default setup + Socket GitHub App free tier,
+all previously 403/unavailable on the private repo). Branch protection on
+`main` configured same day: `enforce_admins=true`,
+`allow_force_pushes=false`, `allow_deletions=false`, no required PR
+review (keeps the routine-direct-commit workflow above intact).
+`required_status_checks` deliberately NOT set yet — no CI context has
+reported successfully since the ongoing GitHub Actions incident began
+(see `project_coverage_hardening`/`project_readme_and_demo` memory); add
+it, with real job names, only after the first confirmed green run on
+`main`. Until then, a merged PR's CI results show no "required checks"
+banner regardless — verify with `gh pr checks <n>` or the Checks API, not
+the merge box.
 
-`delete_branch_on_merge: true` (a plain repo setting, available even on
-private/Free) — merged PR branches auto-delete on GitHub, but local
-tracking branches still need manual `git branch -d`/`-D`; `git fetch
---prune` only clears stale `remotes/origin/*` refs, not local branches.
+`delete_branch_on_merge: true` (a plain repo setting) — merged PR
+branches auto-delete on GitHub, but local tracking branches still need
+manual `git branch -d`/`-D`; `git fetch --prune` only clears stale
+`remotes/origin/*` refs, not local branches.
 
 ## Scope v1
 - DOCX + XLSX, one package, not two.
