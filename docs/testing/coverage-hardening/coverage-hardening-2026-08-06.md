@@ -233,7 +233,7 @@ sequence/execution-sequence-2026-08-04.md` не требует правки.
 - [x] `refigure/core/chart_data.py` + `refigure/core/zipsafe.py` дыры закрыты
 - [x] `use_vlm=True` сквозной тест + mermaidx-unavailable warnings (docx+xlsx)
 - [x] 4 guard-ветки pragma-исключены с комментарием
-- [ ] combined-coverage CI-джоб + `--fail-under=95`
+- [x] combined-coverage CI-джоб + `--fail-under=95`
 - [ ] coverage-badge.json генерация+коммит на push в main
 - [ ] README-бейдж добавлен
 
