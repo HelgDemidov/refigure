@@ -504,10 +504,18 @@ def _render_via_soffice(
         tmp_dir = Path(tmp)
         doc_path = tmp_dir / f"obj{suffix}"
         doc_path.write_bytes(doc_bytes)
+        # Resolve to an absolute path rather than trusting a bare "soffice"
+        # off PATH — closes a PATH-hijacking class of risk (ruff S607).
+        # Falls back to the bare name only if resolution fails, matching the
+        # prior behavior (this function is only reached after
+        # `_soffice_available()` confirmed a match, so the fallback is
+        # effectively unreachable in production, but keeps direct-call test
+        # coverage of this function honest without a real `soffice` on PATH).
+        soffice_path = shutil.which("soffice") or "soffice"
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603 — args are fixed flags + tempfile-owned paths, not user input
                 [
-                    "soffice",
+                    soffice_path,
                     "--headless",
                     "--convert-to",
                     "pdf",
