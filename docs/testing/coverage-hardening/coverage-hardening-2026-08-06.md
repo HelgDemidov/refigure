@@ -277,3 +277,43 @@ githubstatus.com подтверждал `major_outage`/`investigating` на мо
 
 Вне скоупа — без изменений, см. секцию выше. Следующий шаг — вторая
 часть 7b (security-инструменты + аудит), спек ещё не составлен.
+
+## Справочно: сравнение с топ-аналогами (2026-08-06)
+
+Пост-мерж исследование — живая проверка README + реальных
+`.github/workflows/*` четырёх сопоставимых проектов (не по памяти):
+MarkItDown (`microsoft/markitdown`, 139k★), Docling
+(`docling-project/docling`, 64k★), marker (`datalab-to/marker`, 38k★) —
+все три уже сравнивались по CLI в `docs/cli/cli-wrapper/
+cli-wrapper-2026-08-05.md` — плюс четвёртый, добавленный для этого среза:
+Unstructured (`Unstructured-IO/unstructured`) — сопоставимый по скоупу
+(document→structured/markdown для LLM-пайплайнов), Apache-2.0.
+
+| Критерий | MarkItDown | Docling | marker | Unstructured | **refigure** |
+|---|---|---|---|---|---|
+| Coverage-бейдж в README | ❌ | ❌ | ❌ | ❌ | ✅ self-hosted shields.io |
+| Покрытие измеряется в CI | ❌ (`hatch test`, без `--cov`) | ✅ (`pytest --cov --cov-report=xml`, похоже льётся в Codecov по `CODECOV_TOKEN`, наружу не публикуется) | ❌ | ✅ (`make check-coverage`) | ✅ combined unit+integration |
+| Явный гейт по порогу | — | не подтверждён публично | — | похоже да, детали не публичны | ✅ 95% (`--fail-under`) |
+| Unit-тесты | ✅ матрица Python 3.10-3.12 | ✅ + отдельная ML-suite матрица | ✅ GPU + `-m cpu` | ✅ | ✅ 355 тестов |
+| Integration/e2e на реальных файлах | не обнаружено | ✅ cross-platform smoke + sdist-install | не обнаружено | ✅ golden-diff (`test_json_to_{html,markdown}`) | ✅ 27-документный реальный корпус |
+| Property-based тесты | не обнаружено | не обнаружено | не обнаружено | не обнаружено | ✅ Hypothesis |
+| Per-extra/isolation-тестирование | не обнаружено | частично (ML vs core) | не обнаружено | ✅ `test-extra-{csv,docx,odt,pdf-image,pptx,xlsx,...}` | ✅ 7-leg extras-isolation (3 реальных бага) |
+| Линтер | не подтверждено (скрыт в `pre-commit.yml`) | ✅ Ruff | не обнаружено | ✅ (`make check`) | ✅ Ruff |
+| Статическая типизация | не обнаружено | ⚠️ Tach — module-boundary линтер, НЕ type-checker | не обнаружено | не обнаружено | ✅ mypy `--strict`, весь пакет |
+| SAST | ❌ | ❌ | ❌ | ✅ CodeQL (Python, push+PR+еженедельно) | ❌ (план — 7b часть 2) |
+| SCA (аудит зависимостей) | не обнаружено | не обнаружено | не обнаружено | не обнаружено явно | ✅ `pip-audit` (с PR #4) |
+| Container/image-сканирование | — | — | — | ✅ `anchore/scan-action` | — (нет Docker-образа) |
+| Внешняя security-аккредитация | ❌ | ✅ OpenSSF Best Practices, уровень Passing | ❌ | ❌ | ❌ |
+
+Выводы, релевантные для 7b части 2:
+- Публичный coverage-бейдж — не догоняющая практика, а то, чего нет ни у
+  одного из четырёх; сохраняет отличительность, а не закрывает пробел.
+- mypy `--strict` на весь пакет тоже отсутствует у всех четырёх (у
+  Docling — Tach, другой по назначению инструмент).
+- Наша extras-isolation-матрица имеет прямой отраслевой аналог только у
+  Unstructured (per-extra Makefile-таргеты) — подтверждает подход, не
+  изобретение с нуля.
+- Единственный пробел относительно ЛЮБОГО из четырёх — SAST/CodeQL, и
+  только относительно Unstructured; ни MarkItDown, ни Docling, ни marker
+  не имеют SAST вообще. Container-сканирование Unstructured (Anchore) нам
+  неприменимо — нет Docker-образа в поставке.
