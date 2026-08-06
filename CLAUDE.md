@@ -116,14 +116,28 @@ all previously 403/unavailable on the private repo). Branch protection on
 `main` configured same day: `allow_force_pushes=false`,
 `allow_deletions=false`, no required PR review (keeps the
 routine-direct-commit workflow above intact).
-**GitHub Actions incident resolved 2026-08-07** — PR #15 got the first
-confirmed green run (all 11 jobs). `required_status_checks` now set on
-`main` (`strict=false`) requiring all 11 real job names: `Code quality
-(ruff + mypy + pip-audit)`, `Combined coverage gate (95%)`, `Unit tests +
-coverage`, `Integration tests (CI-safe subset)`, and all 7 `Extras
-isolation (<leg>)` legs. CodeQL's own first real run also confirmed
-live: `state: configured`, language auto-detected as `python` correctly
-(was unconfirmed before), 0 alerts.
+**GitHub Actions incident still ACTIVE 2026-08-07, only partially
+recovering** — githubstatus.com: ~65% of queued jobs succeeding (up
+from 30-40%), but webhook throughput still throttled to ~15% capacity,
+"preventing most push and pull request events from triggering new
+runs." PR #15 got a real, confirmed green run (all 11 jobs) — that's
+genuine signal the pipeline itself works end-to-end, but it does NOT
+mean the incident is over; it was a webhook that got through, not proof
+webhooks now reliably arrive. Confirmed live the same session: 2 direct
+pushes to `main` right after (`18f045f`, `32db4d0`) never triggered
+`ci.yml`'s `push` event at all (checked via `gh api .../actions/
+workflows/ci.yml/runs` — simply absent, not queued/failed). CodeQL's
+`push`-triggered dynamic workflow DID fire for both, inconsistently
+with `ci.yml` — the webhook throttling isn't uniform across workflows.
+Given this, `required_status_checks` now set on `main` (`strict=false`,
+all 11 real job names: `Code quality (ruff + mypy + pip-audit)`,
+`Combined coverage gate (95%)`, `Unit tests + coverage`, `Integration
+tests (CI-safe subset)`, 7× `Extras isolation (<leg>)`) is enforced
+against a CI signal that may simply never arrive for a given push —
+`enforce_admins=false` (below) is the reason this doesn't block merges
+outright while the incident continues. CodeQL's language auto-detect
+did get one real confirmed run: `python`, 0 alerts — that specific
+open question is resolved even though the broader incident isn't.
 
 **`enforce_admins` flipped `true`→`false` same day**, immediately after
 the above: with it `true`, required-status-checks blocks literally any
