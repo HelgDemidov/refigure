@@ -262,6 +262,37 @@ class AnthropicClient:
     ``client=`` is used, ``vlm_model``/``vlm_judge_model``/
     ``vlm_judge_panel`` must be in THAT target's format — not canonicalized
     by refigure, see ``Config``'s own field docstrings.
+
+    Recipes (illustrative model IDs only — not validated against each
+    platform's live catalog, and NOT kept in sync as models get
+    deprecated/retired; that lifecycle is each platform's own job, not
+    refigure's, see ``docs/vlm/vlm-direct-clients/
+    vlm-direct-clients-2026-08-06.md``'s "Вне скоупа"). Each needs its own
+    extra dependency beyond base ``anthropic`` except Foundry — see
+    ``tests/integration/test_anthropic_{bedrock,vertex,foundry}_live.py``
+    for a runnable, opt-in-gated version of each::
+
+        # Bedrock — needs `pip install "anthropic[bedrock]"` (boto3)
+        from anthropic import AnthropicBedrock
+        client = AnthropicClient(client=AnthropicBedrock(aws_region="us-east-1"))
+        # vlm_model="anthropic.claude-haiku-4-5-20251001-v1:0" (or an
+        # inference-profile-prefixed ID, e.g. "us.anthropic...."; depends
+        # on your account/region, see Amazon Bedrock's own docs)
+
+        # Vertex — needs `pip install "anthropic[vertex]"` (google-auth)
+        from anthropic import AnthropicVertex
+        client = AnthropicClient(
+            client=AnthropicVertex(project_id="my-gcp-project", region="global")
+        )
+        # vlm_model="claude-haiku-4-5@20251001"
+
+        # Foundry (Azure) — no extra dependency beyond base anthropic
+        from anthropic import AnthropicFoundry
+        client = AnthropicClient(
+            client=AnthropicFoundry(api_key="...", resource="my-foundry-resource")
+        )
+        # vlm_model="claude-haiku-4-5" (Foundry deployment name, defaults
+        # to the bare model ID unless you created a custom deployment name)
     """
 
     def __init__(
