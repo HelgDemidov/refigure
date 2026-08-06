@@ -10,8 +10,13 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 
+from lxml import etree
+
 from refigure.docx_groups import (
     SENTINEL_PREFIX,
+    DocxGroup,
+    _chart_captions,
+    _chart_root,
     all_media_ids,
     extract_and_strip_groups,
     extract_group_docx,
@@ -346,3 +351,129 @@ def test_all_media_ids_unions_across_groups() -> None:
 
 def test_all_media_ids_empty_for_no_groups() -> None:
     assert all_media_ids([]) == frozenset()
+
+
+# --- defensive/malformed-input branches (coverage-hardening spec,
+# docs/testing/coverage-hardening/coverage-hardening-2026-08-06.md §2) ---
+
+_W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_C_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+_R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+def test_chart_root_returns_none_when_rid_not_in_rel_targets() -> None:
+    drawing = etree.fromstring(
+        f'<w:drawing xmlns:w="{_W_NS}">'
+        f'<c:chart xmlns:c="{_C_NS}" xmlns:r="{_R_NS}" r:id="rIdMissing"/>'
+        f"</w:drawing>"
+    )
+    assert _chart_root(drawing, {}, None, set()) is None  # rId not in an empty rel_targets
+
+
+def test_chart_root_returns_none_when_resolved_part_missing_from_archive() -> None:
+    drawing = etree.fromstring(
+        f'<w:drawing xmlns:w="{_W_NS}">'
+        f'<c:chart xmlns:c="{_C_NS}" xmlns:r="{_R_NS}" r:id="rId1"/>'
+        f"</w:drawing>"
+    )
+    rel_targets = {"rId1": "charts/chart1.xml"}
+    assert _chart_root(drawing, rel_targets, None, set()) is None  # names is empty
+
+
+def test_chart_captions_returns_empty_tuple_for_none_chart_root() -> None:
+    assert _chart_captions(None) == ()
+
+
+def test_chart_captions_returns_empty_tuple_when_chart_has_no_title_element() -> None:
+    chart_root = etree.fromstring(f'<c:chartSpace xmlns:c="{_C_NS}"><c:chart/></c:chartSpace>')
+    assert _chart_captions(chart_root) == ()
+
+
+def _minimal_docx_zip(document_xml: str) -> bytes:
+    """A bare 3-member docx around a caller-supplied word/document.xml —
+    for malformed/edge-case documents none of tests/support.py's builders
+    produce (no w:body, a trailing w:sectPr, ...)."""
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" '
+            'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            "</Types>",
+        )
+        z.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>',
+        )
+        z.writestr("word/document.xml", document_xml)
+    return buf.getvalue()
+
+
+def test_extract_and_strip_groups_returns_original_when_body_element_missing(
+    tmp_path: Path,
+) -> None:
+    """A ``w:document`` that parses fine as XML but carries no ``w:body`` at
+    all — the malformed-input case a Hypothesis test found during
+    stage2-public-api-wrapper (``TypeError`` on ``list(None)`` in
+    ``_iter_objects``, see ``extract_and_strip_groups``'s own docstring).
+    Same honest pass-through as a missing part entirely."""
+    raw = tmp_path / "raw.docx"
+    document = (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="{_W_NS}"/>'
+    )
+    orig = _minimal_docx_zip(document)
+    raw.write_bytes(orig)
+
+    rewritten, groups = extract_and_strip_groups(raw)
+
+    assert groups == []
+    assert rewritten == orig
+
+
+def test_extract_group_docx_returns_none_when_id_not_found(tmp_path: Path) -> None:
+    raw = tmp_path / "raw.docx"
+    raw.write_bytes(build_docx_with_shape_group(["Before."], ["Cap"], {}, ["After."]))
+    assert extract_group_docx(raw, "000000000000") is None
+
+
+def test_extract_group_docx_preserves_trailing_sect_pr_for_page_geometry(tmp_path: Path) -> None:
+    """extract_group_docx keeps the original's trailing w:sectPr (page
+    geometry, needed for a faithful soffice render) in the rebuilt
+    mini-docx — none of tests/support.py's builders include one (a real
+    Word document always does), so this constructs the body by hand."""
+    from tests.support import _docx_group_ac
+
+    group_ac = _docx_group_ac(["Cap"], 0)
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:document xmlns:w="{_W_NS}"><w:body>'
+        f"<w:p><w:r>{group_ac}</w:r></w:p>"
+        '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr>'
+        "</w:body></w:document>"
+    )
+    raw = tmp_path / "raw.docx"
+    raw.write_bytes(_minimal_docx_zip(document))
+
+    _rewritten, groups = extract_and_strip_groups(raw)
+    mini = extract_group_docx(raw, groups[0].id12)
+
+    assert mini is not None
+    with zipfile.ZipFile(BytesIO(mini)) as z:
+        mini_doc = z.read("word/document.xml").decode("utf-8")
+    assert "sectPr" in mini_doc
+
+
+def test_inject_group_markers_unrecognized_id_leaves_sentinel_unchanged() -> None:
+    # "practically impossible" per the function's own comment (id12 is a
+    # sha256) — but the fallback exists in the code, so it gets a test.
+    known = DocxGroup(id12="abc123def456", media_ids=frozenset(), captions=("Foo",))
+    text = f"Before.\n\n{SENTINEL_PREFIX}999999999999\n\nAfter."
+
+    result, rendered_count = inject_group_markers(text, [known])
+
+    assert result == text
+    assert rendered_count == 0
