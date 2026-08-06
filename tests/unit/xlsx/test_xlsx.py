@@ -16,6 +16,7 @@ import pytest
 from openpyxl.chart import BarChart, Reference
 
 from refigure import CorruptArchiveError, UnsupportedFormatError
+from refigure.core import chart_render
 from refigure.xlsx import convert
 
 
@@ -93,6 +94,60 @@ def test_chart_without_numcache_is_found_but_not_rendered() -> None:
     assert result.charts_found == 1
     assert result.charts_rendered == 0
     assert "chart content not analyzed" in result.markdown
+
+
+def _force_float_cell_xml(data: bytes) -> bytes:
+    """openpyxl's own writer normalizes an integer-valued float like 5.0 to
+    the bare text "5" (round-trips back as a Python int, not float — no
+    decimal point in the cell XML for openpyxl's reader to key off of) —
+    there's no way to get a genuine is_integer() float through openpyxl's
+    write path alone. Patches the raw cell XML after the fact instead."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as z, zipfile.ZipFile(buf, "w") as zo:
+        for n in z.namelist():
+            content = z.read(n)
+            if n == "xl/worksheets/sheet1.xml":
+                content = content.replace(b"<v>5</v>", b"<v>5.0</v>")
+            zo.writestr(n, content)
+    return buf.getvalue()
+
+
+def test_integer_valued_float_cell_drops_trailing_dot_zero() -> None:
+    # test_convert_returns_markdown_for_simple_workbook already covers the
+    # non-integer float case (2.5) — this is the OTHER _xlsx_cell_str
+    # branch, str(int(v)) instead of str(v).
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append([5.0])
+    data = _force_float_cell_xml(_save(wb))
+
+    result = convert(data)
+
+    assert "| 5 |" in result.markdown
+    assert "5.0" not in result.markdown
+
+
+def test_convert_warns_when_mermaidx_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same technique as test_chart_render_missing_mermaidx.py / the docx
+    # side of this test (test_docx.py) — monkeypatch the module-level
+    # optional import. charts_found increments regardless of whether the
+    # chart itself renders (see test_chart_without_numcache_is_found_but_
+    # not_rendered), so the no-numCache fixture is enough here.
+    monkeypatch.setattr(chart_render, "mermaidx", None)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Data"
+    ws.append(["Category", "Value"])
+    ws.append(["A", 10])
+    chart = BarChart()
+    chart.add_data(Reference(ws, min_col=2, min_row=1, max_row=2), titles_from_data=True)
+    chart.set_categories(Reference(ws, min_col=1, min_row=2, max_row=2))
+    ws.add_chart(chart, "D2")
+
+    result = convert(_save(wb))
+
+    assert result.charts_found == 1
+    assert any(w.startswith("mermaidx not installed") for w in result.warnings)
 
 
 def test_valid_zip_but_not_xlsx_raises_unsupported_format() -> None:

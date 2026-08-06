@@ -16,7 +16,10 @@ import zipfile
 import pytest
 
 from refigure import CorruptArchiveError, UnsupportedFormatError
+from refigure.api import Config
+from refigure.core import chart_render
 from refigure.docx import convert
+from tests.support import build_docx_with_inline_chart_data, build_docx_with_shape_group
 
 _CONTENT_TYPES = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -91,3 +94,42 @@ def test_valid_zip_but_not_docx_raises_unsupported_format() -> None:
 def test_non_zip_raises_corrupt_archive() -> None:
     with pytest.raises(CorruptArchiveError):
         convert(b"not a zip at all")
+
+
+def test_convert_warns_when_mermaidx_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same technique as test_chart_render_missing_mermaidx.py: monkeypatch
+    # the module-level optional import rather than actually uninstalling
+    # mermaidx — a real numCache-bearing chart still renders (table-only,
+    # render_chart's own mermaidx handling degrades internally), only the
+    # warning text is new here.
+    monkeypatch.setattr(chart_render, "mermaidx", None)
+    data = build_docx_with_inline_chart_data(["Before."], ["After."])
+
+    result = convert(data)
+
+    assert result.charts_found == 1
+    assert any(w.startswith("mermaidx not installed") for w in result.warnings)
+
+
+def test_convert_use_vlm_true_wires_through_to_enhance_docx_markdown() -> None:
+    # Nothing else exercises Config(use_vlm=True) THROUGH docx.convert()
+    # itself — tests/unit/vlm/test_vlm.py tests enhance_docx_markdown()
+    # directly, in isolation, never through convert(). A cache HIT (same
+    # offline pattern test_vlm.py uses throughout) needs neither soffice
+    # nor a real VlmClient — id12 is deterministic (build_docx_with_shape_
+    # group + extract_and_strip_groups, same fixture/technique
+    # test_docx_groups.py already uses), so the cache can be pre-populated
+    # before convert() ever runs.
+    from refigure.docx_groups import extract_and_strip_groups
+    from refigure.vlm.cache import InMemoryCacheBackend
+
+    data = build_docx_with_shape_group(["Before."], ["Cap"], {}, ["After."])
+    _rewritten, groups = extract_and_strip_groups(data)
+    cache = InMemoryCacheBackend()
+    cache.set(groups[0].id12, {"model": "test-model", "markdown": "A chart, described via VLM."})
+    config = Config(use_vlm=True, vlm_cache=cache)
+
+    result = convert(data, config=config)
+
+    assert result.vlm_used is True
+    assert "A chart, described via VLM." in result.markdown

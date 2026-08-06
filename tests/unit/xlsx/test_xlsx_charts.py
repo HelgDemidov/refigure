@@ -13,10 +13,12 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+import pytest
 from lxml import etree
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
 
+import refigure.xlsx.charts as charts_module
 from refigure.xlsx.charts import (
     _chart_anchors,
     _chart_refs,
@@ -271,6 +273,22 @@ def _find_part(raw: Path, *, startswith: str, endswith: str = ".xml") -> str:
         return next(n for n in z.namelist() if n.startswith(startswith) and n.endswith(endswith))
 
 
+def test_extract_charts_skips_when_sheet_part_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """iter_chart_entries' own ``sheet_part not in names`` check
+    (independent of ``_sheet_parts``'s identical check at its own level,
+    which already filters this case out before it ever reaches
+    iter_chart_entries — the two can't diverge through a real zip, both
+    read the same ``z.namelist()``) — exercised directly via a stubbed
+    ``_sheet_parts`` that names a part absent from the real archive."""
+    raw = _workbook_with_chart(tmp_path)
+    monkeypatch.setattr(
+        charts_module, "_sheet_parts", lambda z: {"Data": "xl/worksheets/does-not-exist.xml"}
+    )
+    assert extract_charts(raw) == []
+
+
 def test_extract_charts_skips_when_sheet_rels_missing(tmp_path: Path) -> None:
     """The drawing r:id is present in the sheet itself, but the sheet's
     .rels is entirely missing -> drid not in {}."""
@@ -313,6 +331,26 @@ def test_extract_charts_skips_when_chart_part_missing(tmp_path: Path) -> None:
 def test_chart_refs_skips_formula_without_sheet_qualifier() -> None:
     root = etree.Element(_q("c", "chartSpace"))
     etree.SubElement(root, _q("c", "f")).text = "A1"  # no "!" — not our format
+    assert _chart_refs(root) == []
+
+
+def test_chart_refs_unquotes_sheet_name_wrapped_in_apostrophes() -> None:
+    root = etree.Element(_q("c", "chartSpace"))
+    etree.SubElement(root, _q("c", "f")).text = "'My Sheet'!$A$1"
+    assert _chart_refs(root) == [("My Sheet", "$A$1")]
+
+
+def test_chart_refs_unescapes_doubled_apostrophe_within_quoted_sheet_name() -> None:
+    # Standard Excel escaping: a literal apostrophe in a sheet name is
+    # doubled inside the quoted form.
+    root = etree.Element(_q("c", "chartSpace"))
+    etree.SubElement(root, _q("c", "f")).text = "'O''Brien''s Sheet'!$A$1"
+    assert _chart_refs(root) == [("O'Brien's Sheet", "$A$1")]
+
+
+def test_chart_refs_skips_when_sheet_name_is_empty_after_unquoting() -> None:
+    root = etree.Element(_q("c", "chartSpace"))
+    etree.SubElement(root, _q("c", "f")).text = "''!$A$1"
     assert _chart_refs(root) == []
 
 

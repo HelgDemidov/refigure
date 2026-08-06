@@ -218,6 +218,22 @@ def test_area_type_gets_xychart_beta() -> None:
     assert "```mermaid\nxychart-beta" in out
 
 
+def test_all_identical_values_gets_a_widened_axis_range() -> None:
+    # y_min == y_max (min(0.0, ...) and max(...) collapse to the same
+    # value whenever every point is 0, or every point shares one negative
+    # value) — xychart-beta needs a non-degenerate range, or the mermaid
+    # parser rejects it outright.
+    data = _data(
+        chart_type="column",
+        categories=("A", "B"),
+        series=(ChartSeries(name="S", values=(0.0, 0.0), kind="column"),),
+    )
+    out = render_chart(data)
+    assert out is not None
+    assert "```mermaid\nxychart-beta" in out
+    assert 'y-axis "Value" 0 --> 1' in out
+
+
 def test_bar_line_combo_gets_overlay_with_both_kinds() -> None:
     data = _data(
         chart_type="combo",

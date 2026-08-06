@@ -76,6 +76,17 @@ class TestSingleFile:
             main([str(stray)])
         assert exc.value.code == EXIT_USAGE
 
+    def test_xlsx_single_file_via_cli(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # No prior unit test actually converts an xlsx file THROUGH the CLI
+        # (only the poisoned-import subprocess test below touches xlsx at
+        # all, and that one fails before ever reaching _convert_fn's xlsx
+        # branch) — closes that gap directly.
+        xlsx_path = _write_xlsx(tmp_path / "doc.xlsx")
+        assert main([str(xlsx_path)]) == EXIT_OK
+        assert capsys.readouterr().out != ""
+
 
 class TestStdin:
     def test_requires_format(self) -> None:
@@ -90,6 +101,13 @@ class TestStdin:
         monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=io.BytesIO(data)))
         assert main(["--format", "docx"]) == EXIT_OK
         assert "From stdin" in capsys.readouterr().out
+
+    def test_conversion_failure_prints_error_and_returns_typed_code(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=io.BytesIO(b"not a zip at all")))
+        assert main(["--format", "docx"]) == EXIT_CORRUPT_ARCHIVE
+        assert "error:" in capsys.readouterr().err
 
 
 class TestTypedExitCodes:
@@ -124,6 +142,16 @@ class TestTypedExitCodes:
         )
         assert result.returncode == EXIT_MISSING_DEPENDENCY
         assert "refigure[xlsx]" in result.stderr
+
+    def test_exit_code_for_missing_optional_dependency_direct(self) -> None:
+        # Fast, in-process complement to the subprocess test above: the
+        # subprocess call above is invisible to coverage.py (subprocess
+        # boundary), so this covers _exit_code_for's actual mapping line
+        # directly rather than relying on that end-to-end test alone.
+        from refigure.api import MissingOptionalDependencyError
+        from refigure.cli import _exit_code_for
+
+        assert _exit_code_for(MissingOptionalDependencyError("x")) == EXIT_MISSING_DEPENDENCY
 
     def test_unexpected_exception_is_internal_error(
         self,
@@ -205,6 +233,40 @@ class TestBatchMode:
         assert code == EXIT_USAGE
         assert not out_dir.exists() or not any(out_dir.rglob("*.md"))
 
+    def test_unrecognized_extension_among_batch_sources_is_usage_error(
+        self, tmp_path: Path
+    ) -> None:
+        good = _write_docx(tmp_path / "good.docx", ["A"])
+        stray = tmp_path / "notes.txt"
+        stray.write_text("hi", encoding="utf-8")
+        with pytest.raises(SystemExit) as exc:
+            main([str(good), str(stray)])
+        assert exc.value.code == EXIT_USAGE
+
+    def test_nonexistent_source_among_batch_sources_is_usage_error(self, tmp_path: Path) -> None:
+        good = _write_docx(tmp_path / "good.docx", ["A"])
+        with pytest.raises(SystemExit) as exc:
+            main([str(good), str(tmp_path / "nope.docx")])
+        assert exc.value.code == EXIT_USAGE
+
+    def test_empty_directory_source_is_usage_error(self, tmp_path: Path) -> None:
+        # tmp_path itself has nothing convertible in it yet — a single
+        # directory source is already batch mode (is_dir()), and an empty
+        # plan must be rejected rather than silently writing 0 files.
+        out_dir = tmp_path / "out"
+        with pytest.raises(SystemExit) as exc:
+            main([str(tmp_path), "-o", str(out_dir)])
+        assert exc.value.code == EXIT_USAGE
+
+    def test_duplicate_source_path_is_deduplicated(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        out_dir = tmp_path / "out"
+        code = main([str(doc), str(doc), "-o", str(out_dir)])
+        assert code == EXIT_OK
+        assert "1/1 converted, 0 failed" in capsys.readouterr().err
+
 
 class TestJsonFlag:
     def test_single_file_is_valid_json_with_expected_keys(
@@ -239,6 +301,14 @@ class TestVerbosityFlags:
         empty_doc = _write_docx(tmp_path / "empty.docx", [])
         assert main([str(empty_doc)]) == EXIT_OK
         assert "warning: no extractable content" in capsys.readouterr().err
+
+    def test_batch_default_shows_per_file_warnings_on_stderr(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        empty_doc = _write_docx(tmp_path / "empty.docx", [])
+        out_dir = tmp_path / "out"
+        assert main([str(tmp_path), "-o", str(out_dir)]) == EXIT_OK
+        assert f"warning: {empty_doc}: no extractable content" in capsys.readouterr().err
 
     def test_quiet_suppresses_warnings_not_stdout(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -291,3 +361,29 @@ class TestMiscFlags:
     def test_strict_flag_is_accepted_and_does_not_crash(self, tmp_path: Path) -> None:
         doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
         assert main([str(doc), "--strict"]) == EXIT_OK
+
+
+class TestModuleEntrypoint:
+    def test_main_module_is_importable(self) -> None:
+        # refigure.__main__ is otherwise never imported in-process (only
+        # via the subprocess test below, a separate process coverage.py
+        # can't see) — this covers its own top-level statements directly;
+        # the `if __name__ == "__main__":` guard stays pragma-excluded,
+        # see refigure/__main__.py.
+        import refigure.__main__  # noqa: F401
+
+    def test_python_dash_m_refigure_help_exits_zero(self) -> None:
+        # Nothing else in this suite invokes the real `python -m refigure`
+        # entrypoint (refigure/__main__.py) — everything else calls
+        # cli.main() in-process. A subprocess is required here for the
+        # same reason as test_optional_dependency_guards.py: it's the only
+        # way to actually exercise `if __name__ == "__main__":`.
+        result = subprocess.run(
+            [sys.executable, "-m", "refigure", "--help"],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+            timeout=30,
+        )
+        assert result.returncode == 0
+        assert "usage:" in result.stdout

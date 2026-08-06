@@ -101,8 +101,24 @@ markers = [
 
 [tool.coverage.run]
 source = ["refigure"]
+# Needed to `coverage combine` data files collected across 2 separate CI
+# jobs (test-unit/test-integration, docs/testing/coverage-hardening/
+# coverage-hardening-2026-08-06.md §1) — makes file paths relative to the
+# repo root instead of absolute, so combine doesn't need a [paths]
+# remapping even though both jobs happen to check out to the same
+# runner-relative path today.
+relative_files = true
 
 [tool.coverage.report]
 exclude_also = [
     "if TYPE_CHECKING:",
 ]
+# No fail_under here deliberately — it would also gate test-unit/
+# test-integration's own standalone --cov runs (pytest-cov applies
+# coverage.py's fail_under automatically when no --cov-fail-under CLI flag
+# is given), silently coupling their pass/fail to a number neither job's
+# own suite alone is supposed to hit. The 95% gate (docs/testing/
+# coverage-hardening/coverage-hardening-2026-08-06.md §3) is measured
+# against the COMBINED tests/unit + tests/integration suite specifically
+# — enforced via an explicit `coverage report --fail-under=95` in the new
+# "coverage" CI job (ci.yml) only, not here.

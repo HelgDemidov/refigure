@@ -33,7 +33,7 @@ try:
     import mammoth
     from mammoth import html as mammoth_html
     from markdownify import ATX, MarkdownConverter
-except ImportError as exc:
+except ImportError as exc:  # pragma: no cover - see tests/unit/test_optional_dependency_guards.py
     raise MissingOptionalDependencyError(
         "refigure[docx] is required to convert DOCX files"
     ) from exc

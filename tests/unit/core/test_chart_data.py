@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from lxml import etree
 
-from refigure.core.chart_data import ChartData, ChartSeries, parse_chart
+from refigure.core.chart_data import ChartData, ChartSeries, _series_kind, parse_chart
 
 _C = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 _A = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -60,6 +60,10 @@ def _sparse_num_val(indexed: dict[int, str], count: int) -> str:
 
 def _num_lit_val(values: list[str]) -> str:
     return f'<c:val><c:numLit><c:ptCount val="{len(values)}"/>{_pts(values)}</c:numLit></c:val>'
+
+
+def _num_lit_cat(values: list[str]) -> str:
+    return f'<c:cat><c:numLit><c:ptCount val="{len(values)}"/>{_pts(values)}</c:numLit></c:cat>'
 
 
 def _xval(values: list[str]) -> str:
@@ -263,6 +267,45 @@ def test_malformed_pt_idx_is_skipped_not_crashed_and_does_not_clobber() -> None:
     assert parse_chart(root).series[0].values == (1.0, None)
 
 
+def test_pt_missing_idx_attribute_entirely_is_skipped_when_inferring_count() -> None:
+    """A <c:pt> with NO idx attribute at all (different from
+    test_malformed_pt_idx's "garbage" string) — the text-is-None branch of
+    _safe_int, only reachable via _pt_count's idx-inference fallback
+    (ptCount element absent entirely)."""
+    xml = (
+        "<c:val><c:numRef><c:f>X</c:f><c:numCache>"
+        '<c:pt idx="0"><c:v>1</c:v></c:pt><c:pt><c:v>99</c:v></c:pt>'
+        "</c:numCache></c:numRef></c:val>"
+    )
+    sers = _ser(0, "S", _str_cat(["A"]) + xml)
+    root = _chart_root(_plot_area(_bar_chart(sers)))
+    assert parse_chart(root).series[0].values == (1.0,)
+
+
+def test_pt_with_no_v_element_gives_none_value_not_crash() -> None:
+    """<c:pt idx="0"/> with no <c:v> child at all — different from an
+    unparseable value like #N/A (which _pt_value DOES return, as text) —
+    _safe_float's text-is-None branch specifically, via _pt_value itself
+    returning None."""
+    xml = (
+        '<c:val><c:numRef><c:f>X</c:f><c:numCache><c:ptCount val="1"/>'
+        '<c:pt idx="0"/>'
+        "</c:numCache></c:numRef></c:val>"
+    )
+    sers = _ser(0, "S", _str_cat(["A"]) + xml)
+    root = _chart_root(_plot_area(_bar_chart(sers)))
+    assert parse_chart(root).series[0].values == (None,)
+
+
+def test_categories_returns_empty_tuple_when_cat_element_has_no_known_source_variant() -> None:
+    """c:cat present but empty (none of strRef/strLit/numRef/numLit) — the
+    final fallback after all 4 known CT_AxDataSource variants are checked
+    and none match."""
+    sers = _ser(0, "S", "<c:cat/>" + _num_val(["1"]))
+    root = _chart_root(_plot_area(_bar_chart(sers)))
+    assert parse_chart(root).categories == ()
+
+
 def test_empty_numcache_gives_empty_series() -> None:
     empty_val = "<c:val><c:numRef><c:f>X</c:f><c:numCache/></c:numRef></c:val>"
     sers = _ser(0, "S", _str_cat(["A", "B"]) + empty_val)
@@ -317,6 +360,48 @@ def test_num_lit_values_without_cell_reference() -> None:
     sers = _ser(0, "S", _str_cat(["A", "B"]) + _num_lit_val(["10", "20"]))
     root = _chart_root(_plot_area(_bar_chart(sers)))
     assert parse_chart(root).series[0].values == (10.0, 20.0)
+
+
+def test_num_lit_categories_without_cell_reference() -> None:
+    """Categories as literal numbers (c:cat>c:numLit), no <c:f> cell
+    reference — the numeric-category twin of
+    test_str_lit_categories_without_cell_reference. One unparseable point
+    (#N/A) also exercises _format_plain_num's None -> "" branch, not just
+    the happy path."""
+    sers = _ser(0, "S", _num_lit_cat(["2020", "#N/A", "2022"]) + _num_val(["1", "2", "3"]))
+    root = _chart_root(_plot_area(_bar_chart(sers)))
+    assert parse_chart(root).categories == ("2020", "", "2022")
+
+
+def test_series_name_literal_value_without_cell_reference() -> None:
+    """c:tx>c:v (rare, but valid per the schema): the series name is given
+    directly, no <c:f> cell reference at all — the literal twin of the
+    ordinary strRef>strCache case _tx() always builds."""
+    body = f"<c:tx><c:v>Literal Name</c:v></c:tx>{_str_cat(['A'])}{_num_val(['1'])}"
+    ser = f'<c:ser><c:idx val="0"/><c:order val="0"/>{body}</c:ser>'
+    root = _chart_root(_plot_area(_bar_chart(ser)))
+    assert parse_chart(root).series[0].name == "Literal Name"
+
+
+def test_series_kind_returns_other_when_ser_element_has_no_parent() -> None:
+    # Defensive-only: getparent() is None on a genuinely detached element,
+    # which the real parse path never produces (a c:ser is never the XML
+    # root) — constructed directly to exercise the guard.
+    ser_el = etree.fromstring(f'<c:ser xmlns:c="{_C}"/>')
+    assert _series_kind(ser_el) == "other"
+
+
+def test_parse_chart_returns_empty_chart_data_when_no_chart_element() -> None:
+    root = etree.fromstring(f'<c:chartSpace xmlns:c="{_C}"/>')
+    assert parse_chart(root) == ChartData(
+        chart_type="other",
+        title=None,
+        value_axis_title=None,
+        value_format=None,
+        stacked=False,
+        categories=(),
+        series=(),
+    )
 
 
 def test_value_axis_title_captured() -> None:

@@ -54,10 +54,16 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Unit tests (tests/unit/) — hermetic: synthetic fixtures built in the test
-  # itself, no real corpus, no network. Coverage reported, not yet gated
-  # (stage 4/5 haven't landed real behavioral coverage for chart_data.py/
-  # chart_render.py/docx_groups.py/xlsx_charts.py internals — a hard
-  # threshold now would just be noise until that lands).
+  # itself, no real corpus, no network.
+  #
+  # Coverage data (.coverage.unit) is uploaded as an artifact for the
+  # `coverage` job below, which combines it with test-integration's own data
+  # and gates on the COMBINED total (docs/testing/coverage-hardening/
+  # coverage-hardening-2026-08-06.md §1/§3) — unit-only alone is NOT gated
+  # here, deliberately (see pyproject.toml's [tool.coverage.report] comment):
+  # it understates real branch coverage on its own (a large share of
+  # docx/xlsx's real-world branches only get exercised by the corpus-driven
+  # integration tests), so gating this job alone would be noise, not signal.
   #
   # libreoffice-writer (stage 4b, 2026-08-05): installed here, not skipped,
   # so refigure/vlm.py's soffice-render path (test_vlm.py, tests/integration/
@@ -95,7 +101,16 @@ jobs:
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Pytest unit + coverage
+        env:
+          COVERAGE_FILE: .coverage.unit
         run: python -m pytest tests/unit --cov --cov-report=term-missing
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-unit
+          path: .coverage.unit
+          include-hidden-files: true
 
   # ---------------------------------------------------------------------------
   # Integration tests (tests/integration/) — real corpus fixtures (stage 5,
@@ -125,15 +140,91 @@ jobs:
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Pytest integration (exit 5 = nothing collected yet, expected)
+        env:
+          COVERAGE_FILE: .coverage.integration
         run: |
           set +e
-          python -m pytest tests/integration -v
+          python -m pytest tests/integration -v --cov --cov-report=term-missing
           code=$?
           if [ "$code" -eq 5 ]; then
             echo "0 integration tests yet (real corpus fixtures land in stage 5) — expected, not a failure."
             exit 0
           fi
           exit $code
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-integration
+          path: .coverage.integration
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Combined coverage gate (docs/testing/coverage-hardening/
+  # coverage-hardening-2026-08-06.md §1/§3): merges test-unit's and
+  # test-integration's own coverage data (2 separate processes on 2 separate
+  # runners — pytest-cov can't span that on its own) and gates on the
+  # COMBINED total, 95%. Not 100% — some code is legitimately untestable in
+  # CI (live-VLM/Bedrock/Vertex/Foundry network calls, already skipif'd)
+  # without either faking tests or pragma-gaming the number past the point
+  # of being an honest signal.
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: Combined coverage gate (95%)
+    needs: [test-unit, test-integration]
+    runs-on: ubuntu-latest
+    # contents: write scoped to THIS job only, not the whole workflow file —
+    # only the badge-commit step (push-to-main only, below) needs it; same
+    # blast-radius-minimization principle already applied to id-token:write
+    # in the release-gate spec's publish.yml (docs/release/release-gate/
+    # release-gate-2026-08-06.md §3).
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv and set Python version
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Create venv and install coverage
+        run: |
+          uv venv
+          uv pip install coverage
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Download coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-data-*
+          merge-multiple: true
+
+      - name: Combine + gate at 95%
+        run: |
+          coverage combine
+          coverage report --fail-under=95 -m
+
+      - name: Generate coverage badge JSON
+        run: |
+          coverage json -o coverage.json
+          python scripts/gen_coverage_badge.py
+
+      # Push-to-main only — not PRs, so feature branches don't churn this
+      # file with a commit on every push (docs/testing/coverage-hardening/
+      # coverage-hardening-2026-08-06.md §4). Uses the ambient GITHUB_TOKEN
+      # (via the checkout step's default persist-credentials), no stored
+      # secret needed.
+      - name: Commit updated badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/assets/coverage-badge.json
+          git diff --staged --quiet && exit 0
+          git commit -m "chore: update coverage badge [skip ci]"
+          git push
 
   # ---------------------------------------------------------------------------
   # Extras isolation matrix (stage 6): verifies the extras architecture's core
