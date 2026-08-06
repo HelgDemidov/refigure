@@ -15,6 +15,12 @@ mocking the network directly.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import io
+import subprocess
+import zipfile
+
 import pytest
 
 from refigure import vlm
@@ -746,3 +752,432 @@ def test_judge_with_config_panel_both_clean_produces_no_defects() -> None:
     config = Config(vlm_judge_mode="panel", vlm_judge_panel=("judge-a", "judge-b"))
 
     assert vlm._judge_with_config("uri", "d", config, lambda: client) == []
+
+
+# =============================================================================
+# 11. Direct helper coverage — error/edge branches (coverage-hardening spec,
+# docs/testing/coverage-hardening/coverage-hardening-2026-08-06.md §2). None
+# of these need a real network/soffice call — the module's own pluggable
+# VlmClient/VlmCacheBackend Protocols plus subprocess/pdfplumber mocking are
+# enough, same offline-only discipline as every test above.
+# =============================================================================
+
+
+def _docx_with_media(name: str, data: bytes = b"fake-bytes") -> bytes:
+    """A minimal zip carrying an unrelated top-level part PLUS a single
+    word/media/* entry — the unrelated part exercises _docx_media_uri's
+    "not under word/media/" skip, the media entry is what's actually
+    matched against marker_id."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("word/document.xml", b"<irrelevant/>")
+        z.writestr(f"word/media/{name}", data)
+    return buf.getvalue()
+
+
+def test_docx_media_uri_success_returns_base64_data_uri() -> None:
+    data = b"png-bytes"
+    docx_bytes = _docx_with_media("image1.png", data)
+    marker_id = hashlib.sha256(data).hexdigest()[:12]
+
+    result = vlm._docx_media_uri(docx_bytes, marker_id, raw_name="doc.docx")
+
+    assert result == f"data:image/png;base64,{base64.b64encode(data).decode('ascii')}"
+
+
+def test_docx_media_uri_non_raster_format_returns_none_with_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    data = b"<svg/>"
+    docx_bytes = _docx_with_media("image1.svg", data)
+    marker_id = hashlib.sha256(data).hexdigest()[:12]
+
+    with caplog.at_level("WARNING"):
+        result = vlm._docx_media_uri(docx_bytes, marker_id, raw_name="doc.docx")
+
+    assert result is None
+    assert "not raster" in caplog.text
+
+
+def test_docx_media_uri_marker_not_found_on_redetection_returns_none_with_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    docx_bytes = _docx_with_media("image1.png", b"png-bytes")
+
+    with caplog.at_level("WARNING"):
+        result = vlm._docx_media_uri(docx_bytes, "000000000000", raw_name="doc.docx")
+
+    assert result is None
+    assert "not found" in caplog.text
+
+
+def test_soffice_available_true_when_shutil_which_finds_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vlm.shutil, "which", lambda name: "/usr/bin/soffice")
+    assert vlm._soffice_available() is True
+
+
+def test_soffice_available_false_when_shutil_which_finds_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vlm.shutil, "which", lambda name: None)
+    assert vlm._soffice_available() is False
+
+
+class _FakePage:
+    """pdfplumber.Page stand-in for _content_bbox — only .rects/.curves/
+    .images/.chars/.bbox are read."""
+
+    def __init__(
+        self, elements: list[dict[str, float]] | None = None, bbox: vlm.BBox = (0, 0, 100, 100)
+    ) -> None:
+        self.rects = elements or []
+        self.curves: list[dict[str, float]] = []
+        self.images: list[dict[str, float]] = []
+        self.chars: list[dict[str, float]] = []
+        self.bbox = bbox
+
+
+def test_content_bbox_empty_page_returns_none() -> None:
+    assert vlm._content_bbox(_FakePage()) is None
+
+
+def test_content_bbox_degenerate_zero_width_element_returns_none() -> None:
+    # A single point-like element (x0 == x1) collapses to a zero-width bbox.
+    page = _FakePage([{"x0": 5, "x1": 5, "top": 5, "bottom": 5}])
+    assert vlm._content_bbox(page) is None
+
+
+def test_content_bbox_valid_elements_returns_dense_bbox() -> None:
+    page = _FakePage([{"x0": 10, "x1": 20, "top": 5, "bottom": 15}], bbox=(0, 0, 100, 100))
+    assert vlm._content_bbox(page) == (10, 5, 20, 15)
+
+
+def test_render_via_soffice_timeout_returns_none_with_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def _raise_timeout(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(cmd="soffice", timeout=vlm.SOFFICE_RENDER_TIMEOUT)
+
+    monkeypatch.setattr(vlm.subprocess, "run", _raise_timeout)
+
+    with caplog.at_level("WARNING"):
+        result = vlm._render_via_soffice(
+            b"docbytes", suffix=".docx", raw_name="doc.docx", obj_id="id1", obj_kind="group"
+        )
+
+    assert result is None
+    assert "did not finish" in caplog.text
+
+
+def test_render_via_soffice_nonzero_exit_returns_none_with_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def _fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="boom")
+
+    monkeypatch.setattr(vlm.subprocess, "run", _fake_run)
+
+    with caplog.at_level("WARNING"):
+        result = vlm._render_via_soffice(
+            b"docbytes", suffix=".docx", raw_name="doc.docx", obj_id="id1", obj_kind="group"
+        )
+
+    assert result is None
+    assert "failed to render" in caplog.text
+
+
+def test_render_via_soffice_pdfplumber_exception_returns_none_with_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def _fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        outdir_index = cmd.index("--outdir") + 1
+        pdf_path = vlm.Path(cmd[outdir_index]) / "obj.pdf"
+        pdf_path.write_bytes(b"%PDF-fake")
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+    def _raise_pdfplumber_open(path: object) -> None:
+        raise RuntimeError("corrupt pdf")
+
+    monkeypatch.setattr(vlm.subprocess, "run", _fake_run)
+    monkeypatch.setattr(vlm.pdfplumber, "open", _raise_pdfplumber_open)
+
+    with caplog.at_level("WARNING"):
+        result = vlm._render_via_soffice(
+            b"docbytes", suffix=".docx", raw_name="doc.docx", obj_id="id1", obj_kind="group"
+        )
+
+    assert result is None
+    assert "rendering PDF" in caplog.text
+
+
+class _FakeRenderedImage:
+    def save(self, buf: io.BytesIO, format: str, quality: int) -> None:
+        buf.write(b"fake-jpeg-bytes")
+
+
+class _FakeOriginal:
+    def convert(self, mode: str) -> _FakeRenderedImage:
+        return _FakeRenderedImage()
+
+
+class _FakeToImageResult:
+    original = _FakeOriginal()
+
+
+class _FakePdfPage:
+    """pdfplumber page stand-in for the FULL _render_via_soffice success
+    path — empty rects/curves/images/chars so _content_bbox degrades to
+    None (the uncropped branch), .crop() is never actually reached, but is
+    provided for interface completeness."""
+
+    def __init__(self) -> None:
+        self.rects: list[dict[str, float]] = []
+        self.curves: list[dict[str, float]] = []
+        self.images: list[dict[str, float]] = []
+        self.chars: list[dict[str, float]] = []
+        self.bbox: vlm.BBox = (0, 0, 100, 100)
+
+    def crop(self, bbox: vlm.BBox) -> _FakePdfPage:
+        return self
+
+    def to_image(self, resolution: int) -> _FakeToImageResult:
+        return _FakeToImageResult()
+
+
+class _FakePdfDocument:
+    def __init__(self) -> None:
+        self.pages = [_FakePdfPage()]
+
+    def __enter__(self) -> _FakePdfDocument:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+
+def test_render_via_soffice_success_returns_jpeg_data_uri(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        outdir_index = cmd.index("--outdir") + 1
+        pdf_path = vlm.Path(cmd[outdir_index]) / "obj.pdf"
+        pdf_path.write_bytes(b"%PDF-fake")
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(vlm.subprocess, "run", _fake_run)
+    monkeypatch.setattr(vlm.pdfplumber, "open", lambda path: _FakePdfDocument())
+
+    result = vlm._render_via_soffice(
+        b"docbytes", suffix=".docx", raw_name="doc.docx", obj_id="id1", obj_kind="group"
+    )
+
+    assert result is not None
+    assert result.startswith("data:image/jpeg;base64,")
+
+
+def test_render_docx_group_not_found_on_redetection_returns_none_with_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(vlm, "_soffice_available", lambda: True)
+    monkeypatch.setattr(vlm.docx_groups, "extract_group_docx", lambda *a, **k: None)
+
+    with caplog.at_level("WARNING"):
+        result = vlm._render_docx_group(b"docbytes", "abcdef012345", raw_name="doc.docx")
+
+    assert result is None
+    assert "not found on re-detection" in caplog.text
+
+
+def test_render_docx_group_success_delegates_to_render_via_soffice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vlm, "_soffice_available", lambda: True)
+    monkeypatch.setattr(vlm.docx_groups, "extract_group_docx", lambda *a, **k: b"mini-docx-bytes")
+    monkeypatch.setattr(vlm, "_render_via_soffice", lambda *a, **k: "data:image/jpeg;base64,xyz")
+
+    result = vlm._render_docx_group(b"docbytes", "abcdef012345", raw_name="doc.docx")
+
+    assert result == "data:image/jpeg;base64,xyz"
+
+
+def test_call_client_exception_returns_none_with_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level("WARNING"):
+        result = vlm._call_client(
+            _RaisingVlmClient(), "prompt", "uri", model="m", raw_name="doc.docx", obj_id="id1"
+        )
+
+    assert result is None
+    assert "VLM call for id1 failed" in caplog.text
+
+
+def test_resolve_api_key_missing_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    config = Config(use_vlm=True, vlm_api_key=None)
+
+    with pytest.raises(RuntimeError, match="needs a VLM API key"):
+        vlm._resolve_api_key(config)
+
+
+def test_resolve_api_key_uses_config_value_when_set() -> None:
+    config = Config(use_vlm=True, vlm_api_key="from-config")
+    assert vlm._resolve_api_key(config) == "from-config"
+
+
+def test_resolve_api_key_falls_back_to_openrouter_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "from-env")
+    config = Config(use_vlm=True, vlm_api_key=None)
+    assert vlm._resolve_api_key(config) == "from-env"
+
+
+def test_enhance_docx_markdown_cache_miss_lazily_constructs_default_client_when_none_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When neither Config.vlm_client nor a cache hit supplies a client,
+    _get_client() must construct the default OpenRouterClient itself —
+    stub the CLASS (not a real HTTP call) to prove that construction path
+    runs, offline."""
+
+    class _FakeOpenRouterClient:
+        def __init__(self, *, api_key: str) -> None:
+            self.api_key = api_key
+
+        def send(self, prompt: str, image_uri: str, *, model: str) -> str:
+            return "A chart via the lazily-constructed default client."
+
+    monkeypatch.setattr(vlm, "_docx_media_uri", lambda *a, **k: "data:image/jpeg;base64,x")
+    monkeypatch.setattr(vlm, "OpenRouterClient", _FakeOpenRouterClient)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    docx_bytes = build_minimal_docx(["text"])
+    config = Config(use_vlm=True, vlm_cache=InMemoryCacheBackend())  # no vlm_client, no vlm_api_key
+
+    _, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _image_only_markdown(_IMAGE_ID), docx_bytes, config=config
+    )
+
+    assert vlm_used is True
+    assert warnings == []
+
+
+def test_enhance_docx_markdown_image_cache_miss_media_unavailable_leaves_marker_unchanged() -> None:
+    # No word/media/* entries at all — _docx_media_uri returns None for real.
+    docx_bytes = build_minimal_docx(["text"])
+    markdown = _image_only_markdown(_IMAGE_ID)
+    config = Config(use_vlm=True, vlm_cache=InMemoryCacheBackend())
+
+    new_markdown, vlm_used, warnings = vlm.enhance_docx_markdown(
+        markdown, docx_bytes, config=config
+    )
+
+    assert vlm_used is False
+    assert new_markdown == markdown
+    assert warnings == []
+
+
+def test_enhance_docx_markdown_image_cache_miss_client_failure_leaves_marker_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vlm, "_docx_media_uri", lambda *a, **k: "data:image/jpeg;base64,x")
+    docx_bytes = build_minimal_docx(["text"])
+    markdown = _image_only_markdown(_IMAGE_ID)
+    config = Config(use_vlm=True, vlm_cache=InMemoryCacheBackend(), vlm_client=_RaisingVlmClient())
+
+    new_markdown, vlm_used, warnings = vlm.enhance_docx_markdown(
+        markdown, docx_bytes, config=config
+    )
+
+    assert vlm_used is False
+    assert new_markdown == markdown
+    assert warnings == []
+
+
+def test_enhance_docx_markdown_group_cache_miss_client_failure_leaves_marker_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vlm, "_render_docx_group", lambda *a, **k: "data:image/jpeg;base64,x")
+    docx_bytes = build_minimal_docx(["text"])
+    markdown = _group_only_markdown(_GROUP_ID, "sales region")
+    config = Config(use_vlm=True, vlm_cache=InMemoryCacheBackend(), vlm_client=_RaisingVlmClient())
+
+    new_markdown, vlm_used, warnings = vlm.enhance_docx_markdown(
+        markdown, docx_bytes, config=config
+    )
+
+    assert vlm_used is False
+    assert new_markdown == markdown
+    assert warnings == []
+
+
+def test_enhance_docx_markdown_vlm_verify_true_partial_cache_hit_group_computes_judge_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Group-side twin of
+    ``..._partial_cache_hit_computes_judge_only`` (image side, §9 above)."""
+    monkeypatch.setattr(vlm, "_render_docx_group", lambda *a, **k: "data:image/jpeg;base64,x")
+    client = _ScriptedVlmClient(verdict="hallucination: no\nmermaid_fit: no\nlanguage: yes")
+    cache = InMemoryCacheBackend()
+    cache.set(
+        _GROUP_ID, {"model": "test-model", "markdown": "A bar chart."}
+    )  # no judge_verdict key
+    docx_bytes = build_minimal_docx(["text"])
+    config = Config(
+        use_vlm=True,
+        vlm_verify=True,
+        vlm_judge_mode="solo",
+        vlm_judge_model="test-judge-model",
+        vlm_cache=cache,
+        vlm_client=client,
+    )
+
+    _, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _group_only_markdown(_GROUP_ID, "bar chart"), docx_bytes, config=config
+    )
+
+    assert vlm_used is True
+    assert len(client.prompts) == 1  # ONLY the judge call — no re-generation
+    assert warnings == [f"vlm-judge-mermaid: {_GROUP_ID}"]
+    updated_entry = cache.get(_GROUP_ID)
+    assert updated_entry is not None
+    assert updated_entry["judge_verdict"] == ["vlm-judge-mermaid"]
+
+
+def test_enhance_docx_markdown_archive_recheck_failure_skips_with_warning() -> None:
+    not_a_zip = b"this is not a zip archive at all"
+    markdown = _image_only_markdown(_IMAGE_ID)
+    config = Config(use_vlm=True, vlm_cache=InMemoryCacheBackend())
+
+    new_markdown, vlm_used, warnings = vlm.enhance_docx_markdown(markdown, not_a_zip, config=config)
+
+    assert vlm_used is False
+    assert new_markdown == markdown
+    assert len(warnings) == 1
+    assert warnings[0].startswith("vlm enhancement skipped")
+
+
+def test_enhance_docx_markdown_vlm_verify_true_partial_cache_hit_group_unavailable_skips_gracefully(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Group-side twin of the image-marker
+    ``..._partial_cache_hit_image_unavailable_skips_gracefully`` test above —
+    ``_render_docx_group`` returning ``None`` on re-detection (not
+    ``_docx_media_uri``) must degrade the same way for a group marker."""
+    monkeypatch.setattr(vlm, "_render_docx_group", lambda *a, **k: None)
+    client = _ScriptedVlmClient()
+    cache = InMemoryCacheBackend()
+    cache.set(_GROUP_ID, {"model": "test-model", "markdown": "A bar chart."})
+    docx_bytes = build_minimal_docx(["text"])
+    config = Config(use_vlm=True, vlm_verify=True, vlm_cache=cache, vlm_client=client)
+
+    _, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _group_only_markdown(_GROUP_ID, "bar chart"), docx_bytes, config=config
+    )
+
+    assert vlm_used is True  # description still injected from cache
+    assert warnings == []  # judge upgrade silently skipped, no crash
+    assert len(client.prompts) == 0
+    updated_entry = cache.get(_GROUP_ID)
+    assert updated_entry is not None
+    assert "judge_verdict" not in updated_entry  # left untouched, not force-set
