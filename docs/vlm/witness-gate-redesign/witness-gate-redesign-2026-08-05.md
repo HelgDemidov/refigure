@@ -145,15 +145,99 @@ markdown в кэше».
 7. `test: tests/unit/vlm/test_vlm.py — vlm_verify wiring + partial cache-hit`
 8. `chore: validate judge_defects against the 24 labeled calibration responses`
 
+## 6. Дерево конфигурации VLM — сквозной аудит (2026-08-06, по факту живой валидации)
+
+После §5's живой валидации (`docs/vlm/vlm-model-calibration/
+judge-defects-validation-2026-08-06.md`) выяснилось: self-judge (модель
+проверяет саму себя, как реализовано в §2–3 выше) даёт recall 30%/12% —
+`Config.vlm_model` как единственный параметр судейства недостаточен.
+Заменяется на явное дерево из 5 слоёв выбора, аудит — что из него уже
+реально, что нужно построить, что оставить архитектурной возможностью без
+готовой реализации.
+
+```mermaid
+flowchart TD
+    L1{"1. use_vlm?"}
+    L1 -->|"False (default)"| Free["Бесплатный путь только —\ntoken_recall/numeric_counter/mermaid_renders"]
+    L1 -->|True| L2{"2. Механизм: локальная\nмодель или облачный провайдер?"}
+
+    L2 -->|локальная| Local["⚠️ НЕ реальная опция сегодня —\nVlmClient Protocol допускает BYO-клиент,\nно ни один локальный клиент не в комплекте.\nОтдельный будущий стейдж, не эта серия."]
+    L2 -->|облачный| Cloud["⚠️ Провайдер тоже не выбираем —\nединственная сборная реализация: OpenRouterClient.\nВыбор ДРУГОГО провайдера = BYO VlmClient, тот же протокол."]
+    Cloud --> L3{"3. vlm_verify?"}
+
+    L3 -->|"False (default)"| L31["3.1 vlm_model: str\ndefault gemini-3-flash-preview,\nсвободная замена — УЖЕ РЕАЛЬНО"]
+    L3 -->|True| L32{"3.2 vlm_judge_mode:\nsolo | panel"}
+
+    L32 -->|solo| Solo["vlm_judge_model: str\ndefault claude-haiku-4.5 (70%/88% recall),\nсвободная замена — СТРОИМ"]
+    L32 -->|"panel (3.3 default)"| L4["4. Единственная voting-политика:\nUNION (флаг если хоть один судья флагует).\nINTERSECTION не реализуется вовсе — вдвое\nниже recall (40%/50%), не тот компромисс,\nради которого гейт существует.\nРазмер панели фиксирован: 2 судьи, не N."]
+
+    L4 --> L5["5. vlm_judge_panel: tuple[str, str]\ndefault (gemini-3-flash-preview, claude-haiku-4.5),\nсвободная замена — СТРОИМ"]
+```
+
+### Слой за слоем — реальность против описанного
+
+| Слой | Что | Статус |
+|---|---|---|
+| 1 | `use_vlm: bool = False` | ✅ реально |
+| 2 | локальная модель / облачный провайдер | ⚠️ **не выбираемая опция** — `VlmClient` Protocol провайдер-агностичен по конструкции (`api.py`'s докстрока), но в комплекте ровно один клиент (`OpenRouterClient`). BYO-реализация — да (разработчик пишет класс сам), готовый локальный клиент или enum провайдеров — нет. Отдельный будущий стейдж, сопоставимый по объёму с исходным vlm-layer-port, не довесок к этой серии. |
+| 2.1 | протокол подключения любой локальной модели | Protocol есть, готовой реализации нет |
+| 2.2 | выбор облачного провайдера, не хардкод OpenRouter | Тот же ответ — протокол допускает, в комплекте один |
+| 3 | `vlm_verify: bool = False` | ✅ реально (коммит `934bafa`) |
+| 3.1 | `vlm_model`, дефолт-фаворит, replaceable в один клик | ✅ уже реально — просто строка |
+| 3.2 | solo/panel, solo → лучший по тестам, replaceable | ❌ строим: `vlm_judge_mode` + `vlm_judge_model` |
+| 3.3 | дефолт параметра судейства — панель, **UNION** (не INTERSECTION — правка после проверки данных: UNION 80%/88% recall, INTERSECTION 40%/50%, т.е. UNION эффективнее, не наоборот) | ❌ строим |
+| 4 | панель: только UNION, ровно 2 судьи, без альтернатив | ❌ строим: `vlm_judge_panel: tuple[str, str]` |
+| 5 | состав панели replaceable | ❌ строим — тот же `vlm_judge_panel` |
+
+### Новые поля `Config` (заменяют self-judge design §2–3 выше)
+
+```python
+vlm_judge_mode: Literal["solo", "panel"] = "panel"
+vlm_judge_model: str = "anthropic/claude-haiku-4.5"       # used when mode == "solo"
+vlm_judge_panel: tuple[str, str] = (
+    "google/gemini-3-flash-preview", "anthropic/claude-haiku-4.5",
+)                                                          # used when mode == "panel", UNION-объединение
+```
+
+`enhance_docx_markdown` вместо текущего `judge_defects(..., model=model)`
+(self-judge, заменяется): при `vlm_judge_mode == "solo"` — один вызов с
+`model=config.vlm_judge_model`; при `"panel"` — по вызову на каждую модель
+`config.vlm_judge_panel`, объединение списков дефектов (union, дедуп по
+тегу). `judge_defects()` сама не меняет сигнатуру — оркестрация уровнем
+выше, как и раньше.
+
+**Дефолт `vlm_judge_mode="panel"` — осознанное следствие того, что
+`vlm_verify` уже сам по себе явный opt-in**: раз пользователь включил
+проверку, дефолт внутри неё — самая эффективная по recall конфигурация из
+протестированных, не самая дешёвая. Стоимость растёт с ~$0.0045/маркер
+(solo) до ~$0.0125/маркер (panel, сумма по 2 моделям) — тривиально на
+масштабе одной фигуры, но докстрока поля должна называть точную цифру, не
+оставлять пользователя гадать.
+
 ## Чек-лист реализации
 
 - [x] `Config.vlm_verify` добавлен
 - [x] `judge_defects()` реализован
-- [x] вписан в `enhance_docx_markdown` + апгрейд частичного кэша
+- [x] вписан в `enhance_docx_markdown` + апгрейд частичного кэша (self-judge
+      — **заменяется** §6's mode-based dispatch, см. ниже)
 - [x] докстроки обновлены (языковое ограничение)
 - [x] юнит-тесты `judge_defects`
-- [x] юнит-тесты `vlm_verify`-проводки + частичный cache-hit
-- [ ] валидация на 24 размеченных ответах проведена, результат задокументирован
+- [x] юнит-тесты `vlm_verify`-проводки + частичный cache-hit (self-judge
+      сценарии — часть заменится solo/panel-сценариями)
+- [x] валидация на 24 размеченных ответах проведена, результат
+      задокументирован (`judge-defects-validation-2026-08-06.md`) — нашла
+      промах self-judge (30%/12% recall), что и привело к §6
+- [x] `Config.vlm_judge_mode`/`vlm_judge_model`/`vlm_judge_panel` добавлены
+      (коммит `80c6c94`)
+- [x] `enhance_docx_markdown` переведён с self-judge на mode-based dispatch
+      (solo → `vlm_judge_model`, panel → union по `vlm_judge_panel`,
+      коммит `d31f647`)
+- [x] юнит-тесты: solo-режим (адаптация 2 существующих тестов + прямые
+      тесты `_judge_with_config`), panel-режим (union, дедуп, частичный
+      cache-hit для панели, дефолт-режим без явной настройки) — коммит
+      `ad0a316`, 51 тест в файле (было 41)
+- [x] докстроки `Config` полей ссылаются на данные из
+      `judge-defects-validation-2026-08-06.md`
 
 ## Вне скоупа
 
