@@ -10,7 +10,7 @@ positioned zero-loss markers for composite figures — absent even in
 well-funded incumbents (Docling issue #1287, >1yr open, unfixed).
 
 ## Status (2026-08-06)
-v1 design phase complete, PRs #1-#13 merged, 293 unit tests. Stage-by-stage:
+v1 design phase complete, PRs #1-#14 merged, 355 unit tests. Stage-by-stage:
 - **#1-2**: skeleton + `docx.convert()`/`xlsx.convert()` public API
   (`ConversionResult`, 3 typed exceptions, `Path|bytes|BinaryIO`).
 - **#3-5**: CI + 40-test robustness suite — 4 bugs fixed, CI triggers fixed.
@@ -53,8 +53,33 @@ v1 design phase complete, PRs #1-#13 merged, 293 unit tests. Stage-by-stage:
   `tests/integration/test_corpus_totals.py`. Merged bypassing CI — GitHub
   Actions had a platform-wide outage (confirmed via githubstatus.com) with
   every check stuck "Queued"; re-verify CI once Actions recovers.
+- **#14** (stage 7b, part 1 — test-coverage hardening): closed every real
+  gap found live (`tests/unit` alone 88%→98%; combined `tests/unit`+
+  `tests/integration` 94%→**100%**, 1528/1528 statements, verified with a
+  full authoritative run before merge) — not just chasing a number, several
+  closures were genuine functional blind spots (`Config(use_vlm=True)`
+  wasn't exercised through `docx.convert()` itself anywhere before this,
+  only `enhance_docx_markdown()` in isolation; no unit test converted an
+  xlsx file through the CLI at all; a mermaid xychart degenerate-
+  axis-range branch had zero coverage anywhere). 4 optional-dependency
+  import guards `# pragma: no cover`-excluded, each pointing at the real
+  (subprocess-boundary, coverage.py-invisible) test that exercises it —
+  added a missing one for `chart_render.py`'s mermaidx guard, which had no
+  dedicated test before this PR. New CI `coverage` job: combines
+  `test-unit`+`test-integration`'s separately-uploaded data, gates the
+  **combined** total at 95% (deliberately not via `pyproject.toml`'s
+  `fail_under`, which would've silently coupled `test-unit`'s own
+  standalone run to the same bar). Self-hosted shields.io badge
+  (`scripts/gen_coverage_badge.py`, `docs/assets/coverage-badge.json`,
+  committed on push to `main` only) — not a Codecov/Coveralls account,
+  same third-party-avoidance principle as OIDC PyPI publishing. Merged
+  bypassing CI — same GitHub Actions outage as #13, escalated further:
+  0 check-runs at all on the merge commit (`51b8c49`), not even
+  "Queued" — the webhook itself never reached Actions; re-verify once
+  Actions recovers.
 
-Not done: stage 8 (release gate) — spec drafted
+Not done: stage 7b part 2 (security tooling + audit — spec not yet
+drafted) and stage 8 (release gate) — spec drafted
 (`docs/release/release-gate/release-gate-2026-08-06.md`, branch
 `fix/release-gate`), not yet implemented. Live investigation during spec
 drafting found a real sdist-packaging bug: no
@@ -67,11 +92,14 @@ in that spec, not yet applied.
 `pyproject.toml` (extras `[docx]`/`[xlsx]`/`[vlm]`/`[vlm-direct]`,
 `refigure` console script, ruff/mypy/pytest config) +
 `requirements.txt`/`requirements-dev.txt`, managed with `uv`. CI
-(`.github/workflows/ci.yml`): 4 jobs — `quality` (ruff+mypy+pip-audit),
-`test-unit` (pytest `tests/unit` + coverage), `test-integration` (pytest
-`tests/integration`, real corpus-fixture tests — 0 collected without local
-fixtures, graceful not a failure), `test-extras` (7-leg matrix —
-`bare`/`docx`/`xlsx`/`both`/`vlm`/`docx+vlm`/`vlm-direct`, each a FRESH
+(`.github/workflows/ci.yml`): 5 jobs — `quality` (ruff+mypy+pip-audit),
+`test-unit` (pytest `tests/unit` + coverage, own `COVERAGE_FILE`),
+`test-integration` (pytest `tests/integration`, real corpus-fixture tests
+— 0 collected without local fixtures, graceful not a failure; own
+`COVERAGE_FILE`), `coverage` (PR #14: combines test-unit/test-integration's
+uploaded coverage data, gates the combined total at 95%, generates+commits
+the README coverage badge on push to `main`), `test-extras` (7-leg matrix
+— `bare`/`docx`/`xlsx`/`both`/`vlm`/`docx+vlm`/`vlm-direct`, each a FRESH
 isolated venv, not `requirements-dev.txt` — the only way to catch a broken
 extras boundary). Commands in `.claude/commands/`: `/tech-spec`,
 `/feature-workflow`, `/post-merge-sync`, `/memory-sync`.
@@ -200,7 +228,7 @@ restating what's obvious from the code itself.
 ## Source docs (Russian, tracked in git — project documentation, not code)
 `docs/` is organized `<category>/<slug>/<slug>-<date>.md` (two-level,
 adopted 2026-08-05 — categories so far: `project-meta`,
-`package-foundation`, `cli`, `vlm`, `readme`), not flat. `/tech-spec`/
+`package-foundation`, `cli`, `vlm`, `readme`, `testing`), not flat. `/tech-spec`/
 `/feature-workflow` both know this convention. Foundational,
 non-stage-specific docs live in `project-meta`; per-stage specs live under
 their own category.
