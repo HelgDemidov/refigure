@@ -38,9 +38,12 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..api import MissingOptionalDependencyError
+
+if TYPE_CHECKING:
+    import anthropic
 
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 RETRY_SCHEDULE = (1.0, 4.0, 15.0, 60.0)
@@ -214,3 +217,89 @@ class OpenAIClient:
         )
         content = response.choices[0].message.content
         return content or ""
+
+
+def _parse_data_uri(image_uri: str) -> tuple[str, str]:
+    """Split ``"data:<media_type>;base64,<data>"`` into ``(media_type,
+    data)`` — Anthropic's Messages API wants these as two separate fields
+    (``source: {"type": "base64", "media_type": ..., "data": ...}``),
+    unlike OpenAI/OpenRouter's single nested ``{"url": "data:..."}``.
+    refigure's own ``image_uri`` is always a ``data:`` URI internally (see
+    ``VlmClient.send``'s docstring in ``api.py``), so this is the one
+    conversion ``AnthropicClient`` needs that no other client does."""
+    if not image_uri.startswith("data:") or ";base64," not in image_uri:
+        raise ValueError(f"expected a data: URI with a base64 payload, got: {image_uri[:50]!r}")
+    header, data = image_uri.split(";base64,", 1)
+    return header.removeprefix("data:"), data
+
+
+class AnthropicClient:
+    """``VlmClient`` for direct Anthropic, via the official ``anthropic``
+    package. The Messages API is structurally different from the OpenAI-
+    compatible dialect ``OpenRouterClient``/``OpenAIClient`` speak, not a
+    variation of it — see
+    ``docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md`` §2 for
+    the full comparison (endpoint, headers, image content-block shape,
+    response shape).
+
+    ``client=`` accepts an already-constructed anthropic-family client
+    instead of a bare ``api_key`` — ``anthropic.AnthropicBedrock(...)``/
+    ``AnthropicVertex(...)``/``AnthropicFoundry(...)`` all share the exact
+    same ``.messages.create()`` interface as the direct client, differing
+    only in how THEY are constructed (AWS credentials/bearer token, Google
+    ADC/service account, Azure API key/Entra ID respectively) — confirmed
+    live against ``platform.claude.com``, 2026-08-06. Passing one of these
+    as ``client=`` makes Claude via Bedrock/Vertex/Foundry work with zero
+    additional code in this class; ``api_key``/``timeout`` below are then
+    ignored (the injected client already carries its own auth/transport).
+
+    Model IDs are NOT interchangeable across these targets: direct
+    Anthropic uses a bare dated ID (``"claude-haiku-4-5-20251001"``, no
+    ``anthropic/`` prefix — incompatible with ``Config.vlm_model``'s
+    OpenRouter-slug-shaped defaults), Bedrock uses its own prefixed/
+    inference-profile IDs, Vertex uses ``@``-versioned IDs, and Foundry
+    uses a deployment name (defaults to the bare model ID). Whichever
+    ``client=`` is used, ``vlm_model``/``vlm_judge_model``/
+    ``vlm_judge_panel`` must be in THAT target's format — not canonicalized
+    by refigure, see ``Config``'s own field docstrings.
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        *,
+        client: "anthropic.Anthropic | None" = None,
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
+        timeout: float = 1800.0,
+    ) -> None:
+        if client is not None:
+            self._client = client
+        else:
+            try:
+                import anthropic
+            except ImportError as exc:
+                raise MissingOptionalDependencyError(
+                    "refigure[vlm-direct] is required to use AnthropicClient"
+                ) from exc
+            self._client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+        self.max_tokens = max_tokens
+
+    def send(self, prompt: str, image_uri: str, *, model: str) -> str:
+        media_type, data = _parse_data_uri(image_uri)
+        # dict content typed as Any, same reason OpenRouterClient's payload
+        # above is dict[str, Any] — the anthropic SDK's own strict content-
+        # block TypedDict union isn't worth reconstructing by hand here.
+        content: list[Any] = [
+            {"type": "text", "text": prompt},
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": data},
+            },
+        ]
+        response = self._client.messages.create(
+            model=model,
+            max_tokens=self.max_tokens,
+            messages=[{"role": "user", "content": content}],
+        )
+        block = response.content[0]
+        return block.text  # type: ignore[union-attr]
