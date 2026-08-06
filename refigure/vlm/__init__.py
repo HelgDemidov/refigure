@@ -18,7 +18,7 @@ client (``VlmClient``, ``vlm/client.py``) and the response cache
 ``api.py`` — not a hardcoded OpenRouter call or a hardcoded sidecar file.
 
 Guard is the first same-package-import-adjacent statement in this file
-(before ``from ..core import chart_render``/``from ..docx import groups``
+(before ``from ..core import chart_render``/``from .. import docx_groups``
 below): a module-level
 ``try/except ImportError`` guard is only effective if it runs before any
 OTHER same-package import that could itself transitively raise an
@@ -28,6 +28,22 @@ unguarded ``openpyxl`` import), see the ``project_extras_isolation_bug``
 memory. ``chart_render``/``docx_groups`` are safe today (neither transitively
 imports ``pdfplumber``), but that safety is circumstantial, not contractual
 — the ordering discipline holds regardless.
+
+``docx_groups.py`` deliberately stays a flat top-level module (``refigure/
+docx_groups.py``), not nested under ``refigure/docx/`` — the 2026-08-05
+package reorg briefly moved it to ``refigure/docx/groups.py``, which broke
+this module's own extras isolation: importing ANY submodule of a package
+always runs that package's ``__init__.py`` first, and ``docx/__init__.py``
+has its own module-level ``mammoth`` guard, so ``import refigure.vlm``
+transitively required ``refigure[docx]`` even though this module needs
+only ``[vlm]`` — caught by the extras-isolation CI matrix on the PR
+implementing this stage, not by the regular test suite (which runs with
+every extra installed and structurally cannot see this class of bug — see
+``project_extras_isolation_bug`` memory, same root cause class as the
+``xlsx_charts.py`` case above). ``xlsx/charts.py`` has the identical
+nesting and is fine, because nothing outside the ``xlsx`` package imports
+it; ``docx_groups.py`` is the one case with a cross-package consumer
+(this module) that must not require ``docx``'s own heavy dependency.
 """
 
 from __future__ import annotations
@@ -56,9 +72,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .. import docx_groups
 from ..api import Config, VlmCacheBackend, VlmClient
 from ..core import chart_render, zipsafe
-from ..docx import groups as docx_groups
 from .cache import InMemoryCacheBackend
 from .client import OpenRouterClient
 

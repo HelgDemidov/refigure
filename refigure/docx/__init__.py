@@ -18,6 +18,7 @@ from typing import Any, BinaryIO
 
 from lxml import etree
 
+from .. import docx_groups
 from .._io import normalize_source
 from ..api import (
     Config,
@@ -27,7 +28,6 @@ from ..api import (
     UnsupportedFormatError,
 )
 from ..core import chart_render, zipsafe
-from . import groups as docx_groups
 
 try:
     import mammoth
