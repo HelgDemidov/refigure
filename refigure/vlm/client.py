@@ -71,12 +71,12 @@ class InbandError(Exception):
 
 def _request(payload: dict[str, Any], *, api_key: str, timeout: float) -> dict[str, Any]:
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310 — fixed https URL constant, not user input
         OPENROUTER_CHAT_URL,
         data=data,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — fixed https URL, not user input
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — same fixed https URL, ruff flags both the Request() build and the urlopen() call separately
         body: Any = json.loads(resp.read())
     if "choices" not in body:
         # OpenRouter wraps provider-side errors in an HTTP 200 with
