@@ -274,7 +274,7 @@ manifest.yaml`. Без «battle-tested»/«production-ready».
 - [x] `scripts/gen_demo_asset.py` + `docs/assets/demo-{light,dark}.svg`
 - [x] `scripts/gen_demo_asset_groups.py` + `docs/assets/demo-groups-{light,dark}.svg`
 - [x] визуальный QA всех 4 SVG на github.com (light+dark) — via chrome-devtools screenshot
-- [ ] `README.md` переписан целиком по §2
+- [x] `README.md` переписан целиком по §2
 
 ## Вне скоупа
 
@@ -291,4 +291,30 @@ manifest.yaml`. Без «battle-tested»/«production-ready».
 - Пиксель-точная визуальная копия исходного чарта — mermaid-рендер
   сознательно использует свою типографику/цвета (§3), не тему источника;
   заявляется сохранение данных, не визуальное клонирование.
+
+## Статус выполнения
+
+Смержено 2026-08-06, PR #13 (`docs/readme-and-demo` → `main`,
+merge-коммит `2103a06`), все 9 запланированных коммитов (30a51de → dd1548b)
+легли как есть, без сквоша. Lint-фикс для
+`scripts/gen_demo_asset*.py` вошёл в те же коммиты, где скрипты созданы
+(20bf189/8125edf), отдельным коммитом не выделялся — план §"План
+коммитов" пункт 7 по факту не потребовался отдельно.
+
+Смержено в обход CI: на момент мержа все джобы `ci.yml` висели в статусе
+"Queued" — подтверждён живой платформенный partial outage GitHub Actions
+(githubstatus.com), не проблема репозитория/воркфлоу. Пользователь
+смержил вручную через GitHub UI, приняв риск явно. **CI-статус коммита
+`2103a06` на `main` не подтверждён** — требуется перепроверка
+(`gh pr checks`/Checks API) после восстановления GitHub Actions.
+
+Итог по существу — оба hero-ассета (native chart extraction +
+composite-group zero-loss markers), `examples/` с 3 реальными выводами
+конвертера и drift-guard тестом, пин агрегатных чисел корпуса
+(407/400/35/27) — всё реализовано и визуально проверено (chrome-devtools
+QA, light+dark). Вне скоупа — без изменений, см. секцию выше.
+
+Следующая стадия — 8 (релиз-гейт), спек уже отдельно составлен:
+`docs/release/release-gate/release-gate-2026-08-06.md` (ветка
+`fix/release-gate`, не смержена, код ещё не начат).
 
