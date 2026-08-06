@@ -111,11 +111,19 @@ API. Commands in `.claude/commands/`: `/tech-spec`, `/feature-workflow`,
 Routine changes (≤1-2 commits) — direct commit to `main`, no PR.
 Substantial changes — `/tech-spec` → `/feature-workflow` → PR. **Repo went
 public 2026-08-06** (user's call, ahead of a release tag — unblocked
-branch protection + CodeQL default setup + Socket GitHub App free tier,
-all previously 403/unavailable on the private repo). Branch protection on
-`main` configured same day: `allow_force_pushes=false`,
-`allow_deletions=false`, no required PR review (keeps the
-routine-direct-commit workflow above intact).
+branch protection + CodeQL default setup, both previously 403/unavailable
+on the private repo). Branch protection on `main` configured same day:
+`allow_force_pushes=false`, `allow_deletions=false`, no required PR
+review (keeps the routine-direct-commit workflow above intact). **Socket
+Security GitHub App — evaluated 2026-08-07, declined**: its install
+flow requires a GitHub Organization, not a personal account; `refigure`
+is owned by personal account `HelgDemidov`, and an org-level install
+would only see that org's own repos — real coverage would need
+transferring the repo (new URL, README badge/CLAUDE.md/pyproject.toml
+references, git remotes, branch protection all need updating). Not
+worth it for one additional tool when pip-audit/CodeQL/ruff-`S`/Trivy
+already partially cover the same ground — see `docs/security/
+security-hardening/security-hardening-2026-08-06.md` §4.
 **GitHub Actions incident still ACTIVE 2026-08-07, only partially
 recovering** — githubstatus.com: ~65% of queued jobs succeeding (up
 from 30-40%), but webhook throughput still throttled to ~15% capacity,
