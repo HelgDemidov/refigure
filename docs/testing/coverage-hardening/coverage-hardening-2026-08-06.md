@@ -234,7 +234,7 @@ sequence/execution-sequence-2026-08-04.md` не требует правки.
 - [x] `use_vlm=True` сквозной тест + mermaidx-unavailable warnings (docx+xlsx)
 - [x] 4 guard-ветки pragma-исключены с комментарием
 - [x] combined-coverage CI-джоб + `--fail-under=95`
-- [ ] coverage-badge.json генерация+коммит на push в main
+- [x] coverage-badge.json генерация+коммит на push в main
 - [ ] README-бейдж добавлен
 
 ## Вне скоупа

@@ -174,6 +174,13 @@ jobs:
     name: Combined coverage gate (95%)
     needs: [test-unit, test-integration]
     runs-on: ubuntu-latest
+    # contents: write scoped to THIS job only, not the whole workflow file —
+    # only the badge-commit step (push-to-main only, below) needs it; same
+    # blast-radius-minimization principle already applied to id-token:write
+    # in the release-gate spec's publish.yml (docs/release/release-gate/
+    # release-gate-2026-08-06.md §3).
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -198,6 +205,26 @@ jobs:
         run: |
           coverage combine
           coverage report --fail-under=95 -m
+
+      - name: Generate coverage badge JSON
+        run: |
+          coverage json -o coverage.json
+          python scripts/gen_coverage_badge.py
+
+      # Push-to-main only — not PRs, so feature branches don't churn this
+      # file with a commit on every push (docs/testing/coverage-hardening/
+      # coverage-hardening-2026-08-06.md §4). Uses the ambient GITHUB_TOKEN
+      # (via the checkout step's default persist-credentials), no stored
+      # secret needed.
+      - name: Commit updated badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/assets/coverage-badge.json
+          git diff --staged --quiet && exit 0
+          git commit -m "chore: update coverage badge [skip ci]"
+          git push
 
   # ---------------------------------------------------------------------------
   # Extras isolation matrix (stage 6): verifies the extras architecture's core
