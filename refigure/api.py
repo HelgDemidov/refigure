@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol
 
 
 class VlmClient(Protocol):
@@ -83,23 +83,82 @@ class Config:
     layered on top of a less constrained call."""
 
     vlm_verify: bool = False
-    """Enable an additional ``VlmClient.send()`` call per resolved marker
-    (image or group) that asks the SAME model 3 fixed discriminative
-    yes/no/n-a questions about the description it already produced —
-    hallucination, mermaid-diagram fit, and English-output compliance —
-    instead of regenerating anything. See ``vlm.judge_defects``. Motivated
-    by the Generative-Discriminative Gap (a VLM answers a concrete yes/no
-    question about its own output more reliably than it generates accurate
-    text from scratch).
+    """Enable additional ``VlmClient.send()`` call(s) per resolved marker
+    (image or group) that ask 3 fixed discriminative yes/no/n-a questions
+    about the description already produced — hallucination, mermaid-diagram
+    fit, and English-output compliance — instead of regenerating anything.
+    See ``vlm.judge_defects``. Motivated by the Generative-Discriminative
+    Gap (a VLM answers a concrete yes/no question about a piece of output
+    more reliably than it generates accurate text from scratch) — NOT by
+    asking a model to judge its own output: live validation (2026-08-06,
+    24 labeled responses) found that self-judge (same model judges its own
+    description, this field's original design) catches only 30%/12%
+    (hallucination/mermaid-fit) of manually-confirmed real defects, with
+    false positives on clean responses and non-deterministic verdicts on
+    repeat calls. ``vlm_judge_mode``/``vlm_judge_model``/``vlm_judge_panel``
+    below control WHICH model(s) judge instead — never the generating
+    model alone. See
+    ``docs/vlm/vlm-model-calibration/judge-defects-validation-2026-08-06.md``
+    for the full data.
 
-    Off by default: this is a second network round-trip on top of
-    ``use_vlm`` alone, its own cost/latency commitment. Ignored entirely
-    when ``use_vlm=False``, and never triggers a call when a marker's
-    cached entry already carries a verdict from a previous ``vlm_verify``
-    run (cache-hit stays offline either way). Full rationale — including
-    the language-blindness gap in the free ``vlm_witness_min_recall`` path
+    How many calls this adds depends on ``vlm_judge_mode``: 1 in ``"solo"``
+    mode, 2 in ``"panel"`` mode (the default) — see below. Off by default:
+    this is a second (or third) network round-trip on top of ``use_vlm``
+    alone, its own cost/latency commitment. Ignored entirely when
+    ``use_vlm=False``, and never triggers a call when a marker's cached
+    entry already carries a verdict from a previous ``vlm_verify`` run
+    (cache-hit stays offline either way). Full rationale — including the
+    language-blindness gap in the free ``vlm_witness_min_recall`` path
     below that this complements —
     ``docs/vlm/witness-gate-redesign/witness-gate-redesign-2026-08-05.md``."""
+
+    vlm_judge_mode: Literal["solo", "panel"] = "panel"
+    """Which of ``vlm_judge_model``/``vlm_judge_panel`` below decides who
+    judges, when ``vlm_verify=True``. ``"solo"``: one model, one call —
+    cheaper (~$0.0045/marker at 2026-08-06 pricing), 70%/88%
+    (hallucination/mermaid-fit) recall in live validation. ``"panel"``
+    (default): 2 models, one call each, results unioned (flagged if EITHER
+    judge flags it) — ~$0.0125/marker, 80%/88% recall, 100% of
+    manually-confirmed defects caught on AT LEAST one dimension by at least
+    one judge (vs. 27% for self-judge). ``vlm_verify`` is already an
+    explicit opt-in; the default here favors the best-recall configuration
+    of the two, not the cheapest — pass ``"solo"`` explicitly to trade
+    recall for half the judge-call cost. Only ``"panel"``+UNION is
+    supported, not an intersection/agreement policy: this gate's whole
+    design is signal-not-failure (``ConversionResult.warnings``, never a
+    hard fail) — a false positive costs one extra warning line, a missed
+    real defect is unrecoverable once the document ships, so the gate
+    optimizes for recall, not for silence. Full comparison table:
+    ``docs/vlm/vlm-model-calibration/judge-defects-validation-2026-08-06.md``
+    §3-bis/§6."""
+
+    vlm_judge_model: str = "anthropic/claude-haiku-4.5"
+    """Judge model used when ``vlm_judge_mode="solo"``. Any OpenRouter model
+    slug — no whitelist. Default is the best-performing SOLO judge found in
+    live validation (2026-08-06): 70%/88% (hallucination/mermaid-fit)
+    recall, notably better than ``vlm_model``'s own default
+    (``google/gemini-3-flash-preview``) used as a judge (50%/50%) — being a
+    strong generator and being a strong critic turned out to be different
+    skills, not correlated in the same direction. Ignored in ``"panel"``
+    mode."""
+
+    vlm_judge_panel: tuple[str, str] = (
+        "google/gemini-3-flash-preview",
+        "anthropic/claude-haiku-4.5",
+    )
+    """Exactly 2 judge models used when ``vlm_judge_mode="panel"`` (the
+    default) — the pair validated live (2026-08-06), not an arbitrary
+    combination. Freely replaceable with any other 2 OpenRouter model
+    slugs. Panel size is fixed at 2, not N — no researched precedent (this
+    stage checked promptfoo/DeepEval/live MCP tool schemas, not just
+    general literature) bakes an arbitrary-size ensemble into a single
+    config surface; this stays a deliberately small, tested fork, not a
+    general N-judge mechanism. Ignored in ``"solo"`` mode. Changing this
+    field does not invalidate an already-cached ``judge_verdict`` computed
+    under a different panel — same caveat ``vlm_model`` already has (the
+    cache is keyed by marker id, not by which config produced the cached
+    entry); clear the cache backend to force a re-check under new
+    settings."""
 
     vlm_model: str = "google/gemini-3-flash-preview"
     """OpenRouter model slug used by the default ``OpenRouterClient``.
