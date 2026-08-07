@@ -156,8 +156,16 @@ environments/pypi` (идемпотентно, `PUT`) с deployment-branch/tag po
   `allow_deletions=false` — независимые настройки, не завязаны на
   `enforce_admins`, действуют для всех включая админов. GitHub
   Actions-инцидент подтверждённо разрешился к моменту мержа PR #16.
-- [x] **GitHub-сторона PyPI trusted publisher** — окружение `pypi` +
-  deployment-tag-policy (`v*`) предсоздаётся этим PR (§3, автоматизировано).
+- [ ] **GitHub-сторона PyPI trusted publisher** — окружение `pypi` +
+  deployment-tag-policy (`v*`) автоматизируется этим PR через
+  `scripts/setup_github_environment.sh` (§3, идемпотентен, готов к
+  запуску), но НЕ выполнен реализующим агентом — провижининг живых
+  repo Settings намеренно оставлен оператору, не агенту (см. правила
+  выполнения этой задачи). Live-проверка 2026-08-07: `gh api
+  repos/HelgDemidov/refigure/environments/pypi` → 404, окружения пока
+  не существует. Ранее эта строка ошибочно стояла как `[x]` — исправлено
+  при реализации §3/§3a, когда выяснилось, что «этот PR предсоздаёт»
+  на практике означает «этот PR готовит скрипт», не «выполняет его».
 - [ ] **PyPI-сторона trusted publisher** — проект `refigure` уже
   существует на PyPI (застолблён как `0.0.0`-плейсхолдер, см. README),
   значит это НЕ pending-publisher (тот — для ещё не существующих
@@ -200,9 +208,20 @@ environments/pypi` (идемпотентно, `PUT`) с deployment-branch/tag po
   подтверждён (было 129MB / 135232612 байт / 210 members, стало 136057
   байт / ~136KB / 50 members)
 - [x] `ci.yml` — build-верификация job
-- [ ] `.github/workflows/publish.yml`
-- [ ] GitHub `pypi`-environment предсоздан (`gh api`, deployment-tag-policy `v*`)
-- [ ] `scripts/release.sh` — версия/коммит/печать tag-команды, без auto-push
+- [x] `.github/workflows/publish.yml` — trusted publishing (OIDC),
+  `pypa/gh-action-pypi-publish` pinned by commit SHA
+  (`dc37677b2e1c63e2034f94d8a5b11f265b73ba33`, v1.14.2), `environment:
+  pypi`, `permissions` limited to `id-token: write` + `contents: read`.
+- [ ] GitHub `pypi`-environment предсоздан (`gh api`, deployment-tag-policy
+  `v*`) — скрипт `scripts/setup_github_environment.sh` готов
+  (идемпотентен, API-форма подтверждена вживую против GitHub REST API
+  docs 2026-08-07), но НЕ выполнен: провижининг живых repo Settings —
+  ручной шаг оператора, не агента (см. §4, строка про GitHub-сторону).
+- [x] `scripts/release.sh` — версия/коммит/печать tag-команды, без
+  auto-push. Написан, сделан исполняемым, провалидирован в изолированной
+  scratch-копии репозитория (bad-version/no-args/happy-path/duplicate-tag/
+  dirty-tree сценарии) — НЕ запускался против этого репозитория:
+  `pyproject.toml` здесь по-прежнему на `0.0.0`, локальных тегов нет.
 - [x] Публичность репо + branch protection (включая
   `required_status_checks`, доведён до конца 2026-08-07) — сделано
   раньше мержа этого PR (см. §4).
