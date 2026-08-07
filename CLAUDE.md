@@ -317,6 +317,13 @@ dialogue with the user, and `docs/` (project documentation/specs) only —
 `docs/` is tracked in git here (unlike some sibling projects), a
 deliberate choice, not gitignored scratch space.
 
+Docstrings may cite `docs/*.md` paths+sections as design-rationale
+pointers (e.g. `refigure/vlm/__init__.py`, `refigure/api.py`) — this is
+deliberate and maintainer-facing (git-repo context), not a runtime
+dependency; `docs/` is excluded from the sdist (PR #17), so these paths
+don't resolve from a pip-installed copy, which is fine — that reader
+isn't the citations' audience.
+
 ## Memory/doc update convention
 Replace or delete stale content — never append a "superseded" note next to
 old info left standing. No tombstones except where genuinely necessary for
