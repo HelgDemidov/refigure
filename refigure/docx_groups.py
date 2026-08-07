@@ -43,7 +43,7 @@ from typing import Any
 
 from lxml import etree
 
-from .core import chart_render
+from .core import chart_render, zipsafe
 from .core.chart_data import ChartData, parse_chart
 
 _NS = {
@@ -84,7 +84,7 @@ def _rel_targets(z: zipfile.ZipFile, part: str) -> dict[str, str]:
     rels_name = f"{posixpath.dirname(part)}/_rels/{posixpath.basename(part)}.rels"
     if rels_name not in z.namelist():
         return {}
-    root = etree.fromstring(z.read(rels_name))
+    root = etree.fromstring(zipsafe.safe_read(z, rels_name))
     return {rel.get("Id"): rel.get("Target") for rel in root if rel.get("Id")}
 
 
@@ -99,7 +99,7 @@ def _group_media_ids(
                 continue
             media = posixpath.normpath(posixpath.join("word", rel_targets[rid]))
             if media.startswith("word/media/") and media in names:
-                ids.add(hashlib.sha256(z.read(media)).hexdigest()[:12])
+                ids.add(hashlib.sha256(zipsafe.safe_read(z, media)).hexdigest()[:12])
     return frozenset(ids)
 
 
@@ -154,7 +154,7 @@ def _chart_root(
     part = posixpath.normpath(posixpath.join("word", rel_targets[rid]))
     if part not in names:
         return None
-    return etree.fromstring(z.read(part))
+    return etree.fromstring(zipsafe.safe_read(z, part))
 
 
 def _chart_captions(chart_root: Any | None) -> tuple[str, ...]:
@@ -240,7 +240,7 @@ def extract_and_strip_groups(raw: Path | bytes) -> tuple[bytes, list[DocxGroup]]
             return orig, []
         rel_targets = _rel_targets(z, "word/document.xml")
         try:
-            tree = etree.fromstring(z.read("word/document.xml"))
+            tree = etree.fromstring(zipsafe.safe_read(z, "word/document.xml"))
         except etree.XMLSyntaxError:
             return orig, []
         body = tree.find(_q("w", "body"))
@@ -279,7 +279,7 @@ def extract_and_strip_groups(raw: Path | bytes) -> tuple[bytes, list[DocxGroup]]
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zo:
             for n in z.namelist():
-                zo.writestr(n, new_doc_xml if n == "word/document.xml" else z.read(n))
+                zo.writestr(n, new_doc_xml if n == "word/document.xml" else zipsafe.safe_read(z, n))
         return buf.getvalue(), groups
 
 
@@ -298,7 +298,7 @@ def extract_group_docx(raw: Path | bytes, id12: str) -> bytes | None:
     z_source = raw if isinstance(raw, Path) else io.BytesIO(raw)
     with zipfile.ZipFile(z_source) as z:
         names = z.namelist()
-        tree = etree.fromstring(z.read("word/document.xml"))
+        tree = etree.fromstring(zipsafe.safe_read(z, "word/document.xml"))
         body = tree.find(_q("w", "body"))
         blocks = list(body)
         target = next(
@@ -321,7 +321,7 @@ def extract_group_docx(raw: Path | bytes, id12: str) -> bytes | None:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zo:
             for n in names:
-                zo.writestr(n, new_doc_xml if n == "word/document.xml" else z.read(n))
+                zo.writestr(n, new_doc_xml if n == "word/document.xml" else zipsafe.safe_read(z, n))
         return buf.getvalue()
 
 
