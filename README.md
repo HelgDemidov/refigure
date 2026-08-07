@@ -138,7 +138,11 @@ tested, but **not active or announced as a v1 feature yet**; no CLI flag
 exposes it. PDF is out of scope for this project (see
 [`docs/project-meta/converter-viability-assessment/converter-viability-assessment-2026-08-04.md`](docs/project-meta/converter-viability-assessment/converter-viability-assessment-2026-08-04.md)).
 
-PyPI names `refigure` and `refigure-md` are reserved (placeholder 0.0.0).
+`v0.1.0` is packaged, CI-verified and ready — trusted publishing
+(GitHub↔PyPI, no stored tokens) is configured on both ends; publication
+itself is a separate, deliberate step not yet taken. Until then, PyPI
+name `refigure` still shows its `0.0.0` placeholder. `refigure-md` is a
+reserved alternate name, not an active release.
 
 ## License
 

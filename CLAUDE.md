@@ -50,9 +50,7 @@ v1 design phase complete, PRs #1-#14 merged, 355 unit tests. Stage-by-stage:
   outputs on CC-licensed fixtures with attribution headers, pinned against
   drift by `tests/integration/test_readme_examples.py`; aggregate corpus
   totals (407 charts found/400 rendered/35 groups/27 fixtures) pinned by
-  `tests/integration/test_corpus_totals.py`. Merged bypassing CI — GitHub
-  Actions had a platform-wide outage (confirmed via githubstatus.com) with
-  every check stuck "Queued"; re-verify CI once Actions recovers.
+  `tests/integration/test_corpus_totals.py`.
 - **#14** (stage 7b, part 1 — test-coverage hardening): closed every real
   gap found live (`tests/unit` alone 88%→98%; combined `tests/unit`+
   `tests/integration` 94%→**100%**, 1528/1528 statements, verified with a
@@ -72,11 +70,7 @@ v1 design phase complete, PRs #1-#14 merged, 355 unit tests. Stage-by-stage:
   standalone run to the same bar). Self-hosted shields.io badge
   (`scripts/gen_coverage_badge.py`, `docs/assets/coverage-badge.json`,
   committed on push to `main` only) — not a Codecov/Coveralls account,
-  same third-party-avoidance principle as OIDC PyPI publishing. Merged
-  bypassing CI — same GitHub Actions outage as #13, escalated further:
-  0 check-runs at all on the merge commit (`51b8c49`), not even
-  "Queued" — the webhook itself never reached Actions; re-verify once
-  Actions recovers.
+  same third-party-avoidance principle as OIDC PyPI publishing.
 
 - **#15** (stage 7b part 2, tooling): ruff `S`-ruleset (flake8-bandit)
   replaces standalone Bandit — zero new CI step/dependency, 3 live
@@ -113,20 +107,58 @@ v1 design phase complete, PRs #1-#14 merged, 355 unit tests. Stage-by-stage:
   contradicting its own "never raise" docstring for direct callers
   bypassing `docx.convert()`).
 
-Not done: stage 8 (release gate) — spec drafted
-(`docs/release/release-gate/release-gate-2026-08-06.md`, branch
-`fix/release-gate`), not yet implemented. Live investigation during spec
-drafting found a real sdist-packaging bug: no
-`[tool.hatch.build.targets.sdist]` include/exclude scope means
-`python -m build` produces a 129MB sdist bundling the full repo
-(fixtures/docs/.claude/.hypothesis), vs. a clean 72KB wheel — fix planned
-in that spec, not yet applied.
+- **#17** (stage 8, release gate): sdist-bloat fix
+  (`[tool.hatch.build.targets.sdist]` include/exclude allowlist,
+  129MB→136KB) — bare-filename patterns (`LICENSE`, `NOTICE`, ...) need a
+  leading `/` to anchor to project root, hatchling's include-globs follow
+  gitwildmatch semantics where an unanchored bare name matches at ANY
+  tree depth, not just root; found live by adversarial review, not the
+  original commit. New always-on `build-verify` job in `ci.yml` (build →
+  sdist size ceiling → `twine check` → install-from-wheel smoke test in a
+  fresh venv) — deliberately NOT yet added to `required_status_checks`
+  (manual follow-up, see Git workflow below). New
+  `.github/workflows/publish.yml` — PyPI trusted publishing (OIDC),
+  tag-triggered (`push: tags: ["v*"]`), `pypa/gh-action-pypi-publish`
+  SHA-pinned (same discipline as `trivy-action`). `scripts/
+  setup_github_environment.sh` (idempotent, provisions the GitHub-side
+  `pypi` deployment environment + a `v*` tag policy — written by the
+  implementing agent, executed live by the user 2026-08-07, confirmed via
+  `gh api`) and `scripts/release.sh` (version bump + local commit + local
+  tag, refuses to run off `main`, never pushes — a `main`-only guard
+  added after adversarial review found running it on a feature branch
+  would let an unreviewed tag trigger a real PyPI publish). First
+  `/feature-workflow` run with an explicit user-specified agent budget (5
+  agents: 2 sequential implementers + 3 parallel adversarial verifiers,
+  packaging/CI-OIDC-security/process-accuracy lenses), same `Agent`-tool
+  pattern as PR #16. Version decided by the user 2026-08-07: **`0.1.0`**
+  (data collected, not decided, by the agent — semver.org's own
+  stability criterion + comparable-converter precedent: `markitdown`
+  stays `0.1.x` despite production use, `docling`/`marker-pdf` are well
+  past `1.0.0`). `refigure-md`'s stale PyPI placeholder (still mentioned
+  PDF) corrected to `0.0.1` with an accurate description — `refigure`
+  itself still shows its `0.0.0` placeholder pending the real publish.
+  New living doc `docs/release/versions/versions-2026-08-07.md`: verified
+  live that the sdist (136KB) is NOT the installed size — 5 different
+  numbers exist (sdist/wheel/wheel-unpacked/install-download/install-disk)
+  — and a competitor size comparison (`pip install --dry-run --report` +
+  HEAD-request methodology, no multi-GB downloads) showing
+  `refigure[docx,xlsx]` at 5.6MB installed is ~500x lighter than
+  `docling`/`marker-pdf`/`unstructured` (~2.7–3.0GB each, PyTorch + full
+  NVIDIA CUDA stack by default) — quantifies the "no rasterize/OCR/VLM"
+  differentiator with real numbers.
+
+Not done: the actual PyPI publish. Both prerequisites are satisfied
+(GitHub-side `pypi` environment provisioned, PyPI-side trusted publisher
+registered by the user) and `v0.1.0` is prepared locally (bumped,
+committed, tagged) — only `git push origin v0.1.0` remains, deliberately
+left as a separate, explicit, user-triggered action (irreversible: PyPI
+never allows reusing a version number, even after a `yank`).
 
 ## Dev environment
 `pyproject.toml` (extras `[docx]`/`[xlsx]`/`[vlm]`/`[vlm-direct]`,
 `refigure` console script, ruff/mypy/pytest config) +
 `requirements.txt`/`requirements-dev.txt`, managed with `uv`. CI
-(`.github/workflows/ci.yml`): 5 jobs — `quality` (ruff+mypy+pip-audit),
+(`.github/workflows/ci.yml`): 6 jobs — `quality` (ruff+mypy+pip-audit),
 `test-unit` (pytest `tests/unit` + coverage, own `COVERAGE_FILE`),
 `test-integration` (pytest `tests/integration`, real corpus-fixture tests
 — 0 collected without local fixtures, graceful not a failure; own
@@ -138,7 +170,13 @@ default `GITHUB_TOKEN`, required since `required_status_checks` landed
 2026-08-07; see Git workflow below), `test-extras` (7-leg matrix
 — `bare`/`docx`/`xlsx`/`both`/`vlm`/`docx+vlm`/`vlm-direct`, each a FRESH
 isolated venv, not `requirements-dev.txt` — the only way to catch a broken
-extras boundary). Plus CodeQL (Python, default query suite) via GitHub's
+extras boundary), `build-verify` (PR #17: build sdist+wheel, sdist size
+ceiling, `twine check`, install-from-wheel smoke test — not yet in
+`required_status_checks`, manual follow-up). Separate, tag-triggered
+`.github/workflows/publish.yml` (PR #17) handles the actual PyPI publish
+via trusted publishing (OIDC) — kept out of `ci.yml`'s job count/
+`required_status_checks` on purpose, isolates `id-token: write`'s blast
+radius. Plus CodeQL (Python, default query suite) via GitHub's
 native code-scanning default setup — configured 2026-08-06, NOT a file in
 `.github/workflows/`, lives entirely in repo Settings/the Code Scanning
 API. Commands in `.claude/commands/`: `/tech-spec`, `/feature-workflow`,
@@ -161,56 +199,25 @@ references, git remotes, branch protection all need updating). Not
 worth it for one additional tool when pip-audit/CodeQL/ruff-`S`/Trivy
 already partially cover the same ground — see `docs/security/
 security-hardening/security-hardening-2026-08-06.md` §4.
-**GitHub Actions incident still ACTIVE 2026-08-07, only partially
-recovering** — githubstatus.com: ~65% of queued jobs succeeding (up
-from 30-40%), but webhook throughput still throttled to ~15% capacity,
-"preventing most push and pull request events from triggering new
-runs." PR #15 got a real, confirmed green run (all 11 jobs) — that's
-genuine signal the pipeline itself works end-to-end, but it does NOT
-mean the incident is over; it was a webhook that got through, not proof
-webhooks now reliably arrive. Confirmed live the same session: 2 direct
-pushes to `main` right after (`18f045f`, `32db4d0`) never triggered
-`ci.yml`'s `push` event at all (checked via `gh api .../actions/
-workflows/ci.yml/runs` — simply absent, not queued/failed). CodeQL's
-`push`-triggered dynamic workflow DID fire for both, inconsistently
-with `ci.yml` — the webhook throttling isn't uniform across workflows.
-Given this, `required_status_checks` now set on `main` (`strict=false`,
-all 11 real job names: `Code quality (ruff + mypy + pip-audit)`,
-`Combined coverage gate (95%)`, `Unit tests + coverage`, `Integration
-tests (CI-safe subset)`, 7× `Extras isolation (<leg>)`) is enforced
-against a CI signal that may simply never arrive for a given push —
-`enforce_admins=false` (below) is the reason this doesn't block merges
-outright while the incident continues. CodeQL's language auto-detect
-did get one real confirmed run: `python`, 0 alerts — that specific
-open question is resolved even though the broader incident isn't.
+`required_status_checks` is set on `main` (`strict=false`, all 11 real
+job names: `Code quality (ruff + mypy + pip-audit)`, `Combined coverage
+gate (95%)`, `Unit tests + coverage`, `Integration tests (CI-safe
+subset)`, 7× `Extras isolation (<leg>)` — `build-verify`, PR #17, not
+yet added, see Dev environment above). `enforce_admins=false`: admins
+(repo owner) can push straight to `main` bypassing required-checks
+(GitHub logs it as "Bypassed rule violations" — expected, not an error),
+while non-admin PR merges still enforce all 11. Deliberately not `true`
+— that blocks ANY push to `main`, including routine admin ones, until
+that exact commit SHA already carries 11 green check-runs, which a fresh
+commit never does. `allow_force_pushes`/`allow_deletions` stay `false`
+regardless — independent of `enforce_admins`, apply repo-wide.
 
-**`enforce_admins` flipped `true`→`false` same day**, immediately after
-the above: with it `true`, required-status-checks blocks literally any
-push to `main` (routine or not) until that exact commit SHA already
-carries 11 green check-runs — breaks the routine-direct-commit workflow
-outright, discovered live when a routine `CLAUDE.md` push was rejected.
-With it `false`, admins (repo owner) can still push straight to `main`
-bypassing required-checks (GitHub logs it as "Bypassed rule
-violations"), while non-admin PR merges still enforce all 11 checks.
-`allow_force_pushes`/`allow_deletions` stay `false` regardless — those
-aren't gated by `enforce_admins` the way required-checks are, still
-apply repo-wide.
-
-**`required_status_checks` broke the `coverage` job's own badge-commit
-step**, found and fixed same day: `github-actions[bot]` (the badge push's
-default identity) gets no `enforce_admins` bypass — every push from it
-was rejected (`GH006`), deterministically, not just during a race with a
-concurrent human push (that part — a real, separate bug — got its own
-retry-with-rebase fix first, confirmed working, before the deeper
-`GH006` block surfaced). Fixed by pointing the `coverage` job's checkout
-at `secrets.COVERAGE_BADGE_PUSH_TOKEN` (fine-grained PAT, `Contents:
-Read and write` on `refigure` only, owned by the repo admin) instead of
-the default `GITHUB_TOKEN` — falls back to `GITHUB_TOKEN` if the secret
-is unset, so adding/rotating it can never regress the job. Fine-grained
-PATs DO support `Contents: Read and write` (verified against GitHub's
-own docs) — the "Read and write only exists for classic tokens" belief
-that caused the first token attempt to fail was a misread of the
-creation form, not a real platform limitation.
+The `coverage` CI job's badge-auto-commit step pushes via
+`secrets.COVERAGE_BADGE_PUSH_TOKEN` (fine-grained PAT, `Contents: Read
+and write` on `refigure` only), falling back to the default
+`GITHUB_TOKEN` if unset — needed because `github-actions[bot]` gets no
+`enforce_admins` bypass, so the default token can't push past
+`required_status_checks` on its own.
 
 `delete_branch_on_merge: true` (a plain repo setting) — merged PR
 branches auto-delete on GitHub, but local tracking branches still need
@@ -339,7 +346,8 @@ restating what's obvious from the code itself.
 ## Source docs (Russian, tracked in git — project documentation, not code)
 `docs/` is organized `<category>/<slug>/<slug>-<date>.md` (two-level,
 adopted 2026-08-05 — categories so far: `project-meta`,
-`package-foundation`, `cli`, `vlm`, `readme`, `testing`), not flat. `/tech-spec`/
+`package-foundation`, `cli`, `vlm`, `readme`, `testing`, `release`), not
+flat. `/tech-spec`/
 `/feature-workflow` both know this convention. Foundational,
 non-stage-specific docs live in `project-meta`; per-stage specs live under
 their own category.
