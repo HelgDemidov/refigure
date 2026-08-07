@@ -189,14 +189,24 @@ jobs:
     needs: [test-unit, test-integration]
     runs-on: ubuntu-latest
     # contents: write scoped to THIS job only, not the whole workflow file —
-    # only the badge-commit step (push-to-main only, below) needs it; same
-    # blast-radius-minimization principle already applied to id-token:write
-    # in the release-gate spec's publish.yml (docs/release/release-gate/
-    # release-gate-2026-08-06.md §3).
+    # kept as a harmless fallback for the ambient GITHUB_TOKEN (used by
+    # download-artifact); the badge-commit push itself now uses an explicit
+    # PAT (below), not this token — see that step's comment for why.
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          # required_status_checks (2026-08-07) blocks a plain GITHUB_TOKEN
+          # push to main unconditionally, not just during a race — the bot
+          # actor has no admin bypass, so every attempt fails with GH006
+          # regardless of retries (docs/security/security-hardening/
+          # security-hardening-2026-08-06.md). A fine-grained PAT scoped to
+          # this repo, owned by an actual repo admin, gets the same
+          # enforce_admins=false bypass a human push gets. Falls back to the
+          # default GITHUB_TOKEN (read-only push, will fail the same way as
+          # before) if the secret isn't set yet.
+          token: ${{ secrets.COVERAGE_BADGE_PUSH_TOKEN || github.token }}
 
       - name: Install uv and set Python version
         uses: astral-sh/setup-uv@v9.0.0
@@ -227,9 +237,9 @@ jobs:
 
       # Push-to-main only — not PRs, so feature branches don't churn this
       # file with a commit on every push (docs/testing/coverage-hardening/
-      # coverage-hardening-2026-08-06.md §4). Uses the ambient GITHUB_TOKEN
-      # (via the checkout step's default persist-credentials), no stored
-      # secret needed.
+      # coverage-hardening-2026-08-06.md §4). Pushes with the checkout
+      # step's token (COVERAGE_BADGE_PUSH_TOKEN if set, see above) via
+      # persist-credentials.
       - name: Commit updated badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         # Retries on a non-fast-forward push (found live 2026-08-06/07: a
