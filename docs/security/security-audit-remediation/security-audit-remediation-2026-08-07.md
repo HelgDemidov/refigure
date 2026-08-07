@@ -247,14 +247,14 @@ byte-identical генерируемому injected-блоку (verified: markdow
 
 ## Чек-лист реализации
 
-- [ ] `zipsafe.safe_read` реализована, все 17 `z.read()` заменены
-- [ ] Entry-count cap в `check_archive`
-- [ ] `_send_safely`/`_cache_get_safely`/`_cache_set_safely` реализованы, все сайты переведены
-- [ ] Mermaid-fence-баланс + marker-lookalike нейтрализация в `sanitize_vlm_markdown`
-- [ ] `JUDGE_PROMPT_TEMPLATE` укреплён + docstring
-- [ ] `Config.vlm_api_key` `repr(False)`; redaction-scrubber в `_send_safely`
-- [ ] Symlink-файлы пропускаются в `_plan_batch`
-- [ ] `normalize_source` валидирует regular-file, `NotARegularFileError` → `CorruptArchiveError`
+- [ ] `zipsafe.safe_read` реализована, все 17 `z.read()` заменены (Agent A, ветка `-group1`, ожидает мержа)
+- [ ] Entry-count cap в `check_archive` (Agent A, ветка `-group1`, ожидает мержа)
+- [x] `_send_safely`/`_cache_get_safely`/`_cache_set_safely` реализованы, все сайты переведены
+- [x] Mermaid-fence-баланс + marker-lookalike нейтрализация в `sanitize_vlm_markdown`
+- [x] `JUDGE_PROMPT_TEMPLATE` укреплён + docstring
+- [x] `Config.vlm_api_key` `repr(False)`; redaction-scrubber в `_send_safely`
+- [x] Symlink-файлы пропускаются в `_plan_batch` (Agent B, ветка `-group5`, ожидает мержа)
+- [x] `normalize_source` валидирует regular-file, `NotARegularFileError` → `CorruptArchiveError` (Agent B, ветка `-group5`, ожидает мержа)
 - [ ] Finding #5 — docstring-оговорка добавлена
 - [ ] Все пункты «Тестовое покрытие» закрыты, полный прогон зелёный
 
