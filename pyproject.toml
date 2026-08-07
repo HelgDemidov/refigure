@@ -80,11 +80,18 @@ include = [
     "tests/unit/**",
     "tests/support.py",
     "tests/__init__.py",
-    "README.md",
-    "LICENSE",
-    "NOTICE",
-    "ATTRIBUTION.md",
-    "pyproject.toml",
+    # Leading "/" anchors these to the project root — hatchling's include
+    # patterns follow gitwildmatch (.gitignore) semantics, where a bare
+    # filename with no "/" matches at ANY depth, not just the root. Without
+    # the anchor, an unrelated non-gitignored file anywhere in the tree that
+    # happens to share one of these names (e.g. a vendored/nested LICENSE)
+    # would get silently swept into the sdist alongside the real one —
+    # confirmed live during this PR's adversarial review.
+    "/README.md",
+    "/LICENSE",
+    "/NOTICE",
+    "/ATTRIBUTION.md",
+    "/pyproject.toml",
 ]
 # Redundant with the include allowlist above in principle (nothing here
 # would match `include` anyway) — kept explicit per
