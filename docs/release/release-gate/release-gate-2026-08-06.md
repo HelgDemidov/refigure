@@ -1,6 +1,6 @@
 # Спецификация: релиз-гейт + PyPI-паблиш (стадия 8)
 
-**Статус:** черновик v1 · 2026-08-06
+**Статус:** черновик v2 · 2026-08-06, скоуп расширен 2026-08-07
 **Ветка:** `fix/release-gate`
 
 > Превышает целевые ≤100 строк — совмещает найденный вживую packaging-баг
@@ -81,6 +81,28 @@ blast radius этого разрешения, не расширять его н�
 `password:`/`api-token:” — OIDC делает это за счёт `id-token: write` +
 GitHub Environment). Требует on-site настройки (не код, см. §4 п.4).
 
+Автоматизируем этим PR то, что не требует стороннего логина: `job`
+объявляет `environment: pypi`, и сам этот PR ПРЕДСОЗДАЁТ окружение `pypi`
+в Settings репозитория через `gh api repos/HelgDemidov/refigure/
+environments/pypi` (идемпотентно, `PUT`) с deployment-branch/tag policy,
+ограничивающей его тегами `v*` — GitHub создал бы окружение и без этого
+шага при первом реальном запуске воркфлоу, но предсоздание с политикой
+даёт защиту раньше первого паблиша, а не после. Это чисто
+репозиторий-side конфигурация (обратима, не требует стороннего логина) —
+не то же самое, что регистрация trusted publisher на стороне PyPI (§4,
+остаётся ручной).
+
+## 3a. Release-раннер — `scripts/release.sh` (новый, не auto-run)
+
+Скрипт, не CI-job: принимает версию (`./scripts/release.sh 0.1.0`),
+обновляет `version` в `pyproject.toml`, коммитит, печатает точную команду
+`git tag vX.Y.Z && git push origin vX.Y.Z` **но не выполняет push сам** —
+последний шаг (реальный триггер паблиша, необратимый — с PyPI нельзя
+переиспользовать номер версии даже после `yank`) остаётся ручным,
+печатается как явная инструкция, не автоматизируется. Обоснование —
+пуш тега = реальная публикация в PyPI, что должно быть отдельным
+осознанным действием пользователя, а не побочным эффектом релиз-скрипта.
+
 ## 4. Гейт релиза (чек-лист предусловий, не код)
 
 Из `execution-sequence` + `CLAUDE.md` §Git workflow:
@@ -101,7 +123,21 @@ GitHub Environment). Требует on-site настройки (не код, с�
 - [ ] **Номер версии** — `0.0.0` → реальный semver. Открытый вопрос
   пользователю: `0.1.0` (осторожный старт, API может ещё сдвинуться) vs
   `1.0.0` (проект везде называет себя «v1» — семантическое несоответствие,
-  если релиз выйдет как 0.x). Не решается этим спеком.
+  если релиз выйдет как 0.x). Не решается этим спеком — данные для
+  решения (не сам выбор), собраны 2026-08-07:
+  [semver.org](https://semver.org/) сам формулирует критерий: остаться на
+  `0.y.z`, пока API нестабилен, перейти на `1.0.0`, когда API стабилен и
+  на него полагаются в проде/заботятся о обратной совместимости — сам факт
+  публичного релиза не является этим критерием. Сопоставимые
+  DOCX/XLSX/PDF→Markdown конвертеры разошлись: Microsoft
+  [`markitdown`](https://pypi.org/project/markitdown/) держится на `0.1.x`
+  несмотря на широкое прод-использование; IBM `docling` и `marker-pdf`
+  давно за `1.0.0` (`2.117.0`/`2.0.0` на 2026-08-07). Шаг нумерации
+  (что бампается) — из самого spec: PATCH = обратно совместимый
+  багфикс, MINOR = обратно совместимая новая функциональность, MAJOR =
+  breaking change; для `0.y.z` официально «что угодно может измениться
+  в любой момент» — часть проектов неформально сужают это до «MINOR =
+  breaking, PATCH = багфикс» ещё до `1.0.0`, сам SemVer это не требует.
 - [x] **Репозиторий публичный** — сделано 2026-08-06 (решение пользователя,
   не дожидаясь тега релиза). Разблокировало: `branches/main/protection`
   (больше не 403), CodeQL default setup (`code-scanning/default-setup`,
@@ -120,14 +156,23 @@ GitHub Environment). Требует on-site настройки (не код, с�
   `allow_deletions=false` — независимые настройки, не завязаны на
   `enforce_admins`, действуют для всех включая админов. GitHub
   Actions-инцидент подтверждённо разрешился к моменту мержа PR #16.
-- [ ] **PyPI trusted publisher настроен** — pending-publisher на стороне
-  PyPI (проект `refigure` уже застолблён как `0.0.0`-плейсхолдер, см.
-  README) должен указывать на `HelgDemidov/refigure`, workflow-файл
-  `publish.yml`, GitHub Environment (рекомендуется завести `pypi`-
-  environment в Settings — protection rule опционален, но сам факт
-  named environment требуется trusted-publishing'ом PyPI). Ручная настройка
-  на сайте PyPI, не код.
-- [ ] Тег `vX.Y.Z` создан и запушен → триггерит §3.
+- [x] **GitHub-сторона PyPI trusted publisher** — окружение `pypi` +
+  deployment-tag-policy (`v*`) предсоздаётся этим PR (§3, автоматизировано).
+- [ ] **PyPI-сторона trusted publisher** — проект `refigure` уже
+  существует на PyPI (застолблён как `0.0.0`-плейсхолдер, см. README),
+  значит это НЕ pending-publisher (тот — для ещё не существующих
+  проектов), а обычный trusted publisher на существующем проекте:
+  pypi.org → "Your projects" → `refigure` → "Publishing" → GitHub Actions
+  tab → owner `HelgDemidov`, repo `refigure`, workflow `publish.yml`,
+  environment `pypi` (проверено вживую на docs.pypi.org 2026-08-07).
+  Требует логина владельца в PyPI — не автоматизируется ни этим PR, ни
+  агентом, остаётся ручным шагом пользователя.
+- [x] **Release-раннер подготовлен** — `scripts/release.sh` (§3a):
+  обновляет версию, коммитит, печатает `git tag`/`push`-команду.
+- [ ] Тег `vX.Y.Z` создан и **запушен** → триггерит §3, реальная публикация
+  в PyPI. Печатается скриптом (§3a), не выполняется автоматически —
+  требует и решённого номера версии (пункт выше), и явного отдельного
+  подтверждения пользователя в момент готовности к релизу.
 
 ## Тестовое покрытие
 
@@ -142,10 +187,12 @@ GitHub Environment). Требует on-site настройки (не код, с�
 
 ## План коммитов/PR
 
-1. `docs: draft spec for release-gate` (этот коммит, `/tech-spec`)
-2. `fix: scope sdist to package essentials via [tool.hatch.build.targets.sdist]`
-3. `ci: add build-verification job — build, twine check, install-from-wheel smoke test`
-4. `ci: add publish.yml — PyPI trusted publishing on version tag push`
+1. `docs: draft spec for release-gate` (`/tech-spec`)
+2. `docs: expand release-gate scope — pypi environment automation + release runner` (этот коммит, скоуп расширен пользователем 2026-08-07)
+3. `fix: scope sdist to package essentials via [tool.hatch.build.targets.sdist]`
+4. `ci: add build-verification job — build, twine check, install-from-wheel smoke test`
+5. `ci: add publish.yml — PyPI trusted publishing on version tag push + pypi environment provisioning`
+6. `chore: add scripts/release.sh — version bump + tag/push instructions (no auto-push)`
 
 ## Чек-лист реализации
 
@@ -153,17 +200,25 @@ GitHub Environment). Требует on-site настройки (не код, с�
   подтверждён (было 129MB)
 - [ ] `ci.yml` — build-верификация job
 - [ ] `.github/workflows/publish.yml`
+- [ ] GitHub `pypi`-environment предсоздан (`gh api`, deployment-tag-policy `v*`)
+- [ ] `scripts/release.sh` — версия/коммит/печать tag-команды, без auto-push
 - [x] Публичность репо + branch protection (включая
   `required_status_checks`, доведён до конца 2026-08-07) — сделано
   раньше мержа этого PR (см. §4).
-- [ ] Оставшиеся ручные шаги §4 (версия/pending-publisher/тег) — вне
-  этого PR, выполняются пользователем при готовности к релизу
+- [ ] Оставшиеся ручные шаги §4 (версия / PyPI-сторона trusted publisher /
+  фактический `git push` тега) — вне этого PR, выполняются пользователем
+  при готовности к релизу — см. §4 для точных шагов PyPI-стороны.
 
 ## Вне скоупа
 
-- Сам номер версии, сам факт перехода репо в публичное, сама настройка
-  branch protection и PyPI pending-publisher — не код, не автоматизируются
-  этим PR, см. §4.
+- Сам номер версии — открытое решение пользователя, см. §4 (данные для
+  решения собраны, выбор не сделан этим спеком).
+- Регистрация trusted publisher НА СТОРОНЕ PyPI (требует логина владельца
+  на pypi.org — не автоматизируется агентом ни при каких обстоятельствах)
+  и фактический `git push` версионного тега (необратимо триггерит
+  публикацию в PyPI) — оба остаются explicit ручными шагами пользователя,
+  см. §4/§3a. Всё, что можно было автоматизировать вокруг них
+  (GitHub-сторона окружения, release-раннер), теперь в скоупе — см. §3/§3a.
 - TestPyPI dry-run автоматизация — не заведена; первый реальный тег идёт
   сразу на PyPI, риск принят (проект уже свежий 0.0.0-плейсхолдер, не
   занятое чужими данными пространство).
