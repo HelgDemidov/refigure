@@ -179,6 +179,18 @@ class OpenAIClient:
     — confirmed live, not assumed. Not auto-detected from ``base_url`` (a
     URL-pattern heuristic would be fragile) — an explicit constructor
     parameter, same principle as ``Config.vlm_judge_mode``.
+
+    Unlike ``OpenRouterClient``, this class does NOT carry
+    ``chat_request``'s "the API key never ends up in a log line or an
+    exception message" guarantee (security audit 2026-08-07, finding #8):
+    exceptions raised by the ``openai`` SDK propagate as-is, their exact
+    content is neither constructed nor redacted by refigure. refigure also
+    never sees this class's ``api_key`` at all (the caller passes it
+    straight into the SDK constructor, not through ``Config.vlm_api_key``),
+    so it cannot redact a known secret value here even as a fallback — only
+    a best-effort, provider-agnostic scrub of common credential SHAPES
+    (bearer tokens, well-known key prefixes) applies to whatever this class
+    raises, same as any other ``VlmClient``.
     """
 
     def __init__(
@@ -293,6 +305,13 @@ class AnthropicClient:
         )
         # vlm_model="claude-haiku-4-5" (Foundry deployment name, defaults
         # to the bare model ID unless you created a custom deployment name)
+
+    Same credential-logging caveat as ``OpenAIClient`` (security audit
+    2026-08-07, finding #8): this class carries none of ``chat_request``'s
+    redaction guarantee — the ``anthropic`` SDK's exceptions propagate
+    as-is, and refigure never sees ``api_key``/the injected ``client=``'s
+    own credentials to redact a known value. Only a best-effort,
+    provider-agnostic scrub of common credential shapes applies.
     """
 
     def __init__(
