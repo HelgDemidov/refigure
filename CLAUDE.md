@@ -147,6 +147,20 @@ v1 design phase complete, PRs #1-#14 merged, 355 unit tests. Stage-by-stage:
   NVIDIA CUDA stack by default) — quantifies the "no rasterize/OCR/VLM"
   differentiator with real numbers.
 
+Final pre-publish check (2026-08-07) found and fixed a real bug: `refigure/
+__init__.py` hardcoded `__version__ = "0.0.0"` independent of
+`pyproject.toml` — `scripts/release.sh` (correctly) only bumps
+`pyproject.toml`, so after the 0.1.0 bump, `refigure --version`/
+`refigure.__version__` would have silently kept reporting `0.0.0`.
+Undetected by 3 rounds of adversarial review because it didn't exist yet
+at review time (`pyproject.toml` was still `0.0.0` then). Fixed by
+deriving `__version__` from `importlib.metadata.version("refigure")`
+(`PackageNotFoundError` → `"0+unknown"` for the no-install dev/test
+path) — one source of truth instead of two. `ci.yml`'s `build-verify`
+smoke test now asserts the printed `--version` string against
+`pyproject.toml`, not just exit code, closing the gap that let this
+slip through. Tag `v0.1.0` moved to the fix commit.
+
 Not done: the actual PyPI publish. Both prerequisites are satisfied
 (GitHub-side `pypi` environment provisioned, PyPI-side trusted publisher
 registered by the user) and `v0.1.0` is prepared locally (bumped,
