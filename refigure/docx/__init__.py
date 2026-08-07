@@ -63,10 +63,10 @@ def _docx_referenced_media_ids(source: Path | bytes) -> frozenset[str]:
             if rels_name not in names:
                 continue
             try:
-                rels_root = etree.fromstring(z.read(rels_name))
+                rels_root = etree.fromstring(zipsafe.safe_read(z, rels_name))
             except etree.XMLSyntaxError:
                 continue
-            part_bytes = z.read(part)
+            part_bytes = zipsafe.safe_read(z, part)
             for rel in rels_root:
                 if not rel.get("Type", "").endswith("/image"):
                     continue
@@ -76,7 +76,7 @@ def _docx_referenced_media_ids(source: Path | bytes) -> frozenset[str]:
                     continue
                 media = posixpath.normpath(posixpath.join(posixpath.dirname(part), target))
                 if media.startswith("word/media/") and media in names:
-                    referenced.add(hashlib.sha256(z.read(media)).hexdigest()[:12])
+                    referenced.add(hashlib.sha256(zipsafe.safe_read(z, media)).hexdigest()[:12])
     return frozenset(referenced)
 
 
@@ -95,7 +95,7 @@ def _docx_image_markers(source: Path | bytes, *, placed: frozenset[str] = frozen
         for name in sorted(z.namelist()):
             if not name.startswith("word/media/"):
                 continue
-            data = z.read(name)
+            data = zipsafe.safe_read(z, name)
             if len(data) < DOCX_IMAGE_MIN_BYTES:
                 continue
             id12 = hashlib.sha256(data).hexdigest()[:12]

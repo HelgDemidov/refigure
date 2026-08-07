@@ -487,7 +487,7 @@ def _docx_media_uri(source: Path | bytes, marker_id: str, *, raw_name: str) -> s
         for name in z.namelist():
             if not name.startswith("word/media/"):
                 continue
-            data = z.read(name)
+            data = zipsafe.safe_read(z, name)
             if hashlib.sha256(data).hexdigest()[:12] != marker_id:
                 continue
             ext = name.rsplit(".", 1)[-1].lower()
