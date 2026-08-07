@@ -69,6 +69,36 @@ Repository = "https://github.com/HelgDemidov/refigure"
 [tool.hatch.build.targets.wheel]
 packages = ["refigure"]
 
+[tool.hatch.build.targets.sdist]
+# Explicit include allowlist, same principle as the wheel target's
+# `packages = ["refigure"]` above but wider — sdist legitimately ships test
+# sources too (rebuild/retest from the sdist alone, without a git checkout,
+# is normal packaging practice), just not tests/integration/'s 144MB
+# fixture corpus, which needs a git checkout for its fixtures anyway.
+include = [
+    "refigure/**",
+    "tests/unit/**",
+    "tests/support.py",
+    "tests/__init__.py",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "ATTRIBUTION.md",
+    "pyproject.toml",
+]
+# Redundant with the include allowlist above in principle (nothing here
+# would match `include` anyway) — kept explicit per
+# docs/release/release-gate/release-gate-2026-08-06.md §1: documents intent
+# and stays correct even if `include` is later loosened to a broader glob.
+exclude = [
+    "tests/integration/",
+    "docs/",
+    ".claude/",
+    ".hypothesis/",
+    "scripts/",
+    "examples/",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
