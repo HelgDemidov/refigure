@@ -195,13 +195,16 @@ class Config:
     Full comparison:
     ``docs/vlm/vlm-model-calibration/vlm-model-calibration-2026-08-05.md``."""
 
-    vlm_api_key: str | None = None
+    vlm_api_key: str | None = field(default=None, repr=False)
     """API key for the default ``OpenRouterClient``. Falls back to the
     ``OPENROUTER_API_KEY`` environment variable when unset (explicit
     parameter overrides the environment, the usual SDK convention).
     Resolved lazily — only when a real (non-cached) VLM call is actually
     about to happen, so a fully cache-hit conversion needs no key at all.
-    Ignored when ``vlm_client`` is set."""
+    Ignored when ``vlm_client`` is set. ``repr=False``: the raw key must
+    never appear in ``repr(config)``/``str(config)`` — a common debugging
+    footgun (``logger.debug(config)``), live-verified leaking the plaintext
+    key before this fix (security audit 2026-08-07, finding #7)."""
 
     vlm_client: VlmClient | None = None
     """Pluggable VLM HTTP client (see the ``VlmClient`` Protocol above).
