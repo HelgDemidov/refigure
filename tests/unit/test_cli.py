@@ -25,6 +25,7 @@ from refigure.cli import (
     EXIT_OK,
     EXIT_UNSUPPORTED_FORMAT,
     EXIT_USAGE,
+    _plan_batch,
     main,
 )
 from tests.support import REPO_ROOT
@@ -266,6 +267,30 @@ class TestBatchMode:
         code = main([str(doc), str(doc), "-o", str(out_dir)])
         assert code == EXIT_OK
         assert "1/1 converted, 0 failed" in capsys.readouterr().err
+
+
+class TestPlanBatchSymlinks:
+    def test_symlinked_file_in_directory_source_is_excluded(self, tmp_path: Path) -> None:
+        # Security-audit finding #15: following symlinks in a batch
+        # directory walk would silently read from the symlink's real
+        # target while the output path only reflects the symlink's own
+        # apparent location — a read-side info-disclosure risk if refigure
+        # is ever run over a directory tree an untrusted party could plant
+        # symlinks into. Confirm the safe default (skip symlinked files,
+        # no --follow-symlinks opt-in exists) while a genuine
+        # same-directory file is still included.
+        src_dir = tmp_path / "batch"
+        real_file = _write_docx(tmp_path / "elsewhere" / "real.docx", ["Real content"])
+        genuine = _write_docx(src_dir / "genuine.docx", ["Genuine content"])
+        symlink = src_dir / "linked.docx"
+        symlink.symlink_to(real_file)
+
+        plan = _plan_batch([src_dir])
+
+        input_paths = {file_path for file_path, _rel in plan}
+        assert genuine in input_paths
+        assert symlink not in input_paths
+        assert len(plan) == 1
 
 
 class TestJsonFlag:

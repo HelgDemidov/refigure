@@ -45,6 +45,8 @@ from typing import Any
 from lxml import etree
 from openpyxl.utils import get_column_letter
 
+from ..core import zipsafe
+
 _NS = {
     "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
     "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
@@ -87,7 +89,7 @@ def _rel_targets(z: zipfile.ZipFile, part: str) -> dict[str, str]:
     rels_name = f"{posixpath.dirname(part)}/_rels/{posixpath.basename(part)}.rels"
     if rels_name not in z.namelist():
         return {}
-    root = etree.fromstring(z.read(rels_name))
+    root = etree.fromstring(zipsafe.safe_read(z, rels_name))
     return {rel.get("Id"): rel.get("Target") for rel in root if rel.get("Id")}
 
 
@@ -109,7 +111,7 @@ def _sheet_parts(z: zipfile.ZipFile) -> dict[str, str]:
     if "xl/workbook.xml" not in names:
         return {}
     rel_targets = _rel_targets(z, "xl/workbook.xml")
-    root = etree.fromstring(z.read("xl/workbook.xml"))
+    root = etree.fromstring(zipsafe.safe_read(z, "xl/workbook.xml"))
     out: dict[str, str] = {}
     for sheet_el in root.findall(f".//{_q('main', 'sheet')}"):
         name, rid = sheet_el.get("name"), sheet_el.get(_q("r", "id"))
@@ -191,7 +193,9 @@ def iter_chart_entries(raw: Path | bytes) -> list[tuple[XlsxChart, Any]]:
             if sheet_part not in names:
                 continue
             sheet_rels = _rel_targets(z, sheet_part)
-            drawing_ref = etree.fromstring(z.read(sheet_part)).find(_q("main", "drawing"))
+            drawing_ref = etree.fromstring(zipsafe.safe_read(z, sheet_part)).find(
+                _q("main", "drawing")
+            )
             if drawing_ref is None:
                 continue
             drid = drawing_ref.get(_q("r", "id"))
@@ -201,7 +205,7 @@ def iter_chart_entries(raw: Path | bytes) -> list[tuple[XlsxChart, Any]]:
             if drawing_part not in names:
                 continue
             drawing_rels = _rel_targets(z, drawing_part)
-            drawing_root = etree.fromstring(z.read(drawing_part))
+            drawing_root = etree.fromstring(zipsafe.safe_read(z, drawing_part))
             for anchor, chart_ref in _chart_anchors(drawing_root):
                 crid = chart_ref.get(_q("r", "id"))
                 if crid is None or crid not in drawing_rels:
@@ -209,7 +213,7 @@ def iter_chart_entries(raw: Path | bytes) -> list[tuple[XlsxChart, Any]]:
                 chart_part = _resolve_target(drawing_part, drawing_rels[crid])
                 if chart_part not in names:
                     continue
-                chart_root = etree.fromstring(z.read(chart_part))
+                chart_root = etree.fromstring(zipsafe.safe_read(z, chart_part))
                 entries.append(
                     (
                         XlsxChart(
