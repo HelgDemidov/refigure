@@ -278,3 +278,20 @@ byte-identical генерируемому injected-блоку (verified: markdow
 - Findings #3 (XXE), #16 (symlink-loop) — REFUTED verifier'ом, не
   включены. Finding #6 (witness-gate empty-caption) — PLAUSIBLE/LOW,
   задокументированное поведение, не включена.
+
+## Статус выполнения
+
+Смёржен 2026-08-07, PR #16, коммит `7214039`. Все 14 CONFIRMED-находок
+закрыты по плану (5 архитектурных групп + finding #5), реализовано
+3-агентной схемой (2 параллельных worktree-агента — группы 1/5 — +
+основной поток — группы 2/3/4/finding5 — + 1 финальный
+adversarial-review агент). Финальный ревьюер живьём подтвердил все 14
+CONFIRMED против оригинальных PoC, но нашёл 1 дополнительный баг вне
+номерного списка (`_docx_media_uri`/`_render_docx_group` без
+try/except в `enhance_docx_markdown`, тот же класс/тема, что группа 2)
+— исправлен отдельным коммитом с регрессионными тестами до открытия PR.
+Финальный прогон: 393/393 unit-тестов, ruff/format/mypy чисто, 98%
+покрытие (`vlm/__init__.py`+`core/zipsafe.py` — 100%). CI на PR и
+мерж-коммите — зелёный (GitHub Actions-инцидент подтверждённо
+разрешился к этому моменту, см. `docs/security/security-hardening/
+security-hardening-2026-08-06.md`'s обновлённый статус).

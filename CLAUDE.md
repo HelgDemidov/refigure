@@ -78,8 +78,42 @@ v1 design phase complete, PRs #1-#14 merged, 355 unit tests. Stage-by-stage:
   "Queued" — the webhook itself never reached Actions; re-verify once
   Actions recovers.
 
-Not done: stage 7b part 2 (security tooling + audit — spec not yet
-drafted) and stage 8 (release gate) — spec drafted
+- **#15** (stage 7b part 2, tooling): ruff `S`-ruleset (flake8-bandit)
+  replaces standalone Bandit — zero new CI step/dependency, 3 live
+  findings (2 justified `noqa`, 1 real fix: `soffice` resolved via
+  `shutil.which` to an absolute path, closing a PATH-hijacking class).
+  Trivy secret-scanning added to `quality`, SHA-pinned not tag-pinned
+  (`trivy-action` itself had a real supply-chain compromise 2026-03-19/20,
+  all tags `0.0.1`-`0.34.2` exposed). CodeQL's first real run confirmed:
+  `python` auto-detected, 0 alerts. Socket Security GitHub App evaluated,
+  **declined** — its installer requires a GitHub Organization, `refigure`
+  is personal-account-owned, a repo transfer isn't worth it for one tool.
+  Merge surfaced `required_status_checks` blocking the `coverage` job's
+  own badge-auto-commit (bot identity gets no `enforce_admins` bypass) —
+  fixed with a fine-grained PAT (`COVERAGE_BADGE_PUSH_TOKEN` repo secret)
+  instead of the default `GITHUB_TOKEN`.
+- **#16** (stage 7b part 2, audit): manual audit — 2 finder agents +
+  1 adversarial-verifier agent, 17 candidates, 14 CONFIRMED (4 HIGH: a
+  zip-bomb declared-size bypass + 3 VLM-pipeline unguarded-crash bugs),
+  2 REFUTED, 1 downgraded. Remediation grouped the 14 into 5 architectural
+  fixes: `zipsafe.safe_read()` (bounds by ACTUAL decompressed bytes, not
+  trusted declared size — all 17 `z.read()` call sites replaced); unified
+  `_send_safely`/`_cache_get_safely`/`_cache_set_safely` in `vlm/
+  __init__.py` (one fault-isolation discipline for every external/
+  pluggable call, previously inconsistent); `sanitize_vlm_markdown`
+  extended (fence-balance, marker-lookalike neutralization); `Config.
+  vlm_api_key` `repr(False)` + best-effort secret redaction; CLI/library
+  path hardening (symlink-skip in batch mode, regular-file check in
+  `normalize_source`). First multi-agent `/feature-workflow` in this
+  project: 2 parallel worktree-isolated implementers (independent file
+  scopes) + main loop (coupled `vlm/__init__.py` work) + 1 final
+  adversarial-review agent — which found and this PR then fixed one more
+  bug outside the original 14 (`_docx_media_uri`/`_render_docx_group`
+  lacked the same fault-isolation as the rest of `enhance_docx_markdown`,
+  contradicting its own "never raise" docstring for direct callers
+  bypassing `docx.convert()`).
+
+Not done: stage 8 (release gate) — spec drafted
 (`docs/release/release-gate/release-gate-2026-08-06.md`, branch
 `fix/release-gate`), not yet implemented. Live investigation during spec
 drafting found a real sdist-packaging bug: no
@@ -241,6 +275,20 @@ manual `git branch -d`/`-D`; `git fetch --prune` only clears stale
   (`project_openpyxl_concurrent_parser_fragility`). `docx/__init__.py` has
   no such constraint — refigure's own lxml usage never shares a parser
   instance across threads.
+- Zip-read pattern (PR #16): `zipsafe.safe_read(z, name_or_info, *,
+  max_bytes=...)` — bounds by ACTUAL bytes decompressed while streaming
+  via `z.open()`, never trusts `ZipInfo.file_size` (attacker-controlled
+  metadata a plain `z.read()` doesn't verify before buffering). Every
+  zip-member read in `refigure/` goes through this now, not raw
+  `z.read()` — `check_archive()`'s own upfront `infolist()` scan stays as
+  a cheap first-pass reject, not the sole enforcement.
+- VLM fault-isolation pattern (PR #16): `vlm/__init__.py`'s
+  `_send_safely()`/`_cache_get_safely()`/`_cache_set_safely()` — the ONE
+  place every `VlmClient.send()`/`VlmCacheBackend.get()`/`.set()` call
+  goes through, so external/pluggable-Protocol failures (wrong return
+  type, a raising cache backend, a malformed cached entry) degrade the
+  same way everywhere, not per-call-site. Extend from here, not with a
+  new bespoke try/except, when adding a call to either Protocol.
 
 ## Public API
 Rich, not a bare string — full rationale in `docs/project-meta/
