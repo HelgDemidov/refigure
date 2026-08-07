@@ -22,6 +22,13 @@
 #
 # Fails closed: every check below runs BEFORE any mutation (no partial
 # version bump, no orphaned commit, no tag left behind on bad input).
+#
+# Refuses to run off `main` by default (see the branch check below) —
+# publish.yml triggers on ANY ref matching v*, regardless of which branch
+# the tag's commit came from, so a tag pushed from a feature/fix branch
+# would publish unreviewed code to PyPI just as irreversibly as one from
+# `main`. Set RELEASE_ALLOW_NON_MAIN=1 to override for a deliberate
+# exception (e.g. a hotfix branch), never as a default habit.
 set -euo pipefail
 
 die() {
@@ -53,6 +60,11 @@ tag="v${version}"
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
 cd "$repo_root"
+
+current_branch="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$current_branch" != "main" ] && [ "${RELEASE_ALLOW_NON_MAIN:-0}" != "1" ]; then
+    die "on branch '$current_branch', not 'main' — refusing to bump/tag here, since a pushed tag publishes to PyPI regardless of source branch (set RELEASE_ALLOW_NON_MAIN=1 to override deliberately)"
+fi
 
 pyproject="$repo_root/pyproject.toml"
 [ -f "$pyproject" ] || die "$pyproject not found"
