@@ -255,8 +255,14 @@ byte-identical генерируемому injected-блоку (verified: markdow
 - [x] `Config.vlm_api_key` `repr(False)`; redaction-scrubber в `_send_safely`
 - [x] Symlink-файлы пропускаются в `_plan_batch` (Agent B, смержено)
 - [x] `normalize_source` валидирует regular-file, `NotARegularFileError` → `CorruptArchiveError` (Agent B, смержено)
-- [ ] Finding #5 — docstring-оговорка добавлена
-- [ ] Все пункты «Тестовое покрытие» закрыты, полный прогон зелёный
+- [x] Finding #5 — docstring-оговорка добавлена
+- [x] Все пункты «Тестовое покрытие» закрыты, полный прогон зелёный (393/393)
+- [x] Финальный adversarial-review (Agent C) — все 14 находок подтверждены CLOSED
+  живыми PoC; нашёл 1 дополнительный баг вне номерного списка
+  (`_docx_media_uri`/`_render_docx_group` без try/except в
+  `enhance_docx_markdown`, нарушало её же контракт «никогда не падать») —
+  исправлено отдельным коммитом, не один из 14, но тот же класс/тема
+  (группа 2, fault-isolation), с регрессионными тестами
 
 ## Вне скоупа
 
