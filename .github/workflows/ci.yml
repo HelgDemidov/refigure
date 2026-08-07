@@ -127,7 +127,22 @@ jobs:
           uv pip install --python .venv-installcheck/bin/python dist/*.whl
 
       - name: Smoke test — refigure --version from the installed wheel
-        run: .venv-installcheck/bin/refigure --version
+        # Checks the PRINTED STRING, not just exit code — a bare `refigure
+        # --version` with no assertion would happily pass even if
+        # __version__ drifted out of sync with pyproject.toml (a real
+        # regression this project shipped once: __init__.py hardcoded
+        # "0.0.0" independent of pyproject.toml's version field, so a
+        # version bump silently didn't propagate; exit-code-only checks
+        # here and in the local dev loop both missed it).
+        run: |
+          actual="$(.venv-installcheck/bin/refigure --version)"
+          expected="refigure $(grep -E '^version = ' pyproject.toml | sed -E 's/^version = "([^"]*)"$/\1/')"
+          echo "actual:   $actual"
+          echo "expected: $expected"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::refigure --version printed '$actual', expected '$expected' — check refigure/__init__.py's __version__ derivation against pyproject.toml"
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # Unit tests (tests/unit/) — hermetic: synthetic fixtures built in the test
