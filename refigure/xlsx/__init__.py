@@ -48,7 +48,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from .._io import normalize_source
+from .._io import NotARegularFileError, normalize_source
 from ..api import (
     Config,
     ConversionResult,
@@ -114,9 +114,9 @@ def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) ->
     limitation in openpyxl itself, not a constraint of this function's
     own logic."""
     config = config or Config()
-    normalized = normalize_source(source)
 
     try:
+        normalized = normalize_source(source)
         zipsafe.check_archive(normalized)
 
         # openpyxl accepts a path or a file-like object, but not raw bytes
@@ -178,12 +178,16 @@ def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) ->
                 "mermaidx not installed — chart diagrams disabled, tables only "
                 "(install refigure[xlsx] with mermaidx to enable rendering)"
             )
-    except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile) as exc:
+    except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile, NotARegularFileError) as exc:
         # BadZipFile here means a structurally valid zip with corrupted
         # member data (bad CRC-32) — can surface from openpyxl.load_workbook
         # or xlsx_charts.iter_chart_entries, not just zipsafe.check_archive
         # itself. Verified live: a byte-flipped-but-structurally-intact xlsx
         # raises this from load_workbook.
+        # NotARegularFileError comes from normalize_source itself (a Path
+        # pointing at e.g. a FIFO/named pipe, security-audit finding #17)
+        # — translated into the same public CorruptArchiveError, not a new
+        # public exception type.
         raise CorruptArchiveError(str(exc)) from exc
 
     return ConversionResult(

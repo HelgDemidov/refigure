@@ -261,7 +261,16 @@ def _plan_batch(sources: list[Path]) -> list[tuple[Path, Path]]:
     A plain file source contributes itself, relative-pathed by its own
     basename. Duplicate *input* paths (the same directory passed twice, or a
     file reachable both directly and via a directory walk) are silently
-    deduplicated, keeping the first occurrence — not a collision."""
+    deduplicated, keeping the first occurrence — not a collision.
+
+    Symlinked files under a directory source are skipped: following them
+    would read from whatever the symlink actually points at while the
+    output path only reflects the symlink's apparent location — a
+    read-side info-disclosure risk if this ever runs over a directory tree
+    an untrusted party could plant symlinks into. A safe default for a
+    local CLI tool, no opt-in flag to re-enable following them (security
+    audit finding #15 — not built preventively, no current request for
+    that functionality)."""
     plan: list[tuple[Path, Path]] = []
     seen_inputs: set[Path] = set()
     for src in sources:
@@ -270,7 +279,7 @@ def _plan_batch(sources: list[Path]) -> list[tuple[Path, Path]]:
             entries = [
                 (f, f.relative_to(src))
                 for f in sorted(src.rglob("*"))
-                if f.is_file() and _format_for_path(f) is not None
+                if f.is_file() and not f.is_symlink() and _format_for_path(f) is not None
             ]
         else:
             entries = [(src, Path(src.name))]

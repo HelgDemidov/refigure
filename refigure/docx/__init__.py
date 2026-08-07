@@ -19,7 +19,7 @@ from typing import Any, BinaryIO
 from lxml import etree
 
 from .. import docx_groups
-from .._io import normalize_source
+from .._io import NotARegularFileError, normalize_source
 from ..api import (
     Config,
     ConversionResult,
@@ -119,9 +119,9 @@ class _DocxMarkdownify(MarkdownConverter):
 def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) -> ConversionResult:
     """Convert a DOCX file (path, bytes, or a file-like object) to Markdown."""
     config = config or Config()
-    normalized = normalize_source(source)
 
     try:
+        normalized = normalize_source(source)
         zipsafe.check_archive(normalized)
 
         rewritten, groups = docx_groups.extract_and_strip_groups(normalized)
@@ -173,13 +173,17 @@ def convert(source: Path | bytes | BinaryIO, *, config: Config | None = None) ->
         fallback = _docx_image_markers(
             normalized, placed=frozenset(placed_ids) | docx_groups.all_media_ids(groups)
         )
-    except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile) as exc:
+    except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile, NotARegularFileError) as exc:
         # BadZipFile here means a structurally valid zip with corrupted
         # member data (bad CRC-32) — can surface from any z.read() above
         # (extract_and_strip_groups, mammoth reading the rewritten bytes,
         # _docx_image_markers), not just zipsafe.check_archive itself.
         # Verified live: a byte-flipped-but-structurally-intact docx raises
         # this from extract_and_strip_groups, well before mammoth ever runs.
+        # NotARegularFileError comes from normalize_source itself (a Path
+        # pointing at e.g. a FIFO/named pipe, security-audit finding #17)
+        # — translated into the same public CorruptArchiveError, not a new
+        # public exception type.
         raise CorruptArchiveError(str(exc)) from exc
 
     markdown = text + "\n" + fallback

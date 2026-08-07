@@ -96,6 +96,35 @@ def test_non_zip_raises_corrupt_archive() -> None:
         convert(b"not a zip at all")
 
 
+def test_convert_still_works_for_an_ordinary_path(tmp_path) -> None:
+    # Regression check for the normalize_source is_file() gate added for
+    # security-audit finding #17: a genuine regular-file Path must keep
+    # working, not just get rejected less broadly than intended.
+    path = tmp_path / "doc.docx"
+    path.write_bytes(build_minimal_docx(["Hello from a real path"]))
+    result = convert(path)
+    assert "Hello from a real path" in result.markdown
+
+
+def test_convert_rejects_a_fifo_path_promptly_instead_of_hanging(tmp_path) -> None:
+    # Security-audit finding #17: a Path pointing at a FIFO/named pipe with
+    # no writer used to make zipfile.ZipFile(path) (inside
+    # zipsafe.check_archive) hang forever, reachable via the direct library
+    # API (unlike the CLI, which already gates on is_file() before ever
+    # reaching convert()). normalize_source's is_file() check must reject
+    # it up front without ever opening it — verified here with an external
+    # timeout as a safety net in case that regresses.
+    import os
+
+    from tests.unit.test_io import run_with_timeout
+
+    fifo_path = tmp_path / "pipe"
+    os.mkfifo(fifo_path)
+
+    with pytest.raises(CorruptArchiveError):
+        run_with_timeout(lambda: convert(fifo_path))
+
+
 def test_convert_warns_when_mermaidx_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     # Same technique as test_chart_render_missing_mermaidx.py: monkeypatch
     # the module-level optional import rather than actually uninstalling
