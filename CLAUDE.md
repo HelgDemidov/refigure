@@ -98,7 +98,10 @@ in that spec, not yet applied.
 — 0 collected without local fixtures, graceful not a failure; own
 `COVERAGE_FILE`), `coverage` (PR #14: combines test-unit/test-integration's
 uploaded coverage data, gates the combined total at 95%, generates+commits
-the README coverage badge on push to `main`), `test-extras` (7-leg matrix
+the README coverage badge on push to `main` — pushes via the
+`COVERAGE_BADGE_PUSH_TOKEN` repo secret, a fine-grained PAT, not the
+default `GITHUB_TOKEN`, required since `required_status_checks` landed
+2026-08-07; see Git workflow below), `test-extras` (7-leg matrix
 — `bare`/`docx`/`xlsx`/`both`/`vlm`/`docx+vlm`/`vlm-direct`, each a FRESH
 isolated venv, not `requirements-dev.txt` — the only way to catch a broken
 extras boundary). Plus CodeQL (Python, default query suite) via GitHub's
@@ -158,6 +161,22 @@ violations"), while non-admin PR merges still enforce all 11 checks.
 `allow_force_pushes`/`allow_deletions` stay `false` regardless — those
 aren't gated by `enforce_admins` the way required-checks are, still
 apply repo-wide.
+
+**`required_status_checks` broke the `coverage` job's own badge-commit
+step**, found and fixed same day: `github-actions[bot]` (the badge push's
+default identity) gets no `enforce_admins` bypass — every push from it
+was rejected (`GH006`), deterministically, not just during a race with a
+concurrent human push (that part — a real, separate bug — got its own
+retry-with-rebase fix first, confirmed working, before the deeper
+`GH006` block surfaced). Fixed by pointing the `coverage` job's checkout
+at `secrets.COVERAGE_BADGE_PUSH_TOKEN` (fine-grained PAT, `Contents:
+Read and write` on `refigure` only, owned by the repo admin) instead of
+the default `GITHUB_TOKEN` — falls back to `GITHUB_TOKEN` if the secret
+is unset, so adding/rotating it can never regress the job. Fine-grained
+PATs DO support `Contents: Read and write` (verified against GitHub's
+own docs) — the "Read and write only exists for classic tokens" belief
+that caused the first token attempt to fail was a misread of the
+creation form, not a real platform limitation.
 
 `delete_branch_on_merge: true` (a plain repo setting) — merged PR
 branches auto-delete on GitHub, but local tracking branches still need
