@@ -510,6 +510,31 @@ def _docx_media_uri(source: Path | bytes, marker_id: str, *, raw_name: str) -> s
     return None
 
 
+def _docx_media_uri_safely(source: Path | bytes, marker_id: str, *, raw_name: str) -> str | None:
+    """``_docx_media_uri`` reads zip members via ``zipsafe.safe_read`` — can
+    raise on a corrupted/oversized-on-reread archive (a byte-flipped CRC or
+    a spoofed declared size only surfaces when THIS specific member is
+    actually read, not necessarily caught by ``enhance_docx_markdown``'s
+    own upfront ``zipsafe.check_archive`` re-check, which only looks at
+    declared sizes across the whole archive, not per-member content).
+    Every other external-boundary call in ``enhance_docx_markdown``
+    degrades gracefully (``_send_safely``/``_cache_get_safely``/
+    ``_cache_set_safely``) — this call site didn't, found in a final
+    adversarial review of this same remediation (security audit
+    2026-08-07): ``docx.convert()`` itself doesn't hit this gap (its own
+    read path exhaustively touches every member via ``safe_read()``
+    first), but ``enhance_docx_markdown`` is documented as ALSO a safe
+    standalone public entry point in its own right — this closes that gap
+    for real, not just for the happy path."""
+    try:
+        return _docx_media_uri(source, marker_id, raw_name=raw_name)
+    except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile) as exc:
+        logger.warning(
+            "%s: %s failed to re-read (%s) — marker left as-is", raw_name, marker_id, exc
+        )
+        return None
+
+
 def _soffice_available() -> bool:
     return shutil.which("soffice") is not None
 
@@ -643,6 +668,19 @@ def _render_docx_group(source: Path | bytes, id12: str, *, raw_name: str) -> str
     return _render_via_soffice(
         mini_docx, suffix=".docx", raw_name=raw_name, obj_id=id12, obj_kind="group"
     )
+
+
+def _render_docx_group_safely(source: Path | bytes, id12: str, *, raw_name: str) -> str | None:
+    """See ``_docx_media_uri_safely`` — same gap, same fix, for the
+    composite-group render path (``_render_docx_group`` ->
+    ``docx_groups.extract_group_docx`` -> ``zipsafe.safe_read``)."""
+    try:
+        return _render_docx_group(source, id12, raw_name=raw_name)
+    except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile) as exc:
+        logger.warning(
+            "%s: group %s failed to re-read (%s) — marker left as-is", raw_name, id12, exc
+        )
+        return None
 
 
 # --- injection grammar: bounded block (open marker, sanitized body,
@@ -920,7 +958,7 @@ def enhance_docx_markdown(
         cache_context = f"{raw_name}: {marker_id}"
         entry = _cache_get_safely(cache, marker_id, context=cache_context)
         if entry is None:
-            data_uri = _docx_media_uri(source, marker_id, raw_name=raw_name)
+            data_uri = _docx_media_uri_safely(source, marker_id, raw_name=raw_name)
             if data_uri is None:
                 continue
             text = _call_client(
@@ -938,7 +976,7 @@ def enhance_docx_markdown(
                 entry["judge_verdict"] = _judge_with_config(data_uri, text, config, _get_client)
             _cache_set_safely(cache, marker_id, entry, context=cache_context)
         elif config.vlm_verify and entry.get("judge_verdict") is None:
-            data_uri = _docx_media_uri(source, marker_id, raw_name=raw_name)
+            data_uri = _docx_media_uri_safely(source, marker_id, raw_name=raw_name)
             if data_uri is not None:
                 entry["judge_verdict"] = _judge_with_config(
                     data_uri, str(entry["markdown"]), config, _get_client
@@ -962,7 +1000,7 @@ def enhance_docx_markdown(
         cache_context = f"{raw_name}: {gid}"
         entry = _cache_get_safely(cache, gid, context=cache_context)
         if entry is None:
-            data_uri = _render_docx_group(source, gid, raw_name=raw_name)
+            data_uri = _render_docx_group_safely(source, gid, raw_name=raw_name)
             if data_uri is None:
                 continue
             text = _call_client(
@@ -975,7 +1013,7 @@ def enhance_docx_markdown(
                 entry["judge_verdict"] = _judge_with_config(data_uri, text, config, _get_client)
             _cache_set_safely(cache, gid, entry, context=cache_context)
         elif config.vlm_verify and entry.get("judge_verdict") is None:
-            data_uri = _render_docx_group(source, gid, raw_name=raw_name)
+            data_uri = _render_docx_group_safely(source, gid, raw_name=raw_name)
             if data_uri is not None:
                 entry["judge_verdict"] = _judge_with_config(
                     data_uri, str(entry["markdown"]), config, _get_client

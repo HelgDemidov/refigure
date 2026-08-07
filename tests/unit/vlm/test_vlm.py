@@ -890,6 +890,70 @@ def test_docx_media_uri_marker_not_found_on_redetection_returns_none_with_warnin
     assert "not found" in caplog.text
 
 
+# --- security audit 2026-08-07, final-review finding: _docx_media_uri/
+# _render_docx_group can raise on a re-read failure (corrupted/spoofed
+# member) with no caller-side guard, unlike every other external-boundary
+# call in enhance_docx_markdown -- contradicts that function's own "never
+# raise, always degrade" contract for callers bypassing docx.convert(). ---
+
+
+@pytest.mark.parametrize(
+    "exc", [vlm.zipsafe.ArchiveBombSuspected("boom"), zipfile.BadZipFile("bad crc")]
+)
+def test_docx_media_uri_safely_degrades_instead_of_raising(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, exc: Exception
+) -> None:
+    def _raise(*a: object, **k: object) -> str | None:
+        raise exc
+
+    monkeypatch.setattr(vlm, "_docx_media_uri", _raise)
+
+    with caplog.at_level("WARNING"):
+        result = vlm._docx_media_uri_safely(b"docbytes", "id1", raw_name="doc.docx")
+
+    assert result is None
+    assert "failed to re-read" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "exc", [vlm.zipsafe.ArchiveBombSuspected("boom"), zipfile.BadZipFile("bad crc")]
+)
+def test_render_docx_group_safely_degrades_instead_of_raising(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, exc: Exception
+) -> None:
+    def _raise(*a: object, **k: object) -> str | None:
+        raise exc
+
+    monkeypatch.setattr(vlm, "_render_docx_group", _raise)
+
+    with caplog.at_level("WARNING"):
+        result = vlm._render_docx_group_safely(b"docbytes", "id1", raw_name="doc.docx")
+
+    assert result is None
+    assert "failed to re-read" in caplog.text
+
+
+def test_enhance_docx_markdown_corrupted_media_degrades_not_raises() -> None:
+    # End-to-end reproduction of the live PoC the final review used: a
+    # structurally-valid-but-corrupted docx passed directly to
+    # enhance_docx_markdown() (bypassing docx.convert()) must never raise,
+    # regardless of exactly where in the pipeline the corruption surfaces.
+    data = (b"real media bytes, padded so the corrupted byte range below stays inside it") * 3
+    docx_bytes = bytearray(_docx_with_media("image1.png", data))
+    marker_id = hashlib.sha256(data).hexdigest()[:12]
+    mid = len(docx_bytes) // 2
+    for i in range(mid, min(mid + 20, len(docx_bytes))):
+        docx_bytes[i] ^= 0xFF
+    config = Config(use_vlm=True, vlm_cache=InMemoryCacheBackend())
+
+    markdown, vlm_used, warnings = vlm.enhance_docx_markdown(
+        _image_only_markdown(marker_id), bytes(docx_bytes), config=config
+    )
+
+    assert vlm_used is False
+    assert markdown == _image_only_markdown(marker_id)
+
+
 def test_soffice_available_true_when_shutil_which_finds_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
