@@ -109,7 +109,7 @@ batch-точка входа именно для VLM (`convert_batch_async(paths,
 в духе), решается **когда VLM реально пойдёт в разработку** (после v1, extra),
 не блокирует дизайн API v1.
 
-## 5. Roadmap
+## 4. Roadmap
 
 - **v1**: DOCX + XLSX, chart-engine (нативный numCache + mermaid с рендер-валидацией),
   zero-loss позиционные маркеры для составных фигур. VLM — код портирован и готов,

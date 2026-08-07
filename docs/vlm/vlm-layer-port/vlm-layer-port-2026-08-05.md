@@ -16,7 +16,7 @@ VLM-интерпретация составных фигур DOCX (`refigure.doc
 что chart-движок и `docx_groups.py` честно оставляют голым маркером
 («composite content not analyzed» / «raster content not analyzed»). За
 `[vlm]` extra + runtime-тоггл, **не активна/не анонсируется в v1**
-(`docs/project-meta/v1-scope-and-api-design/v1-scope-and-api-design-2026-08-04.md` §1/§5) — код готов и
+(`docs/project-meta/v1-scope-and-api-design/v1-scope-and-api-design-2026-08-04.md` §1/§4) — код готов и
 протестирован, релиз v1 (стадия 8) её не ждёт.
 
 **Скоуп жёстко ограничен DOCX.** XLSX не имеет VLM-пути вообще — у
@@ -343,7 +343,7 @@ TruLens/DeepEval/академическая литература; VLM captioning
 
 - Async batch-точка входа — явно отложено design-документом §3 до v1.x
   («решается когда VLM реально пойдёт в разработку... не блокирует
-  дизайн API v1» — и roadmap §5 закрепляет это именно за v1.x, не 4b).
+  дизайн API v1» — и roadmap §4 закрепляет это именно за v1.x, не 4b).
   `vlm.py` остаётся 100% sync, как ядро.
 - Активация/анонс `[vlm]` в README как готовой фичи — v1.x, не сейчас.
 - XLSX VLM-путь — не существует, см. §0.
