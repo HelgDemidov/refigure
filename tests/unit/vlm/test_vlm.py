@@ -1011,7 +1011,7 @@ def test_call_client_exception_returns_none_with_warning(
         )
 
     assert result is None
-    assert "VLM call for id1 failed" in caplog.text
+    assert "id1: VLM call failed" in caplog.text
 
 
 def test_resolve_api_key_missing_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
