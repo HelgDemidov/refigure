@@ -20,9 +20,11 @@ real payload before anything fires — a 400+ MB RSS spike, not a caught
 exception. The two layers:
 - ``check_archive()`` — a cheap upfront pass over ``infolist()`` BEFORE any
   part is read. Catches the honest case (a member, or the archive as a
-  whole, that legitimately declares an oversized total), for free, before
-  any real work starts. It is an upfront reject, not the real defense
-  against a spoofed declared size.
+  whole, that legitimately declares an oversized total) and an excessive
+  entry count (``MAX_ENTRIES`` — CPU amplification via many small, honestly
+  small entries costing real time in downstream per-entry XML-parsing
+  loops), for free, before any real work starts. It is an upfront reject,
+  not the real defense against a spoofed declared size.
 - ``safe_read()`` — the real enforcement, checked against ACTUAL decompressed
   bytes during the read itself, not declared metadata: reads a member via
   ``z.open()`` in bounded chunks, counts real bytes as they come out, and
@@ -43,9 +45,12 @@ from pathlib import Path
 
 MAX_MEMBER_BYTES = 128 * 1024 * 1024  # one part (large media/sheet) — with a generous margin
 MAX_TOTAL_BYTES = 512 * 1024 * 1024  # whole archive, decompressed
+MAX_ENTRIES = 10_000  # entry count cap — CPU-amplification via many small honest entries
 # Initial calibration: a legitimate government document is orders of magnitude
 # smaller (the heaviest in the corpus is a few MB), and an 8 GB RAM machine can
-# hold 512 MB decompressed without risk.
+# hold 512 MB decompressed without risk. MAX_ENTRIES: live audit PoC measured
+# ~9s CPU in _docx_referenced_media_ids alone from 200k honestly-sized entries
+# — well past any real document's part count.
 # Like all numeric thresholds in the project — subject to revision once live
 # acceptance data comes in.
 
@@ -70,6 +75,7 @@ def check_archive(
     *,
     max_member: int = MAX_MEMBER_BYTES,
     max_total: int = MAX_TOTAL_BYTES,
+    max_entries: int = MAX_ENTRIES,
 ) -> None:
     """Cheap upfront reject over declared archive metadata, BEFORE reading any
     part. Returns None silently if everything is within limits; otherwise
@@ -80,7 +86,10 @@ def check_archive(
     fact about the real decompressed content. It does NOT protect against a
     spoofed (understated) declared size; that's ``safe_read()``'s job, checked
     against actual bytes during the real read (see the module docstring for
-    the full two-layer rationale and a live PoC).
+    the full two-layer rationale and a live PoC). Also caps the entry count
+    (``max_entries``) — many small, honestly-sized entries pass the byte-total
+    gate below but still cost real CPU in downstream per-entry processing
+    (e.g. ``docx._docx_referenced_media_ids``'s per-part XML-parsing loop).
 
     ``path`` can be ``bytes`` (refigure accepts in-memory input, §2
     stage2-public-api-wrapper) — it's wrapped in ``io.BytesIO`` before
@@ -88,8 +97,13 @@ def check_archive(
     name = path.name if isinstance(path, Path) else "<in-memory>"
     source = path if isinstance(path, Path) else io.BytesIO(path)
     with zipfile.ZipFile(source) as z:
+        infolist = z.infolist()
+        if len(infolist) > max_entries:
+            raise ArchiveBombSuspected(
+                f"{name}: {len(infolist)} entries exceeds the {max_entries} cap — archive not read"
+            )
         total = 0
-        for info in z.infolist():
+        for info in infolist:
             if info.file_size > max_member:
                 raise ArchiveBombSuspected(
                     f"{name}: member {info.filename} declares {info.file_size} bytes "

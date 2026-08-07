@@ -95,6 +95,18 @@ def _spoofed_declared_size_zip(
     return bytes(data)
 
 
+def _many_tiny_entries_zip(count: int) -> bytes:
+    """``count`` honestly-sized (empty) members — each individually and in
+    aggregate well within zipsafe's byte-size gates, only the sheer entry
+    COUNT is adversarial (CPU amplification in downstream per-entry
+    processing, e.g. docx's per-part XML-parsing loop, not a memory bomb)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        for i in range(count):
+            z.writestr(f"f{i}", b"")
+    return buf.getvalue()
+
+
 class TestZipBomb:
     def test_docx_convert_rejects_oversized_member(self) -> None:
         # Fixture construction (~1s, building the compressible 129MB member)
@@ -181,6 +193,30 @@ class TestSafeRead:
         with zipfile.ZipFile(io.BytesIO(buf.getvalue())) as z:
             assert zipsafe.safe_read(z, "a.txt") == content
             assert zipsafe.safe_read(z, z.getinfo("a.txt")) == content
+
+
+class TestEntryCountCap:
+    """zipsafe.check_archive()'s MAX_ENTRIES cap (security-audit-
+    remediation §1, finding #2): many small, honestly-sized entries pass
+    the byte-total gate but still cost real CPU in downstream per-entry
+    processing (live audit PoC: ~9s CPU in
+    docx._docx_referenced_media_ids alone from 200k honestly-sized
+    entries)."""
+
+    def test_rejects_more_entries_than_the_cap(self) -> None:
+        data = _many_tiny_entries_zip(101)
+        with pytest.raises(zipsafe.ArchiveBombSuspected):
+            zipsafe.check_archive(data, max_entries=100)
+
+    def test_accepts_entry_count_at_the_cap(self) -> None:
+        # No false positive: exactly at the cap (not over it) still passes.
+        data = _many_tiny_entries_zip(100)
+        zipsafe.check_archive(data, max_entries=100)  # no raise
+
+    def test_default_cap_rejects_a_realistic_archive(self) -> None:
+        data = _many_tiny_entries_zip(zipsafe.MAX_ENTRIES + 1)
+        with pytest.raises(zipsafe.ArchiveBombSuspected):
+            zipsafe.check_archive(data)
 
 
 class TestCorruptedZip:
