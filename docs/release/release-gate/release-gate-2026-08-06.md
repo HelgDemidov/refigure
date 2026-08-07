@@ -82,26 +82,36 @@ blast radius этого разрешения, не расширять его н�
 GitHub Environment). Требует on-site настройки (не код, см. §4 п.4).
 
 Автоматизируем этим PR то, что не требует стороннего логина: `job`
-объявляет `environment: pypi`, и сам этот PR ПРЕДСОЗДАЁТ окружение `pypi`
-в Settings репозитория через `gh api repos/HelgDemidov/refigure/
-environments/pypi` (идемпотентно, `PUT`) с deployment-branch/tag policy,
-ограничивающей его тегами `v*` — GitHub создал бы окружение и без этого
-шага при первом реальном запуске воркфлоу, но предсоздание с политикой
-даёт защиту раньше первого паблиша, а не после. Это чисто
-репозиторий-side конфигурация (обратима, не требует стороннего логина) —
-не то же самое, что регистрация trusted publisher на стороне PyPI (§4,
-остаётся ручной).
+объявляет `environment: pypi`, и этот PR готовит идемпотентный, отдельно
+запускаемый скрипт `scripts/setup_github_environment.sh`, который —
+когда его реально ЗАПУСТЯТ (не сам факт мержа PR) — предсоздаёт окружение
+`pypi` в Settings репозитория через `gh api repos/HelgDemidov/refigure/
+environments/pypi` (`PUT`) с deployment-branch/tag policy, ограничивающей
+его тегами `v*`. GitHub создал бы окружение и без этого шага при первом
+реальном запуске `publish.yml`, но предсоздание с политикой даёт защиту
+раньше первого паблиша, а не после. Живая проверка 2026-08-07 (`gh api
+repos/HelgDemidov/refigure/environments` → `{"total_count":0}`)
+подтверждает: на момент написания этого PR окружение ещё не существует —
+запуск скрипта намеренно оставлен человеку-оркестратору, не выполняется
+автоматически кодинг-агентом как побочный эффект написания скрипта. Это
+чисто репозиторий-side конфигурация (обратима, не требует стороннего
+логина) — не то же самое, что регистрация trusted publisher на стороне
+PyPI (§4, остаётся ручной).
 
 ## 3a. Release-раннер — `scripts/release.sh` (новый, не auto-run)
 
 Скрипт, не CI-job: принимает версию (`./scripts/release.sh 0.1.0`),
-обновляет `version` в `pyproject.toml`, коммитит, печатает точную команду
-`git tag vX.Y.Z && git push origin vX.Y.Z` **но не выполняет push сам** —
-последний шаг (реальный триггер паблиша, необратимый — с PyPI нельзя
-переиспользовать номер версии даже после `yank`) остаётся ручным,
-печатается как явная инструкция, не автоматизируется. Обоснование —
-пуш тега = реальная публикация в PyPI, что должно быть отдельным
-осознанным действием пользователя, а не побочным эффектом релиз-скрипта.
+проверяет, что запущен на `main` (иначе отказывает — `publish.yml`
+триггерится по ЛЮБОМУ тегу `v*` независимо от ветки-источника, так что
+тег с не-`main` ветки опубликовал бы непроверенный код), обновляет
+`version` в `pyproject.toml`, коммитит, создаёт ЛОКАЛЬНЫЙ тег `vX.Y.Z`
+(обратим — `git tag -d`, пока не запушен) и печатает точную команду
+`git push origin vX.Y.Z` как инструкцию **но не выполняет push сам** —
+этот последний шаг (реальный триггер паблиша, необратимый — с PyPI нельзя
+переиспользовать номер версии даже после `yank`) остаётся ручным.
+Обоснование — пуш тега = реальная публикация в PyPI, что должно быть
+отдельным осознанным действием пользователя, а не побочным эффектом
+релиз-скрипта.
 
 ## 4. Гейт релиза (чек-лист предусловий, не код)
 
@@ -176,7 +186,8 @@ environments/pypi` (идемпотентно, `PUT`) с deployment-branch/tag po
   Требует логина владельца в PyPI — не автоматизируется ни этим PR, ни
   агентом, остаётся ручным шагом пользователя.
 - [x] **Release-раннер подготовлен** — `scripts/release.sh` (§3a):
-  обновляет версию, коммитит, печатает `git tag`/`push`-команду.
+  проверяет ветку (`main`-only по умолчанию), обновляет версию, коммитит,
+  создаёт локальный тег, печатает `git push`-команду (не выполняет её).
 - [ ] Тег `vX.Y.Z` создан и **запушен** → триггерит §3, реальная публикация
   в PyPI. Печатается скриптом (§3a), не выполняется автоматически —
   требует и решённого номера версии (пункт выше), и явного отдельного
@@ -192,6 +203,24 @@ environments/pypi` (идемпотентно, `PUT`) с deployment-branch/tag po
   тега — риск принят: OIDC trusted-publishing — decoupled от кода,
   ошибка конфигурации проявится один раз при первом реальном релизе, не
   раньше.
+- **3-агентный adversarial-review (packaging / CI-OIDC-security /
+  process-accuracy lens) нашёл и это же PR исправил 2 реальных бага**,
+  оба воспроизведены живой сборкой/изолированным scratch-репо, не только
+  прочтением конфига:
+  1. `pyproject.toml` sdist `include`: голые имена файлов (`LICENSE`,
+     `NOTICE`, `README.md`, `ATTRIBUTION.md`, `pyproject.toml`) без `/`
+     матчатся hatchling'ом по gitwildmatch-семантике на ЛЮБОЙ глубине
+     дерева, не только в корне — посторонний неигнорируемый файл с тем же
+     именем где угодно в дереве попадал бы в sdist. Latent (сегодняшний
+     always-fresh-checkout CI/`publish.yml` его не задевает), но
+     противоречило заявленной «явной allowlist»-гарантии §1. Фикс —
+     анкеринг ведущим `/`, перепроверено живой сборкой с подложенным
+     `stray_probe_dir/LICENSE`.
+  2. `scripts/release.sh` не проверял текущую ветку — `publish.yml`
+     триггерится по любому тегу `v*` независимо от ветки-источника,
+     значит тег, созданный (и запушенный) не с `main`, опубликовал бы
+     непроверенный код в PyPI необратимо. Фикс — отказ по умолчанию вне
+     `main` (`RELEASE_ALLOW_NON_MAIN=1` для намеренного исключения).
 
 ## План коммитов/PR
 
@@ -201,12 +230,17 @@ environments/pypi` (идемпотентно, `PUT`) с deployment-branch/tag po
 4. `ci: add build-verification job — build, twine check, install-from-wheel smoke test`
 5. `ci: add publish.yml — PyPI trusted publishing on version tag push + pypi environment provisioning`
 6. `chore: add scripts/release.sh — version bump + tag/push instructions (no auto-push)`
+7. `fix: anchor bare-filename sdist include patterns to project root` (adversarial-review finding, packaging lens)
+8. `fix: refuse to run release.sh off main by default` (adversarial-review finding, CI/OIDC-security lens)
+9. `docs: correct §3/§3a tense + release-runner description after adversarial review` (this commit, process-accuracy lens)
 
 ## Чек-лист реализации
 
 - [x] `[tool.hatch.build.targets.sdist]` include/exclude, sdist-размер
   подтверждён (было 129MB / 135232612 байт / 210 members, стало 136057
-  байт / ~136KB / 50 members)
+  байт / ~136KB / 50 members). Anchoring-фикс после adversarial-review
+  (см. «Тестовое покрытие») — bare-filename паттерны без `/` матчились на
+  любой глубине, не только в корне.
 - [x] `ci.yml` — build-верификация job
 - [x] `.github/workflows/publish.yml` — trusted publishing (OIDC),
   `pypa/gh-action-pypi-publish` pinned by commit SHA
@@ -220,8 +254,10 @@ environments/pypi` (идемпотентно, `PUT`) с deployment-branch/tag po
 - [x] `scripts/release.sh` — версия/коммит/печать tag-команды, без
   auto-push. Написан, сделан исполняемым, провалидирован в изолированной
   scratch-копии репозитория (bad-version/no-args/happy-path/duplicate-tag/
-  dirty-tree сценарии) — НЕ запускался против этого репозитория:
-  `pyproject.toml` здесь по-прежнему на `0.0.0`, локальных тегов нет.
+  dirty-tree/non-main-branch сценарии) — НЕ запускался против этого
+  репозитория: `pyproject.toml` здесь по-прежнему на `0.0.0`, локальных
+  тегов нет. `main`-only guard добавлен после adversarial-review (см.
+  «Тестовое покрытие»).
 - [x] Публичность репо + branch protection (включая
   `required_status_checks`, доведён до конца 2026-08-07) — сделано
   раньше мержа этого PR (см. §4).
