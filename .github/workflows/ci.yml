@@ -67,6 +67,69 @@ jobs:
           exit-code: "1"
 
   # ---------------------------------------------------------------------------
+  # Build verification (docs/release/release-gate/release-gate-2026-08-06.md
+  # §2) — always-on, cheap, catches exactly the class of bug found live in §1
+  # (sdist accidentally bundling tests/integration/fixtures/'s 144MB corpus):
+  # build sdist + wheel, enforce a size ceiling on the sdist, validate
+  # metadata with twine, then install the built WHEEL into a fresh venv and
+  # run `refigure --version` as a smoke test — proves the package works from
+  # the built artifact itself, not an editable/source install, which no
+  # other job here checks. NOT the publish workflow (that's publish.yml,
+  # tag-triggered only, §3) — this job never uploads anything anywhere.
+  # ---------------------------------------------------------------------------
+  build-verify:
+    name: Build verification (sdist + wheel smoke test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv and set Python version
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Create venv and install build + twine
+        run: |
+          uv venv
+          uv pip install build twine
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Build sdist + wheel
+        run: python -m build
+
+      - name: Enforce sdist size ceiling
+        # Current sdist is ~136KB (post-§1 fix). 5MB is a deliberately
+        # generous ceiling, not a tight one — 3 orders of magnitude above
+        # the real size — so ordinary growth (more tests, more refigure/
+        # source) never needs retuning this number, while a regression like
+        # §1's bug (sdist loses its include/exclude scope in pyproject.toml
+        # and picks up the 144MB fixture corpus again) still blows straight
+        # through it and fails loudly here instead of silently ballooning
+        # unnoticed until someone inspects a PyPI upload.
+        run: |
+          size=$(stat -c '%s' dist/*.tar.gz)
+          limit=$((5 * 1024 * 1024))
+          echo "sdist size: $size bytes (limit: $limit bytes)"
+          if [ "$size" -ge "$limit" ]; then
+            echo "::error::sdist is $size bytes, over the $limit-byte ceiling — check [tool.hatch.build.targets.sdist] include/exclude in pyproject.toml"
+            exit 1
+          fi
+
+      - name: Twine check (validates metadata on both built artifacts)
+        run: twine check dist/*
+
+      - name: Install the built wheel into a fresh, isolated venv
+        # Deliberately a SEPARATE venv from the one used to build above —
+        # proves the wheel installs and works standalone, not that it
+        # merely coexists with build's own already-installed deps.
+        run: |
+          uv venv .venv-installcheck
+          uv pip install --python .venv-installcheck/bin/python dist/*.whl
+
+      - name: Smoke test — refigure --version from the installed wheel
+        run: .venv-installcheck/bin/refigure --version
+
+  # ---------------------------------------------------------------------------
   # Unit tests (tests/unit/) — hermetic: synthetic fixtures built in the test
   # itself, no real corpus, no network.
   #

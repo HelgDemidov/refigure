@@ -69,6 +69,43 @@ Repository = "https://github.com/HelgDemidov/refigure"
 [tool.hatch.build.targets.wheel]
 packages = ["refigure"]
 
+[tool.hatch.build.targets.sdist]
+# Explicit include allowlist, same principle as the wheel target's
+# `packages = ["refigure"]` above but wider — sdist legitimately ships test
+# sources too (rebuild/retest from the sdist alone, without a git checkout,
+# is normal packaging practice), just not tests/integration/'s 144MB
+# fixture corpus, which needs a git checkout for its fixtures anyway.
+include = [
+    "refigure/**",
+    "tests/unit/**",
+    "tests/support.py",
+    "tests/__init__.py",
+    # Leading "/" anchors these to the project root — hatchling's include
+    # patterns follow gitwildmatch (.gitignore) semantics, where a bare
+    # filename with no "/" matches at ANY depth, not just the root. Without
+    # the anchor, an unrelated non-gitignored file anywhere in the tree that
+    # happens to share one of these names (e.g. a vendored/nested LICENSE)
+    # would get silently swept into the sdist alongside the real one —
+    # confirmed live during this PR's adversarial review.
+    "/README.md",
+    "/LICENSE",
+    "/NOTICE",
+    "/ATTRIBUTION.md",
+    "/pyproject.toml",
+]
+# Redundant with the include allowlist above in principle (nothing here
+# would match `include` anyway) — kept explicit per
+# docs/release/release-gate/release-gate-2026-08-06.md §1: documents intent
+# and stays correct even if `include` is later loosened to a broader glob.
+exclude = [
+    "tests/integration/",
+    "docs/",
+    ".claude/",
+    ".hypothesis/",
+    "scripts/",
+    "examples/",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

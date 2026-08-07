@@ -1,0 +1,66 @@
+name: Publish
+
+# Separate file from ci.yml, deliberately (docs/release/release-gate/
+# release-gate-2026-08-06.md §3) — this workflow's job carries
+# `id-token: write` (required for PyPI trusted publishing / OIDC). Keeping
+# it in its own file, triggered ONLY by a version-tag push, minimizes the
+# blast radius of that permission instead of granting it to the whole
+# multi-job ci.yml, which runs on every push/PR.
+#
+# Trigger is `push: tags: v*`, not `release:` — a git tag is simpler to
+# create/push (scripts/release.sh prints the exact command, never runs it
+# itself) and doesn't require a separate "create a GitHub Release" step
+# before publishing.
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    name: Build and publish to PyPI (trusted publishing)
+    runs-on: ubuntu-latest
+    # No stored token/password anywhere in this job — PyPI trusted
+    # publishing (OIDC) exchanges `id-token: write`'s short-lived GitHub
+    # identity token for a PyPI upload credential at publish time. Kept to
+    # exactly the two permissions this job needs: `id-token: write` for
+    # OIDC, `contents: read` for actions/checkout — nothing broader.
+    permissions:
+      id-token: write
+      contents: read
+    # Must match the trusted-publisher config registered on PyPI's side
+    # (pypi.org -> refigure -> Publishing -> GitHub Actions), which pins
+    # owner/repo/workflow-filename/environment together — see §4 of the
+    # release-gate spec for the exact PyPI-side steps (manual, not
+    # automated by this repo).
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv and set Python version
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Create venv and install build
+        run: |
+          uv venv
+          uv pip install build
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Build sdist + wheel
+        run: python -m build
+
+      # Pinned by commit SHA, not tag — same discipline as ci.yml's
+      # trivy-action pin (docs/security/security-hardening/
+      # security-hardening-2026-08-06.md §2: that action was
+      # supply-chain-compromised 2026-03-19/20, all tags affected). This
+      # job holds `id-token: write`, a materially more sensitive
+      # permission than trivy-action's read-only secret scan, so pinning
+      # by SHA here is the higher-stakes case, not a lower one. SHA is
+      # v1.14.2's tag dereferenced to its commit (`git ls-remote --tags`
+      # + `gh api repos/pypa/gh-action-pypi-publish/git/tags/<tag-sha>`),
+      # the current stable release, verified live 2026-08-07 before
+      # pinning.
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
