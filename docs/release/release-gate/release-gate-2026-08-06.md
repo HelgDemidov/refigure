@@ -199,7 +199,7 @@ environments/pypi` (идемпотентно, `PUT`) с deployment-branch/tag po
 - [x] `[tool.hatch.build.targets.sdist]` include/exclude, sdist-размер
   подтверждён (было 129MB / 135232612 байт / 210 members, стало 136057
   байт / ~136KB / 50 members)
-- [ ] `ci.yml` — build-верификация job
+- [x] `ci.yml` — build-верификация job
 - [ ] `.github/workflows/publish.yml`
 - [ ] GitHub `pypi`-environment предсоздан (`gh api`, deployment-tag-policy `v*`)
 - [ ] `scripts/release.sh` — версия/коммит/печать tag-команды, без auto-push
