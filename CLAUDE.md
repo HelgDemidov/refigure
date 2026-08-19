@@ -218,8 +218,14 @@ via trusted publishing (OIDC) — kept out of `ci.yml`'s job count/
 radius. Plus CodeQL (Python, default query suite) via GitHub's
 native code-scanning default setup — configured 2026-08-06, NOT a file in
 `.github/workflows/`, lives entirely in repo Settings/the Code Scanning
-API. Commands in `.claude/commands/`: `/tech-spec`, `/feature-workflow`,
-`/post-merge-sync`, `/memory-sync`.
+API. `.github/dependabot.yml` (added 2026-08-19): `pip` (root — covers
+`pyproject.toml` + `requirements*.txt`) + `github-actions`, weekly,
+minor/patch grouped into one PR each (majors stay individual — several
+deps are deliberately capped below their next major in `pyproject.toml`).
+First 5 PRs merged same day (4 GitHub Actions version bumps + `openai`
+2.53.0→3.1.0, the latter also widening `vlm-direct`'s `pyproject.toml`
+cap to `<4`). Commands in `.claude/commands/`: `/tech-spec`,
+`/feature-workflow`, `/post-merge-sync`, `/memory-sync`.
 
 ## Git workflow
 Routine changes (≤1-2 commits) — direct commit to `main`, no PR.

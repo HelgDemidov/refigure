@@ -128,7 +128,7 @@ per-fixture таблицам `test_docx_corpus.py`/`test_xlsx_corpus.py`, не
 - [x] Ручная QA: light/dark рендер на GitHub (проверено через реальный
       браузер, Chrome DevTools MCP — оба SVG, обе темы, живые
       скриншоты, не LibreOffice-конвертация)
-- [ ] Обновить CLAUDE.md статус (Memory/doc update convention — заменить,
+- [x] Обновить CLAUDE.md статус (Memory/doc update convention — заменить,
       не дописывать)
 
 ## Вне скоупа
@@ -137,3 +137,25 @@ per-fixture таблицам `test_docx_corpus.py`/`test_xlsx_corpus.py`, не
   `refigure/docx/__init__.py` — вся нужная функциональность уже работает.
 - Пересчёт/расширение фикстур-корпуса — поиск идёт только по уже
   committed docx-фикстурам.
+
+## Статус выполнения
+
+Смержено 2026-08-19, PR #23, merge-коммит `3190bfc`. 4 коммита:
+`2c1de6e` (скрипт + SVG-ассеты), `df87147` (README Demo-блок),
+`782d6aa` (examples/-запись + тест), `9b046b1` (синк CLAUDE.md).
+
+Победитель поиска — `swd2021-396-platform-work-ia.docx` (pie chart), не
+изначальный лидер по счётчикам (`ukri-user-behaviour-survey.docx`,
+44/44) — отвергнут после реального рендера: mermaid `xychart-beta` не
+поддерживает группированные multi-series bar (только overlay), 4 серии
+рисовались друг на друге. Палитра сектора и интервал легенды доведены
+через `/dataviz`-валидатор по живой обратной связи пользователя (не на
+глаз) — полная история в `project_docx_chart_demo` memory.
+
+Проверено перед мерджем: unit 393 passed, integration 52 passed/3
+skipped (ожидаемые live-VLM skip), `test_readme_examples.py` (новая
+запись) и `test_corpus_totals.py` (без изменений) зелёные, ручная QA
+через Chrome DevTools MCP (реальный браузер, обе темы).
+
+Вне скоупа осталось вне скоупа — изменений в `refigure/core/` не
+потребовалось.
