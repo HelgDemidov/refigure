@@ -506,7 +506,23 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _configure_logging(args)
-    config = _build_config(args, parser)
+    try:
+        config = _build_config(args, parser)
+    except Exception as exc:
+        # _build_config can now construct a real VlmClient (--vlm-provider
+        # openai/anthropic) BEFORE any document is even read — its own SDK
+        # can raise for reasons refigure's typed exceptions don't cover
+        # (e.g. openai.OpenAIError on a missing API key with no
+        # OPENROUTER_API_KEY-equivalent env var set). Routed through the
+        # same _exit_code_for mapping _convert_one uses below, so a
+        # config-build failure gets the same clean typed exit code as a
+        # conversion failure, not an unhandled traceback — the exact
+        # "translate every failure into a typed exit code" gap this CLI was
+        # built to close in the first place (see module docstring).
+        code = _exit_code_for(exc)
+        message = str(exc) if code != EXIT_INTERNAL_ERROR else f"internal error: {exc}"
+        print(f"error: {message}", file=sys.stderr)
+        return code
 
     if not args.sources:
         return _run_stdin(args, config, parser)

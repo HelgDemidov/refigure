@@ -562,6 +562,23 @@ class TestVlmFlags:
         assert config.vlm_client is None  # type: ignore[attr-defined]
         assert config.vlm_api_key == "sk-openrouter-key"  # type: ignore[attr-defined]
 
+    def test_vlm_provider_openai_missing_credentials_is_typed_error_not_a_crash(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Regression: _resolve_vlm_client constructs a REAL openai.OpenAI(...)
+        # client eagerly, before any document is read — its own SDK raises
+        # OpenAIError (not one of refigure's typed exceptions) when no
+        # api_key/OPENAI_API_KEY is available. main() must translate this
+        # into a clean exit code, not let it propagate as an unhandled
+        # traceback.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+
+        code = main([str(doc), "--vlm", "--vlm-provider", "openai", "--vlm-model", "m"])
+
+        assert code == EXIT_INTERNAL_ERROR
+        assert "error:" in capsys.readouterr().err
+
     def test_vlm_flag_without_vlm_extra_is_missing_dependency_via_subprocess(
         self, tmp_path: Path
     ) -> None:
