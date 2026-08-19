@@ -57,7 +57,7 @@ vlm = ["pdfplumber>=0.11,<0.12"]
 # [vlm] here reflects a genuine dependency, not a bug to route around by
 # flattening client.py out of the package. See
 # docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md §5.
-vlm-direct = ["refigure[vlm]", "openai>=2.53,<3", "anthropic>=0.120,<1"]
+vlm-direct = ["refigure[vlm]", "openai>=3.1.0,<4", "anthropic>=0.120,<1"]
 
 [project.scripts]
 refigure = "refigure.cli:main"
