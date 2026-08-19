@@ -16,6 +16,15 @@ on:
   push:
   pull_request:
 
+# Least-privilege default for every job below (CodeQL actions/
+# missing-workflow-permissions, 5 alerts flagged 2026-08-19 across all 5
+# jobs that had no explicit block — checkout is all any of them need).
+# Job-level `permissions:` overrides this entirely, not additively, so the
+# `coverage` job's own `contents: write` block (needed for the badge-commit
+# push) still applies there unchanged.
+permissions:
+  contents: read
+
 jobs:
   # ---------------------------------------------------------------------------
   # Static analysis: lint, types, dependency CVE audit. Doesn't run pytest —
@@ -219,6 +228,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      # Same step as test-unit's (shares its apt cache key below) — found
+      # missing here live during the 2026-08-19 pre-release audit:
+      # tests/integration/test_docx_groups_live.py's own docstring claims
+      # "CI installs libreoffice-writer... so this path is NOT expected to
+      # skip there", but that install only ever existed in test-unit, a
+      # separate job that never runs tests/integration/. Confirmed live via
+      # this job's own past run logs: all 10
+      # test_render_docx_group_produces_a_real_jpeg cases SKIPPED, every
+      # run, silently — exactly the "untested CI path" this project's own
+      # stated policy rejects.
+      - name: Cache libreoffice-writer apt packages
+        uses: actions/cache@v6
+        with:
+          path: /var/cache/apt/archives
+          key: apt-libreoffice-writer-${{ runner.os }}-v1
+
+      - name: Install libreoffice-writer
+        run: sudo apt-get update && sudo apt-get install -y libreoffice-writer
 
       - name: Install uv and set Python version
         uses: astral-sh/setup-uv@v10.0.1

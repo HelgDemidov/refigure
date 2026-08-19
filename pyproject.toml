@@ -105,6 +105,13 @@ exclude = [
     "scripts/",
     "examples/",
 ]
+# `.gitignore` also ends up in the sdist despite matching nothing above —
+# NOT an `include`/`exclude` leak, confirmed by reading hatchling's own
+# source (SdistBuilder.get_default_build_data(), hatchling 1.32.0):
+# hatchling force-includes pyproject.toml, the readme, and any VCS ignore
+# file unconditionally, bypassing `include`/`exclude` entirely. Harmless
+# (no secrets, no size impact) and not overridable from here without
+# fighting a hatchling internal, so left as-is rather than "fixed".
 
 [tool.ruff]
 line-length = 100

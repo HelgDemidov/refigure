@@ -14,7 +14,7 @@ updates:
       # Routine patch/minor bumps land as one PR instead of one-per-package.
       # Majors are excluded so each still gets its own PR and explicit review
       # — several deps here are intentionally capped below their next major
-      # in pyproject.toml (e.g. openai<3, pdfplumber<0.12), and a major bump
+      # in pyproject.toml (e.g. openai<4, pdfplumber<0.12), and a major bump
       # needs a conscious pyproject.toml range change, not an auto-merge.
       python-patch-minor:
         update-types:

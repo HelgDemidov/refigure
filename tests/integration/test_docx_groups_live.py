@@ -14,8 +14,11 @@ available in CI — replaced 2026-08-05, see
 
 Exercises the REAL ``soffice`` binary — gated via
 ``skipif(not shutil.which("soffice"))`` as a defensive local-dev
-fallback, but CI installs ``libreoffice-writer`` (``test-unit`` job,
-``docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md`` §3) specifically so this path is NOT
+fallback, but CI installs ``libreoffice-writer`` in this job too
+(``test-integration``, not just ``test-unit`` — the two are separate
+runners and each needs its own install; missing here until the
+2026-08-19 pre-release audit caught it via this test's own 10/10 silent
+skips in live CI logs) specifically so this path is NOT
 expected to skip there: an untested CI path for this code was explicitly
 rejected.
 
