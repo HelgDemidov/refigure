@@ -24,7 +24,7 @@ from typing import Any, Protocol
 
 from . import __version__
 from ._io import Source
-from .api import Config, ConversionResult
+from .api import Config, ConversionResult, VlmClient
 
 EXIT_OK = 0
 EXIT_BATCH_PARTIAL_FAILURE = 1
@@ -168,6 +168,38 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["solo", "panel"],
         help="Who judges when --vlm-verify is set (default: Config's own 'panel').",
     )
+    vlm_group.add_argument(
+        "--vlm-provider",
+        choices=["openrouter", "openai", "anthropic"],
+        default="openrouter",
+        help=(
+            "VLM backend to call (default: openrouter). openai/anthropic use the "
+            "direct SDK client (refigure[vlm-direct])."
+        ),
+    )
+    vlm_group.add_argument(
+        "--vlm-base-url",
+        metavar="URL",
+        help="OpenAI-compatible endpoint (Ollama/vLLM/LM Studio). Requires --vlm-provider openai.",
+    )
+    vlm_group.add_argument(
+        "--vlm-image-format",
+        choices=["dict", "string"],
+        default="dict",
+        help=(
+            "Image content shape for the openai provider (default: dict; Ollama "
+            "needs 'string'). Requires --vlm-provider openai."
+        ),
+    )
+    vlm_group.add_argument(
+        "--vlm-api-key-file",
+        metavar="PATH",
+        help=(
+            "Read the VLM API key from this file instead of the usual environment "
+            "variable (OPENROUTER_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY). Avoids "
+            "putting a secret in argv/shell history."
+        ),
+    )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
         "-v",
@@ -182,6 +214,42 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_vlm_client(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> VlmClient | None:
+    """Construct the ``VlmClient`` implied by ``--vlm-provider`` and friends,
+    or ``None`` for the ``openrouter`` default (``Config.vlm_client`` itself
+    already falls back to ``OpenRouterClient`` lazily — no need to construct
+    one here just to hand it back). Lazily imports ``refigure.vlm.client``
+    (same lazy-import discipline ``_convert_fn`` already applies to
+    ``docx``/``xlsx`` in this module) — a bare/``[docx]``/``[xlsx]``-only
+    install still gets a clean ``MissingOptionalDependencyError`` out of
+    ``OpenAIClient``/``AnthropicClient``'s own constructor guard, no new
+    guard needed here.
+
+    Only Bedrock/Vertex/Foundry are out of reach from the CLI (see the
+    vlm-activation spec §4) — those need a whole SDK-specific
+    authentication chain (AWS region + boto3, GCP project + ADC, Azure
+    resource + Entra ID), not a couple of flags; use the Python API's
+    ``AnthropicClient(client=...)`` for those instead."""
+    if args.vlm_provider != "openai" and (
+        args.vlm_base_url is not None or args.vlm_image_format != "dict"
+    ):
+        parser.error("--vlm-base-url/--vlm-image-format require --vlm-provider openai")
+    if args.vlm_provider == "openrouter":
+        return None
+    api_key = Path(args.vlm_api_key_file).read_text().strip() if args.vlm_api_key_file else None
+    if args.vlm_provider == "openai":
+        from .vlm.client import OpenAIClient
+
+        return OpenAIClient(
+            api_key=api_key, base_url=args.vlm_base_url, image_content_format=args.vlm_image_format
+        )
+    from .vlm.client import AnthropicClient
+
+    return AnthropicClient(api_key=api_key)
+
+
 def _build_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Config:
     """One ``Config`` built from every VLM-related flag, shared across every
     source (including batch mode). Optional-kwargs-dict pattern, not
@@ -189,6 +257,11 @@ def _build_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     ``kwargs``, so ``Config``'s own dataclass defaults apply unchanged —
     duplicating them here (e.g. ``args.vlm_judge_mode or "panel"``) would
     silently drift the moment ``Config``'s default changes."""
+    if args.vlm and args.vlm_provider != "openrouter" and args.vlm_model is None:
+        parser.error(
+            f"--vlm-model is required when --vlm-provider is {args.vlm_provider!r} "
+            "(no calibrated default outside openrouter)"
+        )
     kwargs: dict[str, Any] = {"strict": args.strict}
     if args.vlm:
         kwargs["use_vlm"] = True
@@ -198,6 +271,18 @@ def _build_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         kwargs["vlm_model"] = args.vlm_model
     if args.vlm_judge_mode is not None:
         kwargs["vlm_judge_mode"] = args.vlm_judge_mode
+    if args.vlm:
+        # Provider/key-file resolution only matters when VLM is actually
+        # enabled — otherwise --vlm-provider openai with no --vlm would
+        # needlessly demand refigure[vlm-direct] for a client that's never
+        # used (see extras-isolation coverage: `--vlm --vlm-provider
+        # openai` is the pairing that's expected to require it, not
+        # --vlm-provider alone).
+        vlm_client = _resolve_vlm_client(args, parser)
+        if vlm_client is not None:
+            kwargs["vlm_client"] = vlm_client
+        elif args.vlm_api_key_file is not None:
+            kwargs["vlm_api_key"] = Path(args.vlm_api_key_file).read_text().strip()
     return Config(**kwargs)
 
 
