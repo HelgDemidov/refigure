@@ -69,6 +69,15 @@ print(result.markdown)
 print(f"{result.charts_found} charts, {result.groups_found} composite figures")
 ```
 
+Optional VLM interpretation, for a composite figure the chart engine can't
+reconstruct on its own (see Features below):
+
+```bash
+pip install "refigure[docx,vlm]"
+export OPENROUTER_API_KEY=...                 # or --vlm-api-key-file/--vlm-provider
+refigure report.docx --vlm                    # needs the system soffice/LibreOffice binary too
+```
+
 ## Features
 
 - **Native chart-data extraction** — reads OOXML `numCache`/`strCache`
@@ -78,10 +87,14 @@ print(f"{result.charts_found} charts, {result.groups_found} composite figures")
   disconnected pieces get a clean marker instead, with position and any
   caption text preserved. Absent even in well-funded incumbents — see
   [Docling issue #1287](https://github.com/docling-project/docling/issues/1287).
-- **Optional VLM interpretation** (DOCX composite figures, `[vlm]` extra) —
-  cloud description + mermaid diagram on top of the zero-loss floor.
-  Implemented and tested, but not active or announced as a v1 feature yet
-  (see Status).
+- **Optional VLM interpretation** (DOCX composite figures, `[vlm]` extra,
+  `--vlm`/`Config(use_vlm=True)`) — cloud description + mermaid diagram on
+  top of the zero-loss floor, for figures with no native chart data at all
+  (e.g. a dashboard screenshot). Provider-agnostic — OpenRouter by default,
+  or direct OpenAI/Ollama/vLLM/LM Studio/Anthropic via `--vlm-provider`
+  (`[vlm-direct]` extra). `--strict` upgrades one specific failure (the
+  system `soffice`/LibreOffice binary missing) from a graceful skip to a
+  hard error; every other VLM failure still degrades.
 - **Rich, typed result** — `ConversionResult` (markdown + warnings +
   chart/group counts + `vlm_used`), not a bare string.
 - **CLI included** — `refigure` console command, stdin/stdout-first, native
@@ -131,6 +144,7 @@ and attribution.
 | `swd2018-254-marine-litter-ia-annex.docx` | combo: 1 chart (table-only — real verify+fallback in action, not every chart maps to mermaid) + 2 composite-figure zero-loss markers | [examples/swd2018-combo.md](examples/swd2018-combo.md) |
 | `govtech-2025-charts.xlsx` | XLSX at scale — 55 charts, 33 render as mermaid diagrams | [examples/govtech-xlsx-charts.md](examples/govtech-xlsx-charts.md) |
 | `swd2021-396-platform-work-ia.docx` | native pie chart — real EU-survey labels, all 8 charts render (3 as mermaid) | [examples/swd2021-pie-chart.md](examples/swd2021-pie-chart.md) |
+| `efsa-trichinella-dashboard-guide.docx` | `--vlm` interpretation — 27 figures with no native chart data, real numbers recovered from screenshots | [examples/efsa-trichinella-vlm.md](examples/efsa-trichinella-vlm.md) |
 
 Open any of these on GitHub and both views are right there: the raw
 ```` ```mermaid ```` fence an LLM/RAG pipeline would read, and its native
@@ -138,22 +152,21 @@ GitHub rendering — no extra step, that's GitHub's own Markdown support.
 
 ## Status
 
-Pre-release. Tested against 27 real documents (15 DOCX + 12 XLSX) — 407
-native charts found (400 rendered), 35 composite figures recovered as
-positioned zero-loss markers — see
+Published on PyPI as `refigure`. Tested against 27 real documents (15 DOCX +
+12 XLSX) — 407 native charts found (400 rendered), 35 composite figures
+recovered as positioned zero-loss markers — see
 [`tests/integration/fixtures/manifest.yaml`](tests/integration/fixtures/manifest.yaml)
 for provenance, licenses and attribution. CI gates on a combined
 unit+integration test-coverage floor of 95%.
 
-The converters are being extracted from a working document-analysis
-pipeline (government AI-policy corpus); first public release planned for
-**August 2026** as a single package with per-format extras (`[docx]` /
-`[xlsx]`). A `[vlm]` extra also exists (DOCX-only cloud interpretation of
-composite figures the chart engine can't reconstruct,
-`Config(use_vlm=True)`, provider-agnostic — also needs the system
-`soffice`/LibreOffice binary, not installable via pip) — implemented and
-tested, but **not active or announced as a v1 feature yet**; no CLI flag
-exposes it.
+The converters were extracted from a working document-analysis pipeline
+(government AI-policy corpus) into a single package with per-format extras
+(`[docx]` / `[xlsx]`). VLM interpretation of composite figures the chart
+engine can't reconstruct (`[vlm]` extra, `Config(use_vlm=True)`,
+provider-agnostic — direct OpenAI/Anthropic via `[vlm-direct]`, also needs
+the system `soffice`/LibreOffice binary, not installable via pip) is fully
+implemented, tested, and exposed through the `refigure` CLI (`--vlm` and
+friends — see CLI above and Quickstart).
 
 **PDF is out of scope, on purpose — a boundary, not a gap.** PDF has no
 equivalent of OOXML's cached chart data (`numCache`/`strCache`) for any
@@ -178,11 +191,8 @@ else:
     markdown = refigure.xlsx.convert(path).markdown
 ```
 
-`v0.1.0` is packaged, CI-verified and ready — trusted publishing
-(GitHub↔PyPI, no stored tokens) is configured on both ends; publication
-itself is a separate, deliberate step not yet taken. Until then, PyPI
-name `refigure` still shows its `0.0.0` placeholder. `refigure-md` is a
-reserved alternate name, not an active release.
+`v0.1.0` published via trusted publishing (GitHub↔PyPI, no stored tokens).
+`refigure-md` is a reserved alternate name, not an active release.
 
 ## License
 
