@@ -113,19 +113,21 @@ per-fixture таблицам `test_docx_corpus.py`/`test_xlsx_corpus.py`, не
 
 ## Чек-лист реализации
 
-- [ ] Прогнать 4 кандидата через `refigure.docx.convert()`, зафиксировать
+- [x] Прогнать 4 кандидата через `refigure.docx.convert()`, зафиксировать
       charts_found/rendered + встретившиеся mermaid-типы + сложность
       лучшего единичного чарта
-- [ ] Выбрать победителя, задокументировать обоснование
-- [ ] Написать `gen_demo_asset_docx_chart.py`, сгенерировать SVG
+- [x] Выбрать победителя, задокументировать обоснование
+- [x] Написать `gen_demo_asset_docx_chart.py`, сгенерировать SVG
       (light+dark), с live-assertions на реальный `convert()`-вывод
-- [ ] Обновить README.md Demo-секцию (новый `<picture>`-блок между
+- [x] Обновить README.md Demo-секцию (новый `<picture>`-блок между
       xlsx happy path и docx fallback)
-- [ ] Если победитель не hackair: добавить `examples/` запись + тест +
+- [x] Если победитель не hackair: добавить `examples/` запись + тест +
       строку в README «Real examples»
-- [ ] Прогнать `test_corpus_totals.py` и `test_readme_examples.py` —
+- [x] Прогнать `test_corpus_totals.py` и `test_readme_examples.py` —
       подтвердить зелёные
-- [ ] Ручная QA: light/dark рендер на GitHub
+- [x] Ручная QA: light/dark рендер на GitHub (проверено через реальный
+      браузер, Chrome DevTools MCP — оба SVG, обе темы, живые
+      скриншоты, не LibreOffice-конвертация)
 - [ ] Обновить CLAUDE.md статус (Memory/doc update convention — заменить,
       не дописывать)
 
