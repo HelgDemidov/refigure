@@ -42,6 +42,15 @@ open >1 year):
   <img src="docs/assets/demo-groups-light.svg" alt="A real docx composite figure (a grouped diagram refigure.docx.convert() can't render) converted into a positioned zero-loss marker that keeps the figure's own caption/legend text">
 </picture>
 
+**Optional VLM interpretation** — for a figure with no native chart data at
+all (a dashboard screenshot, not an OOXML chart part), `--vlm` reads the
+pixels and recovers the real numbers on top of the zero-loss marker floor:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-vlm-dark.svg">
+  <img src="docs/assets/demo-vlm-light.svg" alt="A real docx composite figure (a dashboard screenshot with no native chart data) converted by refigure.docx.convert(use_vlm=True) first into a bare zero-loss marker, then into a rich VLM-generated description with the real transcribed numbers">
+</picture>
+
 ## Quickstart
 
 ```bash
