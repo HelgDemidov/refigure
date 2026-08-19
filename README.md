@@ -144,8 +144,33 @@ composite figures the chart engine can't reconstruct,
 `Config(use_vlm=True)`, provider-agnostic — also needs the system
 `soffice`/LibreOffice binary, not installable via pip) — implemented and
 tested, but **not active or announced as a v1 feature yet**; no CLI flag
-exposes it. PDF is out of scope for this project (see
-[`docs/project-meta/converter-viability-assessment/converter-viability-assessment-2026-08-04.md`](docs/project-meta/converter-viability-assessment/converter-viability-assessment-2026-08-04.md)).
+exposes it.
+
+**PDF is out of scope, on purpose — a boundary, not a gap.** PDF has no
+equivalent of OOXML's cached chart data (`numCache`/`strCache`) for any
+mainstream chart generator, so the native, rasterize-free extraction
+this project is built on doesn't transfer to it — confirmed by research,
+not assumed (see
+[`converter-viability-assessment-2026-08-04.md`](docs/project-meta/converter-viability-assessment/converter-viability-assessment-2026-08-04.md)
++ its
+[2026-08-19 addendum](docs/project-meta/converter-viability-assessment/converter-viability-assessment-2026-08-19.md)).
+For mixed-format corpora, route by extension instead of expecting one
+tool to cover everything —
+[Docling](https://github.com/docling-project/docling) or
+[MarkItDown](https://github.com/microsoft/markitdown) for PDF, refigure
+for DOCX/XLSX where the chart data actually survives in the file:
+
+```python
+import refigure.docx
+import refigure.xlsx
+
+if path.suffix == ".pdf":
+    markdown = docling_convert(path)      # or any PDF-capable converter
+elif path.suffix == ".docx":
+    markdown = refigure.docx.convert(path).markdown
+else:
+    markdown = refigure.xlsx.convert(path).markdown
+```
 
 `v0.1.0` is packaged, CI-verified and ready — trusted publishing
 (GitHub↔PyPI, no stored tokens) is configured on both ends; publication
