@@ -1,0 +1,41 @@
+version: 2
+updates:
+  # Python dependencies — reads pyproject.toml (core deps + docx/xlsx/vlm/
+  # vlm-direct extras) and requirements.txt/requirements-dev.txt (exact pins
+  # for local dev, per README/CLAUDE.md "Dev environment") from repo root.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    groups:
+      # Routine patch/minor bumps land as one PR instead of one-per-package.
+      # Majors are excluded so each still gets its own PR and explicit review
+      # — several deps here are intentionally capped below their next major
+      # in pyproject.toml (e.g. openai<3, pdfplumber<0.12), and a major bump
+      # needs a conscious pyproject.toml range change, not an auto-merge.
+      python-patch-minor:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Actions used in ci.yml/publish.yml. Some are SHA-pinned, not tag-pinned
+  # (trivy-action, pypa/gh-action-pypi-publish — see CLAUDE.md "Dev
+  # environment": trivy-action itself had a real supply-chain compromise
+  # 2026-03-19/20 across every 0.0.1-0.34.2 tag). Dependabot updates the SHA
+  # and its trailing version comment together, so this doesn't quietly
+  # regress SHA-pinning back to tag-pinning.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    groups:
+      actions-patch-minor:
+        update-types:
+          - "minor"
+          - "patch"
