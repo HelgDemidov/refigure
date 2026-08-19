@@ -1,6 +1,6 @@
 """VLM interpretation of composite DOCX figures (stage 4b), gated behind
-``Config.use_vlm`` — not active/announced in v1
-(``docs/project-meta/v1-scope-and-api-design/v1-scope-and-api-design-2026-08-04.md`` §1/§4).
+``Config.use_vlm`` — implemented and tested, but deliberately not
+active/announced as a v1 feature.
 
 Scope is hard-limited to DOCX: XLSX has no VLM path at all (its native
 charts resolve data-driven, at conversion time — an unreadable chart stays
@@ -83,8 +83,7 @@ logger = logging.getLogger(__name__)
 BBox = tuple[float, float, float, float]
 
 # --- marker grammar: docx-only (mirrors docx.py's/docx/groups.py's own marker
-# text exactly — verified 2026-08-05 by running both against a live fixture,
-# see docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md §2) -----------------------------------
+# text exactly — verified 2026-08-05 by running both against a live fixture) --
 
 _DOCX_IMAGE_MARKER_RE = re.compile(
     r"^> \[Image, docx media (?P<id>[0-9a-f]{12}) — raster content not analyzed\]$",
@@ -350,8 +349,7 @@ def witness_defects(witness: str, markdown: str, obj_id: str, *, min_recall: flo
     non-English source document, a low recall here can mean "didn't
     translate the caption's terms into English," not "got the figure
     wrong" — confirmed empirically across two rounds of this stage's A/B
-    calibration (see ``Config.vlm_witness_min_recall``'s docstring and
-    ``docs/vlm/vlm-model-calibration/vlm-model-calibration-2026-08-05.md``).
+    calibration (see ``Config.vlm_witness_min_recall``'s docstring).
     ``judge_defects``'s ``language``/``hallucination`` questions check
     against the image itself, not a caption witness, and so carry no such
     blindness — enable ``Config.vlm_verify`` for multi-lingual documents

@@ -101,9 +101,8 @@ class Config:
     false positives on clean responses and non-deterministic verdicts on
     repeat calls. ``vlm_judge_mode``/``vlm_judge_model``/``vlm_judge_panel``
     below control WHICH model(s) judge instead — never the generating
-    model alone. See
-    ``docs/vlm/vlm-model-calibration/judge-defects-validation-2026-08-06.md``
-    for the full data.
+    model alone. Full data lives in the project's internal research notes,
+    not this public repo.
 
     How many calls this adds depends on ``vlm_judge_mode``: 1 in ``"solo"``
     mode, 2 in ``"panel"`` mode (the default) — see below. Off by default:
@@ -113,8 +112,8 @@ class Config:
     entry already carries a verdict from a previous ``vlm_verify`` run
     (cache-hit stays offline either way). Full rationale — including the
     language-blindness gap in the free ``vlm_witness_min_recall`` path
-    below that this complements —
-    ``docs/vlm/witness-gate-redesign/witness-gate-redesign-2026-08-05.md``."""
+    below that this complements — lives in the project's internal
+    research notes, not this public repo."""
 
     vlm_judge_mode: Literal["solo", "panel"] = "panel"
     """Which of ``vlm_judge_model``/``vlm_judge_panel`` below decides who
@@ -132,9 +131,8 @@ class Config:
     design is signal-not-failure (``ConversionResult.warnings``, never a
     hard fail) — a false positive costs one extra warning line, a missed
     real defect is unrecoverable once the document ships, so the gate
-    optimizes for recall, not for silence. Full comparison table:
-    ``docs/vlm/vlm-model-calibration/judge-defects-validation-2026-08-06.md``
-    §3-bis/§6."""
+    optimizes for recall, not for silence. Full comparison table lives in
+    the project's internal research notes, not this public repo."""
 
     vlm_judge_model: str = "anthropic/claude-haiku-4.5"
     """Judge model used when ``vlm_judge_mode="solo"``. Any OpenRouter model
@@ -148,8 +146,7 @@ class Config:
     OpenRouter slug, meaningless if ``vlm_client`` is an ``AnthropicClient``
     (bare dated ID, e.g. ``"claude-haiku-4-5-20251001"``) or an
     ``OpenAIClient`` pointed at a non-OpenRouter endpoint — refigure does
-    NOT canonicalize model IDs across clients, see
-    ``docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md`` §2."""
+    NOT canonicalize model IDs across clients."""
 
     vlm_judge_panel: tuple[str, str] = (
         "google/gemini-3-flash-preview",
@@ -192,8 +189,8 @@ class Config:
     non-English source documents this model tends to leave transcribed
     labels untranslated despite the prompt's "Output in English"
     instruction — a prompt-engineering fix, not a reason to switch models.
-    Full comparison:
-    ``docs/vlm/vlm-model-calibration/vlm-model-calibration-2026-08-05.md``."""
+    Full comparison lives in the project's internal research notes, not
+    this public repo."""
 
     vlm_api_key: str | None = field(default=None, repr=False)
     """API key for the default ``OpenRouterClient``. Falls back to the
@@ -224,17 +221,17 @@ class Config:
     group's own captions against its VLM description before
     ``vlm.witness_defects`` flags it. NOT empirically re-derived, across
     TWO rounds of this stage's A/B calibration, 2026-08-05, for two
-    independent reasons documented in ``docs/vlm/vlm-model-calibration/
-    vlm-model-calibration-2026-08-05.md``: (1) on English-caption content (the entire committed
-    corpus) recall is a trivial 1.00 regardless of response quality — no
-    separation signal exists; (2) on multi-lingual content (round 2, added
-    after a review found round 1 too thin), recall DOES vary, but the
-    variation tracks which models translate transcribed labels into
-    English, not which models are factually accurate — calibrating against
-    that signal would tune the gate to penalize language choice, not real
-    errors. 0.80 is kept as a plausible default, not imported from
-    unrelated literature thresholds either (see ``docs/vlm/vlm-layer-port/
-    vlm-layer-port-2026-08-05.md`` §5's research). The manually-confirmed real defect
+    independent reasons (full write-up in the project's internal research
+    notes, not this public repo): (1) on English-caption content (the
+    entire committed corpus) recall is a trivial 1.00 regardless of
+    response quality — no separation signal exists; (2) on multi-lingual
+    content (round 2, added after a review found round 1 too thin), recall
+    DOES vary, but the variation tracks which models translate transcribed
+    labels into English, not which models are factually accurate —
+    calibrating against that signal would tune the gate to penalize
+    language choice, not real errors. 0.80 is kept as a plausible default,
+    not imported from unrelated literature thresholds either (own
+    research, not this public repo). The manually-confirmed real defect
     classes (inappropriate mermaid fabrication, minor semantic drift) are
     NOT caught by this recall-only mechanism at all — a known, documented
     blind spot, not something this threshold value can fix.

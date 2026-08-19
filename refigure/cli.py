@@ -1,5 +1,7 @@
 """``refigure`` console command — thin wrapper over ``refigure.docx.convert()``/
-``refigure.xlsx.convert()``. Design rationale: ``docs/cli/cli-wrapper/cli-wrapper-2026-08-05.md``.
+``refigure.xlsx.convert()``. A thin argparse layer was a deliberate choice,
+not the default: MarkItDown/Docling/marker all ship a CLI, so this is the
+category baseline, not optional.
 
 Format isolation extends to the CLI: this module must not import
 ``refigure.docx``/``refigure.xlsx`` at module level. A bare (or single-extra)

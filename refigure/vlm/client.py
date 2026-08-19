@@ -8,8 +8,7 @@ design; a caller can also supply any other ``VlmClient`` entirely to
 
 ``chat_request``/``InbandError``/``RETRY_SCHEDULE`` are a near-verbatim port
 of the source pipeline's ``core/openrouter.py`` (confirmed fully
-synchronous by reading it, not assumed — see ``docs/project-meta/
-v1-scope-and-api-design/v1-scope-and-api-design-2026-08-04.md`` §3): the
+synchronous by reading it, not assumed): the
 retry/error-classification logic itself needs no redesign, only the
 payload-building layer around it (previously ``figures_vlm.py``'s
 ``_build_payload``/``_call_vlm_uri``) is new, folded into
@@ -27,8 +26,7 @@ level — not a departure from the optional-dependency pattern's intent
 (typed ``MissingOptionalDependencyError``, not a bare ``ImportError``),
 just applied per-class instead of per-module, because this one module now
 hosts multiple independent capabilities with different dependencies rather
-than one capability per module. See
-``docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md`` §4.
+than one capability per module.
 """
 
 from __future__ import annotations
@@ -162,8 +160,7 @@ class OpenAIClient:
     """``VlmClient`` for direct OpenAI or any OpenAI-compatible endpoint,
     via the official ``openai`` package (not a hand-rolled ``urllib`` call
     like ``OpenRouterClient`` above — the SDK gives typed requests + its
-    own retry for a modest, well-audited dependency, see
-    ``docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md`` §1).
+    own retry for a modest, well-audited dependency).
 
     ``base_url`` covers more than "direct OpenAI": Ollama/vLLM/LM Studio
     all speak the same ``/v1/chat/completions`` dialect (confirmed live
@@ -249,10 +246,8 @@ class AnthropicClient:
     """``VlmClient`` for direct Anthropic, via the official ``anthropic``
     package. The Messages API is structurally different from the OpenAI-
     compatible dialect ``OpenRouterClient``/``OpenAIClient`` speak, not a
-    variation of it — see
-    ``docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md`` §2 for
-    the full comparison (endpoint, headers, image content-block shape,
-    response shape).
+    variation of it (endpoint, headers, image content-block shape, response
+    shape all differ).
 
     ``client=`` accepts an already-constructed anthropic-family client
     instead of a bare ``api_key`` — ``anthropic.AnthropicBedrock(...)``/
@@ -278,8 +273,7 @@ class AnthropicClient:
     Recipes (illustrative model IDs only — not validated against each
     platform's live catalog, and NOT kept in sync as models get
     deprecated/retired; that lifecycle is each platform's own job, not
-    refigure's, see ``docs/vlm/vlm-direct-clients/
-    vlm-direct-clients-2026-08-06.md``'s "Вне скоупа"). Each needs its own
+    refigure's). Each needs its own
     extra dependency beyond base ``anthropic`` except Foundry — see
     ``tests/integration/test_anthropic_{bedrock,vertex,foundry}_live.py``
     for a runnable, opt-in-gated version of each::

@@ -45,10 +45,19 @@ Thumbs.db
 !.claude/settings.json
 CLAUDE.local.md
 
-# Real-document integration test fixtures (2026-08-05,
-# docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md §4): 26/27 are checked in — clean,
-# well-documented redistribution licenses (see ATTRIBUTION.md +
-# tests/integration/fixtures/manifest.yaml). Exactly one stays gitignored:
-# authorship risk (not license risk), explicitly accepted 2026-08-04, see
-# that file's manifest.yaml note.
+# Project docs/memory — local-only as of 2026-08-19 (reversed from the
+# earlier "docs/ is deliberately tracked, not scratch space" decision).
+# docs/assets/ is the one exception: those files are real published
+# assets the public README embeds directly (demo hero SVGs + the
+# shields.io coverage-badge endpoint the coverage CI job commits to), not
+# documentation, so they stay tracked.
+docs/*
+!docs/assets/
+CLAUDE.md
+
+# Real-document integration test fixtures (2026-08-05): 26/27 are checked
+# in — clean, well-documented redistribution licenses (see ATTRIBUTION.md
+# + tests/integration/fixtures/manifest.yaml). Exactly one stays
+# gitignored: authorship risk (not license risk), explicitly accepted
+# 2026-08-04, see that file's manifest.yaml note.
 tests/integration/fixtures/docx/iot-report-2022-national-strategies-excerpt.docx
