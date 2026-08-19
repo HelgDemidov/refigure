@@ -24,6 +24,14 @@ not OCR:
   <img src="docs/assets/demo-light.svg" alt="A real xlsx bar chart converted by refigure.xlsx.convert() into Markdown, shown both as the raw text an LLM reads and as the same data re-rendered as a diagram">
 </picture>
 
+**Same extraction, from DOCX** — Word embeds native charts too, not just
+Excel; refigure reads the same cached OOXML data either way:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-docx-chart-dark.svg">
+  <img src="docs/assets/demo-docx-chart-light.svg" alt="A real docx pie chart from an EU labour-platform survey converted by refigure.docx.convert() into Markdown, shown both as the raw text an LLM reads (mermaid fence + data table) and as the same data re-rendered as a diagram">
+</picture>
+
 **Composite figures** — positioned, zero-loss, even when the figure itself
 can't be rendered (no incumbent does this — see
 [Docling issue #1287](https://github.com/docling-project/docling/issues/1287),
@@ -113,6 +121,7 @@ and attribution.
 | `hackair-d7.7-pilot-evaluation.docx` | native chart extraction — 8 charts, 6 render as mermaid diagrams | [examples/hackair-native-charts.md](examples/hackair-native-charts.md) |
 | `swd2018-254-marine-litter-ia-annex.docx` | combo: 1 chart (table-only — real verify+fallback in action, not every chart maps to mermaid) + 2 composite-figure zero-loss markers | [examples/swd2018-combo.md](examples/swd2018-combo.md) |
 | `govtech-2025-charts.xlsx` | XLSX at scale — 55 charts, 33 render as mermaid diagrams | [examples/govtech-xlsx-charts.md](examples/govtech-xlsx-charts.md) |
+| `swd2021-396-platform-work-ia.docx` | native pie chart — real EU-survey labels, all 8 charts render (3 as mermaid) | [examples/swd2021-pie-chart.md](examples/swd2021-pie-chart.md) |
 
 Open any of these on GitHub and both views are right there: the raw
 ```` ```mermaid ```` fence an LLM/RAG pipeline would read, and its native

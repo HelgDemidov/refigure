@@ -30,10 +30,13 @@ _HEADER_END_MARKER = "-->\n\n"
 
 # (example filename, source fmt, source fixture filename) — mirrors the
 # table in docs/readme/readme-and-demo/readme-and-demo-2026-08-06.md §4.
+# swd2021-pie-chart.md added by docs/readme/docx-chart-demo/
+# docx-chart-demo-2026-08-19.md §4 (docx pie chart, README Demo hero).
 _EXAMPLES = [
     ("hackair-native-charts.md", "docx", "hackair-d7.7-pilot-evaluation.docx"),
     ("swd2018-combo.md", "docx", "swd2018-254-marine-litter-ia-annex.docx"),
     ("govtech-xlsx-charts.md", "xlsx", "govtech-2025-charts.xlsx"),
+    ("swd2021-pie-chart.md", "docx", "swd2021-396-platform-work-ia.docx"),
 ]
 
 

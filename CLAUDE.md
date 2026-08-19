@@ -168,6 +168,31 @@ committed, tagged) — only `git push origin v0.1.0` remains, deliberately
 left as a separate, explicit, user-triggered action (irreversible: PyPI
 never allows reusing a version number, even after a `yank`).
 
+**Post-v0.1.0-prep, pre-publish (2026-08-19)**: README Demo section gained
+a third hero graphic — DOCX native-chart happy path (the section had xlsx
+happy path + docx composite-figure fallback, but no docx happy path).
+Spec `docs/readme/docx-chart-demo/docx-chart-demo-2026-08-19.md`. Source
+picked empirically in two rounds, not by `manifest.yaml` chart-part counts
+alone: round 1's raw-count winner (`ukri-user-behaviour-survey.docx`,
+44/44 charts → mermaid) was rejected in round 2 after actually rendering
+its richest chart — mermaid's `xychart-beta` has no grouped-bar support
+(overlay only, confirmed in `refigure/core/chart_data.py`'s own comment),
+so 4 series occluded each other instead of showing a clean comparison;
+`swd2021-396-platform-work-ia.docx`'s pie chart won instead (a
+fundamentally different, non-overlapping mermaid construct). New
+`scripts/gen_demo_asset_docx_chart.py` (third sibling of
+`gen_demo_asset.py`/`gen_demo_asset_groups.py`); new
+`examples/swd2021-pie-chart.md` + `test_readme_examples.py` entry (the
+winning fixture had no prior `examples/` entry, unlike `hackair`).
+Pie slice palette built with the `dataviz` skill's method (six-check
+validator, not eyeballed) after live user feedback that a first
+hand-picked set read as dull — confirmed by the validator itself: the
+demo family's own `#1E7A6E` teal fails the chroma floor once it has to
+hold its own against 4 other simultaneous categorical hues (unlike the
+other 2 demos, where teal/blue each lead alone, never competing).
+Harmonizes with, but isn't byte-identical to, the other 2 demos' teal/blue
+anchors — restepped just enough to pass the checks.
+
 ## Dev environment
 `pyproject.toml` (extras `[docx]`/`[xlsx]`/`[vlm]`/`[vlm-direct]`,
 `refigure` console script, ruff/mypy/pytest config) +
