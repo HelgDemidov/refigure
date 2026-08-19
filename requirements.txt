@@ -1,10 +1,10 @@
 # Runtime dependencies for local development (superset of the published
 # extras in pyproject.toml — installs everything needed to work on every
 # format path at once). Install: uv pip install -r requirements.txt
-lxml==6.1.1         # core chart engine (chart_data.py/chart_render.py) — always required
-mammoth==1.12.0     # DOCX -> HTML (refigure/docx.py), [docx] extra
+lxml==6.1.2         # core chart engine (chart_data.py/chart_render.py) — always required
+mammoth==1.12.1     # DOCX -> HTML (refigure/docx.py), [docx] extra
 markdownify==1.2.3  # HTML -> Markdown (refigure/docx.py), [docx] extra
 openpyxl==3.1.5     # XLSX read + chart access (refigure/xlsx.py), [xlsx] extra
 pdfplumber==0.11.10  # docx-group soffice-render crop (refigure/vlm.py), [vlm] extra
 openai==2.53.0      # OpenAIClient (refigure/vlm/client.py), [vlm-direct] extra
-anthropic==0.120.2  # AnthropicClient (refigure/vlm/client.py), [vlm-direct] extra
+anthropic==0.122.0  # AnthropicClient (refigure/vlm/client.py), [vlm-direct] extra

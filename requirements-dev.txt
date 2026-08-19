@@ -4,14 +4,14 @@
 #   mypy refigure
 #   pytest --cov --cov-report=term-missing
 -r requirements.txt
-ruff==0.15.22
-mypy==2.3.0
+ruff==0.16.3
+mypy==2.3.1
 pytest==9.1.1
 pytest-cov==7.1.0
-types-openpyxl==3.1.5.20260724
+types-openpyxl==3.1.5.20260807
 # mermaidx — optional render-validation layer inside chart_render.py (try/except
 # ImportError + capability flag, not a pip extra — same pattern already proven
 # in the source pipeline). Installed here so the dev/test environment covers that code path;
 # NOT declared as a hard dependency of any published extra.
 mermaidx==0.9.4
-hypothesis==6.163.0
+hypothesis==6.165.10
