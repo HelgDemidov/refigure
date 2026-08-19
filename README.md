@@ -24,6 +24,14 @@ not OCR:
   <img src="docs/assets/demo-light.svg" alt="A real xlsx bar chart converted by refigure.xlsx.convert() into Markdown, shown both as the raw text an LLM reads and as the same data re-rendered as a diagram">
 </picture>
 
+**Same extraction, from DOCX** — Word embeds native charts too, not just
+Excel; refigure reads the same cached OOXML data either way:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-docx-chart-dark.svg">
+  <img src="docs/assets/demo-docx-chart-light.svg" alt="A real docx pie chart from an EU labour-platform survey converted by refigure.docx.convert() into Markdown, shown both as the raw text an LLM reads (mermaid fence + data table) and as the same data re-rendered as a diagram">
+</picture>
+
 **Composite figures** — positioned, zero-loss, even when the figure itself
 can't be rendered (no incumbent does this — see
 [Docling issue #1287](https://github.com/docling-project/docling/issues/1287),
