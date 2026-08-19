@@ -8,7 +8,7 @@ Recurring, not a one-off: bring every checkable claim in `CLAUDE.md` and the mem
 
 This is an audit of **truth, not completeness** — do NOT add new facts (that's `/post-merge-sync`'s job), only fix stale/false claims and flag unverifiable ones. The evidence discipline below is mandatory because fact-checking by hand at this volume is impossible.
 
-Paths: memory at the harness-provided project memory directory (the session states the resolved path — never hard-code one, it differs per machine/checkout). Audit working files at `.claude/memory-sync/` (worklist, last-run record, backup archive) — created on first run; its absence means no audit has ever happened. This lives under `.claude/`, not `docs/`, because `docs/` is tracked/public here (`CLAUDE.md` §Working language) and these are ephemeral run artifacts, not project documentation — `.gitignore`'s `.claude/*` rule keeps it untracked automatically.
+Paths: memory at the harness-provided project memory directory (the session states the resolved path — never hard-code one, it differs per machine/checkout). Audit working files at `.claude/memory-sync/` (worklist, last-run record, backup archive) — created on first run; its absence means no audit has ever happened. This lives under `.claude/`, not `docs/`, because these are ephemeral, machine-tied run artifacts (worklist/backup churn on every run), not project documentation, even though `docs/` is itself gitignored/local-only too now (2026-08-19) and wouldn't leak them publicly either — `.gitignore`'s `.claude/*` rule keeps this specific state untracked the same way.
 
 ## 1. Sources of truth (descending priority)
 
@@ -74,7 +74,7 @@ Sync direction is one-way: **code → memory.** Never "fix" code or tests to mat
 
 **Phase D — cross-consistency:** (1) every `[[cross-link]]` resolves to an existing entry — a broken link is a flag, not a deletion; (2) `MEMORY.md` matches the actual file contents; (3) entry contradictions resolved by rule C5.
 
-**Phase E — wrap-up:** (1) compose the summary directly in the reply — N checked, M fixed with evidence pairs, plus unresolved/warning/compression-candidate lists; (2) show the user that summary and the `CLAUDE.md` diff; (3) on confirmation, commit ONLY `CLAUDE.md` — memory is never committed (it lives outside the repo); (4) write the last-run record (date + current `main` commit); (5) do not delete the backup — rotation in Phase 0 is the only size control, it stays until the next run. Leave the worklist as-is for the next run to overwrite. The final reply IS the durable record — no on-disk duplicate.
+**Phase E — wrap-up:** (1) compose the summary directly in the reply — N checked, M fixed with evidence pairs, plus unresolved/warning/compression-candidate lists; (2) show the user that summary and the `CLAUDE.md` diff — `git diff CLAUDE.md` no longer works for this (gitignored, untracked), so snapshot the pre-edit content (e.g. `cp CLAUDE.md /tmp/claude-md-before-memory-sync`) before Phase A's edits and run a plain `diff -u` against that snapshot here instead; (3) on confirmation, apply the edits to `CLAUDE.md` on disk — do NOT `git add`/commit it, `CLAUDE.md` is gitignored (2026-08-19) same as memory now, both are local-only artifacts edited in place, never staged; (4) write the last-run record (date + current `main` commit); (5) do not delete the backup — rotation in Phase 0 is the only size control, it stays until the next run. Leave the worklist as-is for the next run to overwrite. The final reply IS the durable record — no on-disk duplicate.
 
 ## 6. Environment constraints
 
@@ -87,4 +87,4 @@ Adding new facts; restructuring `CLAUDE.md`; verifying external references; edit
 
 ## 8. Definition of done
 
-Every worklist item closed or explicitly flagged with an inline reason; `CLAUDE.md` committed after confirmation; the last-run record written; the reply carries the full summary with evidence pairs and the flagged list. The backup stays on disk per the rotation rule.
+Every worklist item closed or explicitly flagged with an inline reason; `CLAUDE.md` edited on disk after confirmation (not committed — gitignored, local-only); the last-run record written; the reply carries the full summary with evidence pairs and the flagged list. The backup stays on disk per the rotation rule.

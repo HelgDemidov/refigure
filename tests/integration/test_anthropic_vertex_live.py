@@ -1,6 +1,5 @@
 """Live opt-in integration test for ``AnthropicClient`` via Google Cloud's
-Agent Platform (Vertex) — see
-docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md §3.
+Agent Platform (Vertex).
 
 Proves plumbing, not accuracy — see test_anthropic_bedrock_live.py's
 module docstring for the full rationale (same discipline, same NOT-in-CI

@@ -10,13 +10,15 @@ If invoked with an argument (slug, branch name, or path), use that spec directly
 
 Otherwise scan `docs/**/*.md` (recursive — specs live under a `docs/<category>/<slug>/` subdirectory, not flat, since 2026-08-05) for specs that are BOTH: missing a `## Статус выполнения` section, AND whose declared branch (the `**Ветка:**` line) still exists — local or `origin/` — and isn't merged into `main`. The `**Ветка:**` line is what distinguishes an actual spec from a general design doc (like `docs/project-meta/v1-scope-and-api-design/v1-scope-and-api-design-2026-08-04.md`), which has none. This two-signal check avoids false positives on old completed specs whose status section was never backfilled.
 
+This is a plain filesystem scan (unaffected by `docs/` being gitignored — untracked files are still on disk), but it only ever finds specs written by `/tech-spec` in THIS local checkout: since 2026-08-19 the spec file itself is never committed or pushed, so a spec drafted on a different machine, or before a fresh clone, simply isn't there to find.
+
 - Zero matches → report nothing pending, stop.
 - One match → proceed with it.
 - Multiple matches → ask the user which one (AskUserQuestion) — don't guess.
 
 ## Step 2 — Enter the branch
 
-`git fetch origin`, then check out the spec's branch locally (create a local tracking branch from `origin/<branch>` if none exists yet). Confirm it's pushed to `origin` — push if it somehow isn't (normally `/tech-spec` Step 7 already did this; this is just a safety net for resuming in a fresh session).
+`git fetch origin`, then check out the spec's branch locally. `/tech-spec` Step 7 creates this branch but deliberately does NOT push it (no commit exists yet to push) — expect a local-only branch here, not an `origin/<branch>` to track. It gets pushed for the first time as part of Step 4/5 below, once real work lands on it.
 
 ## Step 3 — Build the task list
 
@@ -36,6 +38,6 @@ When touching converter code, watch the architectural invariants from `CLAUDE.md
 
 ## Step 5 — Wrap up
 
-Once all planned commits land: run the full-suite check one last time (the second and final use of the Step 4 budget for this feature), confirm everything passes, then push and open the PR (`gh pr create`) with a body summarizing the spec's goal/scope (§0) and a test-plan checklist — and a link to the spec's `docs/<category>/<slug>/<slug>-<date>.md` path, since `docs/` is tracked here and the spec will be in the diff (unlike a gitignored-docs setup). Report the PR URL.
+Once all planned commits land: run the full-suite check one last time (the second and final use of the Step 4 budget for this feature), confirm everything passes, then push and open the PR (`gh pr create`) with a body summarizing the spec's goal/scope (§0) and a test-plan checklist, written out inline — NOT a link to the spec's `docs/<category>/<slug>/<slug>-<date>.md` path: `docs/` is gitignored, so that file was never pushed and no PR reviewer on GitHub can open it. Report the PR URL.
 
 Do not merge the PR yourself, and do not run `/post-merge-sync` — those happen after human review, as a separate step.

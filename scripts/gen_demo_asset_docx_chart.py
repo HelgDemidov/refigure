@@ -1,6 +1,5 @@
 """Regenerate docs/assets/demo-docx-chart-{light,dark}.svg (docx native-chart
-happy path — README Demo section, docs/readme/docx-chart-demo/
-docx-chart-demo-2026-08-19.md).
+happy path — README Demo section).
 
 Third hero graphic — sibling of `gen_demo_asset.py` (same "native chart-data
 extraction, not OCR" claim), for the format `gen_demo_asset.py` DOESN'T cover:

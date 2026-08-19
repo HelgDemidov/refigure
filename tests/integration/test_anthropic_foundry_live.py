@@ -1,6 +1,5 @@
 """Live opt-in integration test for ``AnthropicClient`` via Microsoft
-Foundry (Azure) — see
-docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md §3.
+Foundry (Azure).
 
 Proves plumbing, not accuracy — see test_anthropic_bedrock_live.py's
 module docstring for the full rationale (same discipline, same NOT-in-CI

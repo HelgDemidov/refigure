@@ -132,8 +132,7 @@ def test_vlm_client_guard_is_class_level_not_module_level(
     """OpenAIClient/AnthropicClient guard their SDK dependency inside
     __init__, not at refigure/vlm/client.py's module level like every
     other case above — OpenRouterClient has zero third-party deps and must
-    keep working with openai/anthropic both absent (see
-    docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md §4).
+    keep working with openai/anthropic both absent.
     Proves both halves: the module imports cleanly with the dependency
     poisoned, AND constructing the affected class still raises the typed
     error, not a bare ImportError."""

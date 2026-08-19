@@ -834,9 +834,9 @@ def test_judge_with_config_panel_both_clean_produces_no_defects() -> None:
 
 
 # =============================================================================
-# 11. Direct helper coverage — error/edge branches (coverage-hardening spec,
-# docs/testing/coverage-hardening/coverage-hardening-2026-08-06.md §2). None
-# of these need a real network/soffice call — the module's own pluggable
+# 11. Direct helper coverage — error/edge branches (coverage-hardening
+# spec). None of these need a real network/soffice call — the module's
+# own pluggable
 # VlmClient/VlmCacheBackend Protocols plus subprocess/pdfplumber mocking are
 # enough, same offline-only discipline as every test above.
 # =============================================================================

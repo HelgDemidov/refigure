@@ -33,7 +33,7 @@ Update `MEMORY.md` index: add one line per new file, update description of chang
 
 ## Step 3 — Update spec status
 
-If the merge closes a feature branch with a spec at `docs/<slug>-<date>.md`, append a concise §"Статус выполнения" section (10–15 lines) stating: merge date, PR number, commit hashes, what was done, what remains out of scope. `docs/` is tracked here (not gitignored) — this edit is part of Step 5's commit, same as any other doc change.
+If the merge closes a feature branch with a spec at `docs/<category>/<slug>/<slug>-<date>.md` AND that file still exists in this local checkout (`docs/` is gitignored since 2026-08-19 — the spec was never committed/pushed by `/tech-spec`, so it only exists if you're running this on the same machine that drafted it; if it's missing, skip this step, there's nothing to update), append a concise §"Статус выполнения" section (10–15 lines) stating: merge date, PR number, commit hashes, what was done, what remains out of scope. Like Step 1/2, this edit is made in place on disk but is NEVER staged or committed — it's local-only bookkeeping now, not a shared repo artifact.
 
 ## Step 4 — Update README.md
 
@@ -41,7 +41,8 @@ Read the current `README.md`. Update ONLY the parts whose content is now factual
 
 ## Step 5 — Commit documentation changes
 
-Stage the documentation files touched above: `CLAUDE.md`, `README.md`, and the spec file at `docs/<slug>-<date>.md` if Step 3 edited one. Do NOT stage memory files (they live outside the repo). Commit with message:
-`docs: sync CLAUDE.md and docs after merging <branch-name>`
+`CLAUDE.md` and the `docs/<category>/<slug>/<slug>-<date>.md` spec file (Steps 1 and 3) are gitignored — never stage or commit them, same rule as memory files (they also live outside git tracking, just for a different reason: memory is outside the repo entirely, `CLAUDE.md`/`docs/` are gitignored inside it). Their edits stay on this machine only and do NOT propagate to other clones/machines by themselves.
 
-Then report a short summary: what was updated and why.
+The only file from the steps above that can actually be committed is `README.md`, and only if Step 4 changed it. If it did: `git add README.md && git commit -m "docs: sync README after merging <branch-name>"`. If Step 4 was skipped (nothing to update), there is nothing to commit at all — that's a valid, expected outcome of this command, not an error.
+
+Then report a short summary: what was updated (and where each edit lives — committed vs. local-only) and why.

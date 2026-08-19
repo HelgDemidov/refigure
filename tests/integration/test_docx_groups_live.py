@@ -9,8 +9,7 @@ density in the corpus (pinned in ``test_docx_corpus.py``'s
 ``_PINNED_DOCX_VALUES`` as ``groups_found=10``). The originally-planned
 target, ``iot-report-2022-national-strategies-excerpt.docx``, stays
 gitignored (authorship risk, not a license grant) and so isn't reliably
-available in CI — replaced 2026-08-05, see
-``docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md`` §4.
+available in CI — replaced 2026-08-05.
 
 Exercises the REAL ``soffice`` binary — gated via
 ``skipif(not shutil.which("soffice"))`` as a defensive local-dev
@@ -42,8 +41,8 @@ from refigure import docx_groups, vlm
 _FIXTURE_PATH = Path(__file__).parent / "fixtures" / "docx" / "efsa-echinococcus-guide.docx"
 
 # Pre-verified live 2026-08-05 (docx_groups.extract_and_strip_groups against
-# the real, now-committed fixture) — see docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md
-# §4. id12 = sha256 of the group's own XML element, deterministic.
+# the real, now-committed fixture). id12 = sha256 of the group's own XML
+# element, deterministic.
 _KNOWN_GROUP_IDS = (
     "a106c326d0e9",
     "23da97fa9020",
@@ -83,7 +82,7 @@ def test_fixture_group_ids_match_pinned_baseline() -> None:
     reason=(
         "soffice (LibreOffice) not installed — defensive local-dev fallback; "
         "CI installs libreoffice-writer specifically so this is not expected "
-        "to skip there, see docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md §3"
+        "to skip there"
     ),
 )
 @pytest.mark.parametrize("id12", _KNOWN_GROUP_IDS)

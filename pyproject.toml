@@ -55,8 +55,7 @@ vlm = ["pdfplumber>=0.11,<0.12"]
 # (enhance_docx_markdown) always renders figures via pdfplumber first,
 # regardless of which VlmClient ends up sending the result, so requiring
 # [vlm] here reflects a genuine dependency, not a bug to route around by
-# flattening client.py out of the package. See
-# docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md §5.
+# flattening client.py out of the package.
 vlm-direct = ["refigure[vlm]", "openai>=3.1.0,<4", "anthropic>=0.120,<1"]
 
 [project.scripts]
@@ -94,9 +93,8 @@ include = [
     "/pyproject.toml",
 ]
 # Redundant with the include allowlist above in principle (nothing here
-# would match `include` anyway) — kept explicit per
-# docs/release/release-gate/release-gate-2026-08-06.md §1: documents intent
-# and stays correct even if `include` is later loosened to a broader glob.
+# would match `include` anyway) — kept explicit: documents intent and
+# stays correct even if `include` is later loosened to a broader glob.
 exclude = [
     "tests/integration/",
     "docs/",
@@ -118,8 +116,7 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-# S = flake8-bandit (SAST), added 2026-08-06 (docs/security/security-hardening/
-# security-hardening-2026-08-06.md §1) — ruff's own built-in port, chosen over
+# S = flake8-bandit (SAST), added 2026-08-06 — ruff's own built-in port, chosen over
 # a standalone Bandit dependency: zero new install/CI-step for the same
 # practical coverage at this codebase's size.
 select = ["E", "F", "I", "S"]
@@ -155,8 +152,7 @@ markers = [
 [tool.coverage.run]
 source = ["refigure"]
 # Needed to `coverage combine` data files collected across 2 separate CI
-# jobs (test-unit/test-integration, docs/testing/coverage-hardening/
-# coverage-hardening-2026-08-06.md §1) — makes file paths relative to the
+# jobs (test-unit/test-integration) — makes file paths relative to the
 # repo root instead of absolute, so combine doesn't need a [paths]
 # remapping even though both jobs happen to check out to the same
 # runner-relative path today.
@@ -170,8 +166,7 @@ exclude_also = [
 # test-integration's own standalone --cov runs (pytest-cov applies
 # coverage.py's fail_under automatically when no --cov-fail-under CLI flag
 # is given), silently coupling their pass/fail to a number neither job's
-# own suite alone is supposed to hit. The 95% gate (docs/testing/
-# coverage-hardening/coverage-hardening-2026-08-06.md §3) is measured
+# own suite alone is supposed to hit. The 95% gate is measured
 # against the COMBINED tests/unit + tests/integration suite specifically
 # — enforced via an explicit `coverage report --fail-under=95` in the new
 # "coverage" CI job (ci.yml) only, not here.

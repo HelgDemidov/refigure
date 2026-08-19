@@ -154,8 +154,7 @@ def test_openai_and_anthropic_only_importable_when_vlm_direct_extra_present() ->
 
 
 def test_vlm_client_direct_classes_match_extras() -> None:
-    """3-tier boundary, found live 2026-08-05 while implementing vlm-direct
-    (see docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md §5):
+    """3-tier boundary, found live 2026-08-05 while implementing vlm-direct:
     refigure.vlm.client is a submodule of refigure.vlm, so importing it
     ALWAYS runs refigure/vlm/__init__.py's pdfplumber guard first —
     OpenAIClient/AnthropicClient's own guard only gets a chance to fire if

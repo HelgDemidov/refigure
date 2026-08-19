@@ -1,7 +1,6 @@
 name: Publish
 
-# Separate file from ci.yml, deliberately (docs/release/release-gate/
-# release-gate-2026-08-06.md §3) — this workflow's job carries
+# Separate file from ci.yml, deliberately — this workflow's job carries
 # `id-token: write` (required for PyPI trusted publishing / OIDC). Keeping
 # it in its own file, triggered ONLY by a version-tag push, minimizes the
 # blast radius of that permission instead of granting it to the whole
@@ -52,9 +51,8 @@ jobs:
         run: python -m build
 
       # Pinned by commit SHA, not tag — same discipline as ci.yml's
-      # trivy-action pin (docs/security/security-hardening/
-      # security-hardening-2026-08-06.md §2: that action was
-      # supply-chain-compromised 2026-03-19/20, all tags affected). This
+      # trivy-action pin (that action was supply-chain-compromised
+      # 2026-03-19/20, all tags affected). This
       # job holds `id-token: write`, a materially more sensitive
       # permission than trivy-action's read-only secret scan, so pinning
       # by SHA here is the higher-stakes case, not a lower one. SHA is

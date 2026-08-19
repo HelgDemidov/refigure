@@ -1,5 +1,5 @@
 ---
-description: Turn a feature/refactor/porting task into a structured spec (ТЗ) under docs/
+description: Turn a feature/refactor/porting task into a structured spec (ТЗ) under docs/ (local-only, gitignored)
 ---
 
 Turn a feature/refactor/porting-task request into a structured spec (ТЗ), following this repo's `docs/<category>/<slug>/<slug>-<date>.md` convention (category = thematic grouping, e.g. `vlm`, `cli`, `project-meta`, `package-foundation` — see Step 6).
@@ -68,17 +68,16 @@ Match the tone and terseness of existing `docs/*.md` files — concise, technica
 
 `docs/<category>/<slug>/<slug>-<date>.md` — two-level structure (category, then a slug subdirectory holding the dated file), the same principle as scopus-search's own `docs/` layout, adopted 2026-08-05. Existing categories: `project-meta` (scope/roadmap/market docs, not stage-specific — e.g. `v1-scope-and-api-design`, `execution-sequence`, `converter-viability-assessment`), `package-foundation` (core skeleton/API extraction — stages 1-2), `cli`, `vlm`. Reuse an existing category when the work fits one; create a new top-level category directory only when it genuinely doesn't (e.g. a future `mcp-server` category for stage 10) — don't force an awkward fit, and don't nest a spec's slug directory under an unrelated category just to avoid creating a new one. Derive `<slug>` from the feature itself, not a copy-paste of the user's raw phrasing — the same slug names both the subdirectory and the file (only the filename gets the `-<date>` suffix, the directory doesn't).
 
-`docs/` is tracked in this repo (deliberate choice, not gitignored scratch space — `CLAUDE.md` §Working language) — the spec gets committed, not left as a local-only file.
+`docs/` is gitignored (reversed from the earlier "deliberately tracked" choice, 2026-08-19) — the spec is a **local-only working file**: it stays on this machine's disk, never staged, never committed, never pushed, invisible to anyone who clones the public repo or reviews the eventual PR. It survives ordinary git operations (checkout/merge/pull don't touch untracked files) as long as you stay in this same local checkout — resuming the work from a different machine or a fresh clone means the spec isn't there and `/feature-workflow` will find nothing to pick up.
 
-## Step 7 — Branch + commit
+## Step 7 — Branch + write the spec (no commit)
 
 Skip this step only if the work is trivial enough for a direct commit to `main` — rare, since this command exists for substantial tasks.
 
 1. `git fetch origin && git checkout -b <feat|refactor|fix>/<slug> origin/main` — prefix matches the dominant conventional-commit type of the work.
-2. `mkdir -p docs/<category>/<slug>`, then write the spec file there (Step 6).
-3. `git add docs/<category>/<slug>/<slug>-<date>.md && git commit -m "docs: draft spec for <slug>"` — English commit message (`CLAUDE.md` §Working language: code/commits/PRs in English, only dialogue and `docs/` content in Russian).
-4. `git push -u origin <branch-name>`.
+2. `mkdir -p docs/<category>/<slug>`, then write the spec file there (Step 6). Nothing to `git add`/commit — the path is gitignored.
+3. Do NOT push yet: with no commit made, the branch is still identical to `origin/main`, so there's nothing meaningful to push. `/feature-workflow` pushes it once it lands the first real commit.
 
 ## Step 8 — Report
 
-State the spec path, branch name, and that it's pushed. Do not start implementation — that's `/feature-workflow`.
+State the spec's local path and the branch name (created locally, not pushed yet). Do not start implementation — that's `/feature-workflow`.

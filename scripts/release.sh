@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release runner (docs/release/release-gate/release-gate-2026-08-06.md §3a).
+# Release runner.
 #
 # Usage:
 #   ./scripts/release.sh 0.1.0

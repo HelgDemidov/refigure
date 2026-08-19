@@ -353,8 +353,7 @@ def test_all_media_ids_empty_for_no_groups() -> None:
     assert all_media_ids([]) == frozenset()
 
 
-# --- defensive/malformed-input branches (coverage-hardening spec,
-# docs/testing/coverage-hardening/coverage-hardening-2026-08-06.md §2) ---
+# --- defensive/malformed-input branches (coverage-hardening spec) ---
 
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _C_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"

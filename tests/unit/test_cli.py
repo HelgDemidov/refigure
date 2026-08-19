@@ -1,8 +1,8 @@
 """``tests/unit/test_cli.py`` — ``refigure.cli``, the argparse-based console
-entry point (``docs/cli/cli-wrapper/cli-wrapper-2026-08-05.md``). Synthetic docx/xlsx
-fixtures (``build_minimal_docx`` / a plain ``openpyxl.Workbook()``) for
-speed, same convention as ``test_robustness.py`` — real-corpus, end-to-end
-coverage lives in the integration smoke test (full 27-fixture batch)."""
+entry point. Synthetic docx/xlsx fixtures (``build_minimal_docx`` / a plain
+``openpyxl.Workbook()``) for speed, same convention as
+``test_robustness.py`` — real-corpus, end-to-end coverage lives in the
+integration smoke test (full 27-fixture batch)."""
 
 from __future__ import annotations
 

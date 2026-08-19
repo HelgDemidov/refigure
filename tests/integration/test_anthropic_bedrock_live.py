@@ -1,5 +1,4 @@
-"""Live opt-in integration test for ``AnthropicClient`` via Amazon Bedrock
-— see docs/vlm/vlm-direct-clients/vlm-direct-clients-2026-08-06.md §3.
+"""Live opt-in integration test for ``AnthropicClient`` via Amazon Bedrock.
 
 Proves plumbing (the ``client=`` injection actually round-trips a real
 Bedrock call), not accuracy — payload-shape coverage against fakes already

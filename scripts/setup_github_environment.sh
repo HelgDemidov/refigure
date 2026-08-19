@@ -2,10 +2,9 @@
 # Provision the GitHub-side "pypi" deployment environment used by
 # .github/workflows/publish.yml's trusted-publishing (OIDC) job.
 #
-# docs/release/release-gate/release-gate-2026-08-06.md §3: this is the
-# repository-side half of PyPI trusted publishing — reversible, requires no
-# third-party (PyPI) login, and is exactly what `environment: pypi` in
-# publish.yml resolves against. The OTHER half (registering
+# This is the repository-side half of PyPI trusted publishing —
+# reversible, requires no third-party (PyPI) login, and is exactly what
+# `environment: pypi` in publish.yml resolves against. The OTHER half (registering
 # HelgDemidov/refigure + publish.yml + this environment name as a trusted
 # publisher ON pypi.org) is NOT done here — that needs the PyPI project
 # owner's own login and stays a manual step, see the spec's §4.

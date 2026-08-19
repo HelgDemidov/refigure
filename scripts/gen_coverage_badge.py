@@ -8,8 +8,7 @@ docs/assets/coverage-badge.json and committed on push to main only.
 
 Self-hosted, not a Codecov/Coveralls account — no third-party service or
 token, same principle already applied to OIDC PyPI publishing / rejecting
-LiteLLM (docs/testing/coverage-hardening/coverage-hardening-2026-08-06.md
-§4). Pure stdlib, no dependencies, runnable locally for testing:
+LiteLLM. Pure stdlib, no dependencies, runnable locally for testing:
 
     coverage json -o coverage.json
     python scripts/gen_coverage_badge.py

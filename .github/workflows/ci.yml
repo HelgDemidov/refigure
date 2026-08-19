@@ -64,10 +64,9 @@ jobs:
       # Narrow role: secret-scanning only, not a second SCA (pip-audit
       # above already covers CVEs). Pinned by commit SHA, not tag — the
       # action itself was supply-chain-compromised 2026-03-19/20 (credential
-      # theft from the runner, all tags 0.0.1-0.34.2), see
-      # docs/security/security-hardening/security-hardening-2026-08-06.md §2.
-      # SHA is v0.36.0's dereferenced commit (git ls-remote --tags), the
-      # current stable release, verified live before pinning.
+      # theft from the runner, all tags 0.0.1-0.34.2). SHA is v0.36.0's
+      # dereferenced commit (git ls-remote --tags), the current stable
+      # release, verified live before pinning.
       - name: Trivy secret scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
@@ -76,15 +75,15 @@ jobs:
           exit-code: "1"
 
   # ---------------------------------------------------------------------------
-  # Build verification (docs/release/release-gate/release-gate-2026-08-06.md
-  # §2) — always-on, cheap, catches exactly the class of bug found live in §1
-  # (sdist accidentally bundling tests/integration/fixtures/'s 144MB corpus):
+  # Build verification — always-on, cheap, catches exactly the class of bug
+  # found live once before (sdist accidentally bundling
+  # tests/integration/fixtures/'s 144MB corpus):
   # build sdist + wheel, enforce a size ceiling on the sdist, validate
   # metadata with twine, then install the built WHEEL into a fresh venv and
   # run `refigure --version` as a smoke test — proves the package works from
   # the built artifact itself, not an editable/source install, which no
   # other job here checks. NOT the publish workflow (that's publish.yml,
-  # tag-triggered only, §3) — this job never uploads anything anywhere.
+  # tag-triggered only) — this job never uploads anything anywhere.
   # ---------------------------------------------------------------------------
   build-verify:
     name: Build verification (sdist + wheel smoke test)
@@ -159,8 +158,7 @@ jobs:
   #
   # Coverage data (.coverage.unit) is uploaded as an artifact for the
   # `coverage` job below, which combines it with test-integration's own data
-  # and gates on the COMBINED total (docs/testing/coverage-hardening/
-  # coverage-hardening-2026-08-06.md §1/§3) — unit-only alone is NOT gated
+  # and gates on the COMBINED total — unit-only alone is NOT gated
   # here, deliberately (see pyproject.toml's [tool.coverage.report] comment):
   # it understates real branch coverage on its own (a large share of
   # docx/xlsx's real-world branches only get exercised by the corpus-driven
@@ -169,8 +167,8 @@ jobs:
   # libreoffice-writer (stage 4b, 2026-08-05): installed here, not skipped,
   # so refigure/vlm.py's soffice-render path (test_vlm.py, tests/integration/
   # test_docx_groups_live.py) runs for real in CI — an untested CI path was
-  # explicitly rejected for this feature (docs/vlm/vlm-layer-port/vlm-layer-port-2026-08-05.md
-  # §3). Cached via actions/cache (apt's own .deb cache dir) so the ~10-20s
+  # explicitly rejected for this feature. Cached via actions/cache (apt's
+  # own .deb cache dir) so the ~10-20s
   # network download only happens once per cache-key generation, not every
   # run — dpkg unpack/configure still runs each time, apt-get itself decides
   # whether a cached .deb is still valid.
@@ -281,8 +279,7 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # Combined coverage gate (docs/testing/coverage-hardening/
-  # coverage-hardening-2026-08-06.md §1/§3): merges test-unit's and
+  # Combined coverage gate: merges test-unit's and
   # test-integration's own coverage data (2 separate processes on 2 separate
   # runners — pytest-cov can't span that on its own) and gates on the
   # COMBINED total, 95%. Not 100% — some code is legitimately untestable in
@@ -306,8 +303,7 @@ jobs:
           # required_status_checks (2026-08-07) blocks a plain GITHUB_TOKEN
           # push to main unconditionally, not just during a race — the bot
           # actor has no admin bypass, so every attempt fails with GH006
-          # regardless of retries (docs/security/security-hardening/
-          # security-hardening-2026-08-06.md). A fine-grained PAT scoped to
+          # regardless of retries. A fine-grained PAT scoped to
           # this repo, owned by an actual repo admin, gets the same
           # enforce_admins=false bypass a human push gets. Falls back to the
           # default GITHUB_TOKEN (read-only push, will fail the same way as
@@ -342,16 +338,14 @@ jobs:
           python scripts/gen_coverage_badge.py
 
       # Push-to-main only — not PRs, so feature branches don't churn this
-      # file with a commit on every push (docs/testing/coverage-hardening/
-      # coverage-hardening-2026-08-06.md §4). Pushes with the checkout
+      # file with a commit on every push. Pushes with the checkout
       # step's token (COVERAGE_BADGE_PUSH_TOKEN if set, see above) via
       # persist-credentials.
       - name: Commit updated badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         # Retries on a non-fast-forward push (found live 2026-08-06/07: a
         # burst of direct pushes to main outran this step's own push
-        # several times in a row — see docs/security/security-hardening/
-        # security-hardening-2026-08-06.md). Rebase-and-retry, not
+        # several times in a row). Rebase-and-retry, not
         # force-push: this branch has allow_force_pushes=false.
         run: |
           git config user.name "github-actions[bot]"
@@ -391,8 +385,7 @@ jobs:
         # soffice-render path itself (that's test-unit's real corpus tests).
         #
         # vlm-direct added for the OpenAIClient/AnthropicClient direct
-        # VlmClient implementations (docs/vlm/vlm-direct-clients/
-        # vlm-direct-clients-2026-08-06.md) — this exact leg is what caught
+        # VlmClient implementations — this exact leg is what caught
         # vlm-direct's own extras-isolation bug locally before it ever
         # reached CI (self-referential `refigure[vlm]` dependency, see
         # pyproject.toml's vlm-direct comment).

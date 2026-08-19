@@ -2,9 +2,8 @@
 
 ``run_with_timeout`` here is a small dependency-free safety net for the
 FIFO/named-pipe tests in this module and in ``tests/unit/docx/test_docx.py``/
-``tests/unit/xlsx/test_xlsx.py`` (security-audit finding #17,
-``docs/security/security-audit-remediation/security-audit-remediation-2026-08-07.md``
-§5): none of ``requirements-dev.txt``'s pinned tools include ``pytest-timeout``,
+``tests/unit/xlsx/test_xlsx.py`` (security-audit finding #17): none of
+``requirements-dev.txt``'s pinned tools include ``pytest-timeout``,
 and this is deliberately not a reason to add a new dependency for 3 tests —
 a daemon ``threading.Thread`` with ``join(timeout=...)`` is enough. Using a
 daemon thread (not ``concurrent.futures.ThreadPoolExecutor``, whose worker

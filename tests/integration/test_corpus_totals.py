@@ -22,8 +22,7 @@ from __future__ import annotations
 from .test_docx_corpus import _PINNED_DOCX_VALUES
 from .test_xlsx_corpus import _PINNED_XLSX_VALUES
 
-# Captured 2026-08-06 by summing both pinned tables — see stage 7 spec
-# (docs/readme/readme-and-demo/readme-and-demo-2026-08-06.md) §5. Update
+# Captured 2026-08-06 by summing both pinned tables. Update
 # these four numbers (and README.md's status section) together whenever a
 # fixture is added/removed or a pinned per-fixture tuple changes.
 _EXPECTED_FIXTURE_COUNT = 27
