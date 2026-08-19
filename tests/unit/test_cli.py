@@ -17,6 +17,8 @@ from types import SimpleNamespace
 import openpyxl
 import pytest
 
+import refigure.cli as cli_module
+from refigure.api import ConversionResult
 from refigure.cli import (
     EXIT_BATCH_PARTIAL_FAILURE,
     EXIT_CORRUPT_ARCHIVE,
@@ -386,6 +388,234 @@ class TestMiscFlags:
     def test_strict_flag_is_accepted_and_does_not_crash(self, tmp_path: Path) -> None:
         doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
         assert main([str(doc), "--strict"]) == EXIT_OK
+
+
+class TestVlmFlags:
+    """CLI wiring for --vlm and friends. The VLM ENGINE itself
+    (Config.strict + soffice, enhance_docx_markdown's whole behavior) is
+    already covered by tests/unit/vlm/test_vlm.py — these tests only prove
+    the CLI builds the right Config/vlm_client, not that the engine works,
+    same division of labor the spec calls for."""
+
+    def _capture_config(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+        captured: dict[str, object] = {}
+
+        def _fake_convert_fn(fmt: str) -> object:
+            def _convert(source: object, *, config: object = None) -> ConversionResult:
+                captured["config"] = config
+                return ConversionResult(markdown="ok")
+
+            return _convert
+
+        monkeypatch.setattr(cli_module, "_convert_fn", _fake_convert_fn)
+        return captured
+
+    def test_vlm_flag_sets_use_vlm_true(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+        assert main([str(doc), "--vlm"]) == EXIT_OK
+        assert captured["config"].use_vlm is True  # type: ignore[attr-defined]
+
+    def test_no_vlm_flag_leaves_use_vlm_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+        assert main([str(doc)]) == EXIT_OK
+        assert captured["config"].use_vlm is False  # type: ignore[attr-defined]
+
+    def test_vlm_verify_flag_sets_vlm_verify_true(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+        assert main([str(doc), "--vlm", "--vlm-verify"]) == EXIT_OK
+        assert captured["config"].vlm_verify is True  # type: ignore[attr-defined]
+
+    def test_vlm_model_flag_overrides_config_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+        assert main([str(doc), "--vlm", "--vlm-model", "some/model"]) == EXIT_OK
+        assert captured["config"].vlm_model == "some/model"  # type: ignore[attr-defined]
+
+    def test_vlm_model_unset_keeps_config_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from refigure.api import Config
+
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+        assert main([str(doc), "--vlm"]) == EXIT_OK
+        assert captured["config"].vlm_model == Config().vlm_model  # type: ignore[attr-defined]
+
+    def test_vlm_judge_mode_flag_overrides_config_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+        assert main([str(doc), "--vlm", "--vlm-judge-mode", "solo"]) == EXIT_OK
+        assert captured["config"].vlm_judge_mode == "solo"  # type: ignore[attr-defined]
+
+    def test_vlm_provider_openai_constructs_openai_client(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from refigure.vlm import client as vlm_client_module
+
+        class _FakeOpenAIClient:
+            def __init__(self, **kwargs: object) -> None:
+                self.kwargs = kwargs
+
+        monkeypatch.setattr(vlm_client_module, "OpenAIClient", _FakeOpenAIClient)
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+
+        assert main([str(doc), "--vlm", "--vlm-provider", "openai", "--vlm-model", "m"]) == EXIT_OK
+
+        vlm_client = captured["config"].vlm_client  # type: ignore[attr-defined]
+        assert isinstance(vlm_client, _FakeOpenAIClient)
+        assert vlm_client.kwargs["base_url"] is None
+        assert vlm_client.kwargs["image_content_format"] == "dict"
+
+    def test_vlm_provider_anthropic_constructs_anthropic_client(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from refigure.vlm import client as vlm_client_module
+
+        class _FakeAnthropicClient:
+            def __init__(self, **kwargs: object) -> None:
+                self.kwargs = kwargs
+
+        monkeypatch.setattr(vlm_client_module, "AnthropicClient", _FakeAnthropicClient)
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+
+        assert (
+            main([str(doc), "--vlm", "--vlm-provider", "anthropic", "--vlm-model", "m"]) == EXIT_OK
+        )
+
+        vlm_client = captured["config"].vlm_client  # type: ignore[attr-defined]
+        assert isinstance(vlm_client, _FakeAnthropicClient)
+
+    def test_vlm_model_missing_with_non_openrouter_provider_is_usage_error(
+        self, tmp_path: Path
+    ) -> None:
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        with pytest.raises(SystemExit) as exc:
+            main([str(doc), "--vlm", "--vlm-provider", "openai"])
+        assert exc.value.code == EXIT_USAGE
+
+    def test_vlm_base_url_without_openai_provider_is_usage_error(self, tmp_path: Path) -> None:
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        with pytest.raises(SystemExit) as exc:
+            main([str(doc), "--vlm", "--vlm-base-url", "http://localhost:11434/v1/"])
+        assert exc.value.code == EXIT_USAGE
+
+    def test_vlm_api_key_file_content_becomes_client_api_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from refigure.vlm import client as vlm_client_module
+
+        class _FakeOpenAIClient:
+            def __init__(self, **kwargs: object) -> None:
+                self.kwargs = kwargs
+
+        monkeypatch.setattr(vlm_client_module, "OpenAIClient", _FakeOpenAIClient)
+        key_file = tmp_path / "key.txt"
+        key_file.write_text("  sk-from-file-content  \n", encoding="utf-8")
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+
+        assert (
+            main(
+                [
+                    str(doc),
+                    "--vlm",
+                    "--vlm-provider",
+                    "openai",
+                    "--vlm-model",
+                    "m",
+                    "--vlm-api-key-file",
+                    str(key_file),
+                ]
+            )
+            == EXIT_OK
+        )
+
+        vlm_client = captured["config"].vlm_client  # type: ignore[attr-defined]
+        assert vlm_client.kwargs["api_key"] == "sk-from-file-content"
+
+    def test_vlm_api_key_file_openrouter_becomes_config_vlm_api_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        key_file = tmp_path / "key.txt"
+        key_file.write_text("sk-openrouter-key", encoding="utf-8")
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+
+        assert main([str(doc), "--vlm", "--vlm-api-key-file", str(key_file)]) == EXIT_OK
+
+        config = captured["config"]
+        assert config.vlm_client is None  # type: ignore[attr-defined]
+        assert config.vlm_api_key == "sk-openrouter-key"  # type: ignore[attr-defined]
+
+    def test_vlm_flag_without_vlm_extra_is_missing_dependency_via_subprocess(
+        self, tmp_path: Path
+    ) -> None:
+        # Same subprocess-poisoning technique as
+        # TestTypedExitCodes.test_missing_optional_dependency_via_subprocess
+        # — sys.modules poisoning only prevents the FIRST import of
+        # pdfplumber in a process.
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        script = (
+            "import sys\n"
+            "sys.modules['pdfplumber'] = None\n"
+            "from refigure.cli import main\n"
+            f"sys.exit(main(['--vlm', {str(doc)!r}]))\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+            timeout=30,
+        )
+        assert result.returncode == EXIT_MISSING_DEPENDENCY
+        assert "refigure[vlm]" in result.stderr
+
+    def test_vlm_flag_on_xlsx_source_warns_and_still_converts(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        xlsx_path = _write_xlsx(tmp_path / "doc.xlsx")
+        assert main([str(xlsx_path), "--vlm"]) == EXIT_OK
+        assert "--vlm has no effect on .xlsx sources" in capsys.readouterr().err
+
+    def test_vlm_flag_on_xlsx_source_in_batch_warns_once_per_file(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _write_xlsx(tmp_path / "a.xlsx")
+        _write_xlsx(tmp_path / "b.xlsx")
+        out_dir = tmp_path / "out"
+        assert main([str(tmp_path), "-o", str(out_dir), "--vlm"]) == EXIT_OK
+        err = capsys.readouterr().err
+        assert err.count("--vlm has no effect on .xlsx sources") == 2
+
+    def test_vlm_flag_on_xlsx_source_via_stdin_warns(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        buf = io.BytesIO()
+        wb = openpyxl.Workbook()
+        assert wb.active is not None
+        wb.active.append(["a"])
+        wb.save(buf)
+        monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=io.BytesIO(buf.getvalue())))
+        assert main(["--format", "xlsx", "--vlm"]) == EXIT_OK
+        assert "--vlm has no effect on .xlsx sources" in capsys.readouterr().err
 
 
 class TestModuleEntrypoint:
