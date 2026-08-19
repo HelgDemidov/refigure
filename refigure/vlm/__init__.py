@@ -644,10 +644,28 @@ def _render_via_soffice(
     return f"data:image/jpeg;base64,{b64}"
 
 
-def _render_docx_group(source: Path | bytes, id12: str, *, raw_name: str) -> str | None:
+def _render_docx_group(
+    source: Path | bytes, id12: str, *, raw_name: str, strict: bool = False
+) -> str | None:
     """Composite group -> isolated mini-docx (``docx_groups.extract_group_docx``)
-    -> ``_render_via_soffice``."""
+    -> ``_render_via_soffice``.
+
+    ``strict`` narrows to exactly ONE scenario (spec:
+    ``docs/vlm/vlm-activation/vlm-activation-2026-08-19.md`` §1): a missing
+    ``soffice`` binary is a structural inability to render a group at all,
+    not a transient/network-shaped failure — the one case that actually
+    matches ``Config.strict``'s "raise instead of degrade" contract. Every
+    other failure in this module (network, cache, judge, a corrupted
+    archive) stays an unconditional degrade regardless of ``strict`` — the
+    PR #16 security-audit contract for ``enhance_docx_markdown`` is
+    untouched by this."""
     if not _soffice_available():
+        if strict:
+            raise MissingOptionalDependencyError(
+                f"{raw_name}: group {id12} needs the system soffice/LibreOffice binary "
+                "(e.g. `apt install libreoffice-writer`) to render — not installed, "
+                "and Config.strict=True"
+            )
         logger.warning(
             "%s: soffice not installed — group %s skipped (install LibreOffice, "
             "e.g. `apt install libreoffice-writer`)",
@@ -668,12 +686,20 @@ def _render_docx_group(source: Path | bytes, id12: str, *, raw_name: str) -> str
     )
 
 
-def _render_docx_group_safely(source: Path | bytes, id12: str, *, raw_name: str) -> str | None:
+def _render_docx_group_safely(
+    source: Path | bytes, id12: str, *, raw_name: str, strict: bool = False
+) -> str | None:
     """See ``_docx_media_uri_safely`` — same gap, same fix, for the
     composite-group render path (``_render_docx_group`` ->
-    ``docx_groups.extract_group_docx`` -> ``zipsafe.safe_read``)."""
+    ``docx_groups.extract_group_docx`` -> ``zipsafe.safe_read``).
+
+    ``strict``'s ``MissingOptionalDependencyError`` (see ``_render_docx_group``)
+    is NOT one of the exception types caught here — it passes straight
+    through to the caller, by construction: this ``except`` clause only
+    ever named the two archive-safety exceptions, never touched to add a
+    third type."""
     try:
-        return _render_docx_group(source, id12, raw_name=raw_name)
+        return _render_docx_group(source, id12, raw_name=raw_name, strict=strict)
     except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile) as exc:
         logger.warning(
             "%s: group %s failed to re-read (%s) — marker left as-is", raw_name, id12, exc
@@ -890,6 +916,17 @@ def enhance_docx_markdown(
     markers are left exactly as ``docx.py`` produced them, an honest
     zero-loss result either way.
 
+    ``config.strict`` (default ``False``) narrows this "always degrade"
+    posture in exactly ONE case: a composite-group render attempt with
+    ``soffice``/LibreOffice not installed raises
+    ``MissingOptionalDependencyError`` instead of warning+skipping (see
+    ``_render_docx_group``) — a missing system binary is a structural
+    inability to render, the one VLM failure mode this function treats as
+    hard-fail-worthy. Every OTHER VLM failure (network, cache, judge, a
+    corrupted archive, a group not found on re-detection) stays an
+    unconditional degrade regardless of ``strict`` — the PR #16
+    security-audit contract for this function is untouched.
+
     ``config.vlm_verify`` (default ``False``) additionally runs
     ``judge_defects`` (via ``_judge_with_config`` — dispatches solo/panel
     per ``config.vlm_judge_mode``, NEVER with the generating model itself)
@@ -998,7 +1035,9 @@ def enhance_docx_markdown(
         cache_context = f"{raw_name}: {gid}"
         entry = _cache_get_safely(cache, gid, context=cache_context)
         if entry is None:
-            data_uri = _render_docx_group_safely(source, gid, raw_name=raw_name)
+            data_uri = _render_docx_group_safely(
+                source, gid, raw_name=raw_name, strict=config.strict
+            )
             if data_uri is None:
                 continue
             text = _call_client(
@@ -1011,7 +1050,9 @@ def enhance_docx_markdown(
                 entry["judge_verdict"] = _judge_with_config(data_uri, text, config, _get_client)
             _cache_set_safely(cache, gid, entry, context=cache_context)
         elif config.vlm_verify and entry.get("judge_verdict") is None:
-            data_uri = _render_docx_group_safely(source, gid, raw_name=raw_name)
+            data_uri = _render_docx_group_safely(
+                source, gid, raw_name=raw_name, strict=config.strict
+            )
             if data_uri is not None:
                 entry["judge_verdict"] = _judge_with_config(
                     data_uri, str(entry["markdown"]), config, _get_client
