@@ -20,7 +20,7 @@ import logging
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from . import __version__
 from ._io import Source
@@ -133,7 +133,40 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="Passed through to Config(strict=...).",
+        help=(
+            "Passed through to Config(strict=...). Only changes behavior for one "
+            "VLM scenario (--vlm + a composite DOCX group + soffice not installed): "
+            "raise instead of skipping the group. No effect otherwise."
+        ),
+    )
+    vlm_group = parser.add_argument_group("VLM (composite-figure interpretation, DOCX-only)")
+    vlm_group.add_argument(
+        "--vlm",
+        action="store_true",
+        help=(
+            "Enable cloud VLM interpretation of composite DOCX figures "
+            "(Config(use_vlm=True)). Needs OPENROUTER_API_KEY (or --vlm-api-key-file/"
+            "--vlm-provider) and the system soffice/LibreOffice binary. No effect on "
+            ".xlsx sources."
+        ),
+    )
+    vlm_group.add_argument(
+        "--vlm-verify",
+        action="store_true",
+        help="Add a discriminative self-check pass per resolved figure (Config(vlm_verify=True)).",
+    )
+    vlm_group.add_argument(
+        "--vlm-model",
+        metavar="MODEL",
+        help=(
+            "Model slug/ID for the figure-description call. Required unless "
+            "--vlm-provider openrouter."
+        ),
+    )
+    vlm_group.add_argument(
+        "--vlm-judge-mode",
+        choices=["solo", "panel"],
+        help="Who judges when --vlm-verify is set (default: Config's own 'panel').",
     )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
@@ -147,6 +180,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
+
+
+def _build_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Config:
+    """One ``Config`` built from every VLM-related flag, shared across every
+    source (including batch mode). Optional-kwargs-dict pattern, not
+    argparse-default-duplication: a flag left unset simply never appears in
+    ``kwargs``, so ``Config``'s own dataclass defaults apply unchanged —
+    duplicating them here (e.g. ``args.vlm_judge_mode or "panel"``) would
+    silently drift the moment ``Config``'s default changes."""
+    kwargs: dict[str, Any] = {"strict": args.strict}
+    if args.vlm:
+        kwargs["use_vlm"] = True
+    if args.vlm_verify:
+        kwargs["vlm_verify"] = True
+    if args.vlm_model is not None:
+        kwargs["vlm_model"] = args.vlm_model
+    if args.vlm_judge_mode is not None:
+        kwargs["vlm_judge_mode"] = args.vlm_judge_mode
+    return Config(**kwargs)
+
+
+_VLM_XLSX_WARNING = "--vlm has no effect on .xlsx sources (no VLM path)"
 
 
 def _configure_logging(args: argparse.Namespace) -> None:
@@ -208,6 +263,8 @@ def _report_warnings(warnings: list[str], *, quiet: bool) -> None:
 def _run_stdin(args: argparse.Namespace, config: Config, parser: argparse.ArgumentParser) -> int:
     if args.format is None:
         parser.error("--format is required when reading from stdin")
+    if args.format == "xlsx" and args.vlm:
+        _report_warnings([_VLM_XLSX_WARNING], quiet=args.quiet)
     data = sys.stdin.buffer.read()
     result, code, message = _convert_one(data, args.format, config)
     if result is None:
@@ -226,6 +283,8 @@ def _run_single(
     fmt = _format_for_path(path)
     if fmt is None:
         parser.error(f"{path}: unrecognized extension (expected .docx or .xlsx)")
+    if fmt == "xlsx" and args.vlm:
+        _report_warnings([_VLM_XLSX_WARNING], quiet=args.quiet)
 
     result, code, message = _convert_one(path, fmt, config)
     if result is None:
@@ -332,6 +391,8 @@ def _run_batch(
         fmt = _format_for_path(file_path)
         if fmt is None:  # pragma: no cover - _resolve_batch_sources/_plan_batch already filter
             continue
+        if fmt == "xlsx" and args.vlm and not args.quiet:
+            print(f"warning: {file_path}: {_VLM_XLSX_WARNING}", file=sys.stderr)
 
         result, code, message = _convert_one(file_path, fmt, config)
         if result is None:
@@ -360,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _configure_logging(args)
-    config = Config(strict=args.strict)
+    config = _build_config(args, parser)
 
     if not args.sources:
         return _run_stdin(args, config, parser)
