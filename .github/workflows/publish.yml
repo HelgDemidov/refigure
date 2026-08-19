@@ -9,7 +9,8 @@ name: Publish
 # Trigger is `push: tags: v*`, not `release:` — a git tag is simpler to
 # create/push (scripts/release.sh prints the exact command, never runs it
 # itself) and doesn't require a separate "create a GitHub Release" step
-# before publishing.
+# before publishing. A GitHub Release IS created, but only AFTER a
+# successful publish (github-release job below), never as a precondition.
 on:
   push:
     tags:
@@ -62,3 +63,30 @@ jobs:
       # pinning.
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+
+  # Separate job, not a step tacked onto `publish` above — deliberately, so
+  # this never needs to share that job's `id-token: write`. Runs only after
+  # a REAL successful publish (`needs: publish`), so a failed/aborted
+  # publish attempt never gets a Release page. `gh` is the CLI pre-installed
+  # on GitHub-hosted runners, not a third-party Action — no supply-chain
+  # pin needed the way trivy-action/gh-action-pypi-publish above require.
+  #
+  # `--generate-notes` diffs against the previous tag for a real commit/PR
+  # list — genuinely useful from v0.2.0 onward. v0.1.0 itself was created
+  # manually with hand-curated notes (2026-08-19): the very first tag has
+  # no previous release to diff against, so auto-notes would have dumped
+  # the entire pre-release commit history (dependabot bumps, docs syncs,
+  # etc.) instead of a meaningful "what's in this release" summary.
+  github-release:
+    name: Create GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create GitHub Release with auto-generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" --generate-notes
