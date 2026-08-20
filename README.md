@@ -87,13 +87,15 @@ refigure report.docx --vlm                    # needs the system soffice/LibreOf
   caption text preserved. Absent even in well-funded incumbents — see
   [Docling issue #1287](https://github.com/docling-project/docling/issues/1287).
 - **Optional VLM interpretation** (DOCX composite figures, `[vlm]` extra,
-  `--vlm`/`Config(use_vlm=True)`) — cloud description + mermaid diagram on
-  top of the zero-loss floor, for figures with no native chart data at all
-  (e.g. a dashboard screenshot). Provider-agnostic — OpenRouter by default,
-  or direct OpenAI/Ollama/vLLM/LM Studio/Anthropic via `--vlm-provider`
-  (`[vlm-direct]` extra). `--strict` upgrades one specific failure (the
-  system `soffice`/LibreOffice binary missing) from a graceful skip to a
-  hard error; every other VLM failure still degrades.
+  `--vlm`/`Config(use_vlm=True)`) — cloud description + a real rendered
+  mermaid diagram (26 supported diagram types — flowcharts, pie/xy charts,
+  sequence/state/ER diagrams, Gantt/timeline/sankey/treemap and more, see
+  Status below) on top of the zero-loss floor, for figures with no native
+  chart data at all (e.g. a dashboard screenshot). Provider-agnostic —
+  OpenRouter by default, or direct OpenAI/Ollama/vLLM/LM Studio/Anthropic
+  via `--vlm-provider` (`[vlm-direct]` extra). `--strict` upgrades one
+  specific failure (the system `soffice`/LibreOffice binary missing) from
+  a graceful skip to a hard error; every other VLM failure still degrades.
 - **Rich, typed result** — `ConversionResult` (markdown + warnings +
   chart/group counts + `vlm_used`), not a bare string.
 - **CLI included** — `refigure` console command, stdin/stdout-first, native
@@ -165,7 +167,12 @@ engine can't reconstruct (`[vlm]` extra, `Config(use_vlm=True)`,
 provider-agnostic — direct OpenAI/Anthropic via `[vlm-direct]`, also needs
 the system `soffice`/LibreOffice binary, not installable via pip) is fully
 implemented, tested, and exposed through the `refigure` CLI (`--vlm` and
-friends — see CLI above and Quickstart).
+friends — see CLI above and Quickstart). Mermaid-diagram recognition on
+top of that varies by diagram type and by what's actually on the source
+figure — common types (flowcharts, pie/xy charts) are picked reliably;
+more specialized ones depend on the figure carrying an unambiguous visual
+cue, and not every figure produces a diagram at all — a plain text
+description is a valid, honest fallback when it doesn't.
 
 **PDF is out of scope, on purpose — a boundary, not a gap.** PDF has no
 equivalent of OOXML's cached chart data (`numCache`/`strCache`) for any
