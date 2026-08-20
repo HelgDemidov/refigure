@@ -1,11 +1,17 @@
 """``ChartData`` -> markdown (spec chart-data-extraction §3): a GFM table is
 produced ALWAYS (lossless), mermaid is ADDITIONAL — only for chart kinds that
-objectively HAVE a mermaid construct (a limit of mermaid's own vocabulary,
-not caution on our part): ``pie``/``doughnut``->``pie``, ``column``/``bar``/
-``line``/``area``/``combo``->``xychart-beta`` (bar+line combo = an overlay of
-two series of different kind), ``radar``->``radar-beta``. Everything else
-(``scatter``, stacked bar, bubble/waterfall/treemap/sunburst/boxplot/3D/log
-scales) -> there is NO mermaid construct at all, table only.
+have a mermaid construct reachable from this module's native, numCache-driven
+mapping: ``pie``/``doughnut``->``pie``, ``column``/``bar``/``line``/``area``/
+``combo``->``xychart-beta`` (bar+line combo = an overlay of two series of
+different kind), ``radar``->``radar-beta``. Everything else (``scatter``,
+stacked bar, bubble/waterfall/treemap/sunburst/boxplot/3D/log scales) stays
+table-only here — NOT because mermaid.js itself lacks a construct for these
+shapes (it has grown ``treemap-beta``, radial/hierarchical ``mindmap``, etc.
+since this mapping was written — see the VLM-side prompt in
+``refigure/vlm/__init__.py`` for those), but because none of them round-trips
+through this module's numCache->mermaid mapping: that mapping is fixed by the
+OOXML chart TAG name (deterministic lookup, one native chart type -> one
+mermaid type), and no OOXML chart tag maps cleanly onto those shapes.
 ``verify+fallback``: if the shape is risky (series/category length mismatch,
 gaps, >1 series for a pie) -> mermaid is dropped, the table is always kept
 (see the spec's Design rationale).
@@ -248,7 +254,7 @@ def _mermaid(data: ChartData) -> str | None:
     elif data.chart_type == "radar":
         candidate = _mermaid_radar(data)
     else:
-        return None  # scatter/stacked-bar/etc. — there is no mermaid construct at all
+        return None  # scatter/stacked-bar/etc. — no native numCache->mermaid mapping
     if candidate is None:
         return None
     code = candidate.removeprefix("```mermaid\n").removesuffix("\n```")
