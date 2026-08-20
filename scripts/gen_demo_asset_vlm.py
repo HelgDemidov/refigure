@@ -90,13 +90,16 @@ output, each a genuine correction, not a style preference:
    the "Wireless Technologies" label split to 2 lines (`<br/>`) once room
    allowed it to stay centered inside the wider root circle.
 
-**Input-crop label chip — a real bug fixed here, inherited from this
-script's previous version**: the label chip's background used the page's
-own theme `bg` token, which is dark in dark mode — painting a DARK box on
-top of the crop image, which is always a real screenshot's own LIGHT UI
-background regardless of page theme. Fixed to a fixed light chip color
-here (`_INPUT_CHIP_BG`), same "fixed, not per-theme" reasoning this
-script's `_INPUT_LABEL_COLOR` already used for the label text itself.
+**Input crop background — a real bug fixed here**: the source PNG is RGBA
+(genuine transparency, confirmed live) — the previous version of this
+script (and its own inherited label-chip workaround, added to keep the
+label legible over what a naive `.convert("RGB")` turns into a solid BLACK
+background) never composited it onto white first. Fixed at the source
+(`compose()` pastes the RGBA image onto a white canvas via its own alpha
+mask before JPEG-encoding), which makes the crop's corners genuinely empty
+white space — same as the other 3 siblings' plain screenshot crops — so
+the label sits directly on it with no chip needed at all, not just a
+differently-colored chip.
 
 What it does, in order:
 1. Gets the INPUT crop via `refigure.vlm._docx_media_uri` directly (the
@@ -158,7 +161,6 @@ THEME = dict(
 # scripts' _INPUT_LABEL_COLOR: this label sits on the real screenshot's
 # own light UI background, not the page's dark surface.
 _INPUT_LABEL_COLOR = "#1E7A6E"
-_INPUT_CHIP_BG = "#FFFFFF"
 
 # Branch order confirmed from the real cached response's own top-level
 # indentation, not assumed: RFID, LAN/PAN, LPWAN, Сотовая связь,
@@ -284,22 +286,43 @@ def compose(
 
     from io import BytesIO
 
-    from PIL import Image
+    from PIL import Image, ImageDraw
 
-    im = Image.open(BytesIO(input_bytes)).convert("RGB")
+    # This source PNG is RGBA (real transparency, confirmed live) — unlike
+    # the other 3 demo scripts' plain screenshot crops, a bare .convert("RGB")
+    # here would flatten the transparent background to BLACK (Pillow's
+    # default), not the white the source document's own page actually
+    # shows around this figure. A real bug found live: composite onto white
+    # FIRST, matching what a real page render would look like.
+    im = Image.open(BytesIO(input_bytes))
+    if im.mode == "RGBA":
+        flat = Image.new("RGB", im.size, "#FFFFFF")
+        flat.paste(im, mask=im.split()[3])
+        im = flat
+    else:
+        im = im.convert("RGB")
+    # The source PNG's own top strip is the source document's chart title
+    # ("Спектр основных технологий..."), which this SVG's own INPUT label
+    # needs to occupy instead — painted over with white (title text
+    # confirmed live to span rows 11-24; the sunburst circle itself doesn't
+    # start until row 50, so row 0-45 stays inside that real empty margin,
+    # not into the circle) rather than cropped out, so the label sits
+    # INSIDE the image's own canvas exactly like the other 3 demo scripts'
+    # crops, not outside/above it.
+    ImageDraw.Draw(im).rectangle([0, 0, im.width, 45], fill="#FFFFFF")
     in_h = round(im.height * in_w / im.width)
     resized = im.resize((in_w, in_h), Image.Resampling.LANCZOS)
     buf = BytesIO()
     resized.save(buf, format="JPEG", quality=90, optimize=True)
     input_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-    arrow_gap = 70
+    arrow_gap = 90
     arrow_cx = in_x + in_w + arrow_gap
     arrow_y = in_y + in_h / 2
     out_x = arrow_cx + arrow_gap
     out_w = W - pad - out_x
 
-    boxA_y, boxA_h = 96, 200
+    boxA_y, boxA_h = 96, 300
     boxB_y = boxA_y + boxA_h + 26
     boxB_h = H - pad - boxB_y
     mono_size, line_h, text_pad_x, text_pad_top = 10, 12.8, 18, 46
@@ -327,7 +350,6 @@ def compose(
 
 <rect x="{in_x - 1}" y="{in_y - 1}" width="{in_w + 2}" height="{in_h + 2}" fill="none" stroke="{muted}" stroke-width="1" opacity="0.35"/>
 <image x="{in_x}" y="{in_y}" width="{in_w}" height="{in_h}" href="data:image/jpeg;base64,{input_b64}"/>
-<rect x="{in_x + 6}" y="{in_y + 6}" width="230" height="24" rx="4" fill="{_INPUT_CHIP_BG}" opacity="0.9"/>
 <text x="{in_x + 14}" y="{in_y + 22}" font-family="{FONT_SANS}" font-size="14" font-weight="600" fill="{_INPUT_LABEL_COLOR}">INPUT — a screenshot, not a chart</text>
 <text x="{in_x}" y="{in_y + in_h + 24}" font-family="{FONT_SANS}" font-size="11.5" fill="{muted}">
 <tspan x="{in_x}" dy="0">a dense wireless-tech sunburst — no native chart</tspan>
@@ -337,8 +359,9 @@ def compose(
 
 <text x="{arrow_cx}" y="{arrow_y - 16}" font-family="{FONT_MONO}" font-size="11" fill="{ink}" text-anchor="middle">--vlm</text>
 <text x="{arrow_cx}" y="{arrow_y + 7}" font-family="{FONT_MONO}" font-size="20" letter-spacing="-3px" fill="{muted}" text-anchor="middle">&gt;&gt;&gt;&gt;&gt;</text>
-<text x="{arrow_cx}" y="{arrow_y + 28}" font-family="{FONT_SANS}" font-size="11" fill="{muted}" text-anchor="middle">cloud VLM reads the</text>
-<text x="{arrow_cx}" y="{arrow_y + 42}" font-family="{FONT_SANS}" font-size="11" fill="{muted}" text-anchor="middle">pixels, cached + reproducible</text>
+<text x="{arrow_cx}" y="{arrow_y + 28}" font-family="{FONT_SANS}" font-size="11" fill="{muted}" text-anchor="middle">cloud VLM</text>
+<text x="{arrow_cx}" y="{arrow_y + 42}" font-family="{FONT_SANS}" font-size="11" fill="{muted}" text-anchor="middle">reads the pixels,</text>
+<text x="{arrow_cx}" y="{arrow_y + 56}" font-family="{FONT_SANS}" font-size="11" fill="{muted}" text-anchor="middle">cached + reproducible</text>
 
 <rect x="{out_x}" y="{boxA_y}" width="{out_w}" height="{boxA_h}" fill="none" stroke="{muted}" stroke-width="1" opacity="0.35"/>
 <text x="{out_x + text_pad_x}" y="{boxA_y + 26}" font-family="{FONT_SANS}" font-size="15" font-weight="600" fill="{blue}">OUTPUT — as your LLM/RAG pipeline reads it</text>
