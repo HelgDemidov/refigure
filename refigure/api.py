@@ -56,19 +56,31 @@ class VlmCacheBackend(Protocol):
 class Config:
     """Runtime configuration for a conversion call.
 
-    ``strict`` is currently a no-op: DOCX/XLSX conversion has no capability
-    whose absence is worth hard-failing on — a missing ``mermaidx`` degrades
-    to a table-only render, itself a valid zero-loss result, not a broken
-    one. ``strict`` starts branching real behavior once VLM (``use_vlm``)
-    ships.
-
     VLM fields (stage 4b, DOCX-only — ``xlsx.convert()`` treats
     ``use_vlm=True`` as a silent no-op, XLSX has no VLM path at all, see
-    ``vlm.py``'s module docstring): gated behind the ``[vlm]`` extra, not
-    active/announced in v1.
+    ``vlm/__init__.py``'s module docstring): gated behind the ``[vlm]``
+    extra.
     """
 
     strict: bool = False
+    """``False`` (default): every conversion failure that can degrade to an
+    honest zero-loss fallback does — a missing ``mermaidx`` falls back to a
+    table-only render, a VLM call/cache/judge failure leaves the bare
+    "not analyzed" marker in place, etc. ``True``: raise instead, but ONLY
+    for one specific case — a composite DOCX group under
+    ``Config(use_vlm=True)`` that needs the system ``soffice``/LibreOffice
+    binary to render, and that binary isn't installed
+    (``MissingOptionalDependencyError``, see ``refigure/vlm/__init__.py``'s
+    ``_render_docx_group``). This is deliberately narrow, not a general
+    "raise on any VLM failure" switch: DOCX/XLSX conversion otherwise has no
+    capability whose absence is worth hard-failing on (chart parsing,
+    mermaid rendering, and every OTHER VLM failure mode — network, cache,
+    judge, a corrupted archive — already have a valid zero-loss fallback and
+    stay degrade-only regardless of ``strict``, per the security-audited
+    "never abort the whole conversion" contract on ``enhance_docx_markdown``).
+    ``soffice`` missing is the one case where "degrade" means silently
+    losing the ONLY way to interpret that figure at all, which ``strict``
+    lets a caller upgrade to a hard, actionable failure instead."""
 
     use_vlm: bool = False
     """Enable cloud VLM interpretation of composite DOCX figures that the
@@ -270,4 +282,8 @@ class CorruptArchiveError(Exception):
 
 
 class MissingOptionalDependencyError(Exception):
-    """A required optional dependency (extra) is not installed."""
+    """A required optional dependency is not installed — either a pip extra
+    (``[docx]``/``[xlsx]``/``[vlm]``/``[vlm-direct]``) or an external system
+    binary a pip extra can't provide (``soffice``/LibreOffice, needed to
+    render a composite DOCX group under ``Config(use_vlm=True,
+    strict=True)`` — see ``Config.strict``'s docstring)."""

@@ -455,6 +455,70 @@ def test_enhance_docx_markdown_cache_miss_soffice_unavailable_leaves_marker_unch
     assert warnings == []
 
 
+# --- vlm-activation spec §1: Config.strict + soffice-missing boundary -----
+
+
+def test_enhance_docx_markdown_strict_true_soffice_unavailable_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ONE case ``strict=True`` actually changes: a composite group
+    that needs ``soffice`` to render, and ``soffice`` isn't installed."""
+    monkeypatch.setattr(vlm, "_soffice_available", lambda: False)
+
+    docx_bytes = build_minimal_docx(["A paragraph of unrelated document text."])
+    markdown = _group_only_markdown(_GROUP_ID, "quarterly revenue")
+    config = Config(use_vlm=True, strict=True, vlm_cache=InMemoryCacheBackend())
+
+    with pytest.raises(vlm.MissingOptionalDependencyError, match="soffice"):
+        vlm.enhance_docx_markdown(markdown, docx_bytes, config=config)
+
+
+def test_enhance_docx_markdown_strict_false_soffice_unavailable_degrades_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: ``strict=False`` (the default) on the exact same input
+    must behave EXACTLY as before this feature — degrade, not raise."""
+    monkeypatch.setattr(vlm, "_soffice_available", lambda: False)
+
+    docx_bytes = build_minimal_docx(["A paragraph of unrelated document text."])
+    markdown = _group_only_markdown(_GROUP_ID, "quarterly revenue")
+    config = Config(use_vlm=True, strict=False, vlm_cache=InMemoryCacheBackend())
+
+    new_markdown, vlm_used, warnings = vlm.enhance_docx_markdown(
+        markdown, docx_bytes, config=config
+    )
+
+    assert vlm_used is False
+    assert new_markdown == markdown
+    assert warnings == []
+
+
+def test_enhance_docx_markdown_strict_true_other_vlm_failure_still_degrades(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``strict=True`` does NOT become a general "raise on any VLM failure"
+    switch — a non-soffice failure (here: the VlmClient itself raising)
+    stays a degrade, proving the boundary is exactly "soffice missing", not
+    "any failure while strict"."""
+    monkeypatch.setattr(vlm, "_render_docx_group", lambda *a, **k: "data:image/jpeg;base64,x")
+    docx_bytes = build_minimal_docx(["text"])
+    markdown = _group_only_markdown(_GROUP_ID, "quarterly revenue")
+    config = Config(
+        use_vlm=True,
+        strict=True,
+        vlm_cache=InMemoryCacheBackend(),
+        vlm_client=_RaisingVlmClient(),
+    )
+
+    new_markdown, vlm_used, warnings = vlm.enhance_docx_markdown(
+        markdown, docx_bytes, config=config
+    )
+
+    assert vlm_used is False
+    assert new_markdown == markdown
+    assert warnings == []
+
+
 # =============================================================================
 # 8. judge_defects
 # =============================================================================

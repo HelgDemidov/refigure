@@ -20,11 +20,11 @@ import logging
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from . import __version__
 from ._io import Source
-from .api import Config, ConversionResult
+from .api import Config, ConversionResult, VlmClient
 
 EXIT_OK = 0
 EXIT_BATCH_PARTIAL_FAILURE = 1
@@ -133,7 +133,72 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="Passed through to Config(strict=...).",
+        help=(
+            "Passed through to Config(strict=...). Only changes behavior for one "
+            "VLM scenario (--vlm + a composite DOCX group + soffice not installed): "
+            "raise instead of skipping the group. No effect otherwise."
+        ),
+    )
+    vlm_group = parser.add_argument_group("VLM (composite-figure interpretation, DOCX-only)")
+    vlm_group.add_argument(
+        "--vlm",
+        action="store_true",
+        help=(
+            "Enable cloud VLM interpretation of composite DOCX figures "
+            "(Config(use_vlm=True)). Needs OPENROUTER_API_KEY (or --vlm-api-key-file/"
+            "--vlm-provider) and the system soffice/LibreOffice binary. No effect on "
+            ".xlsx sources."
+        ),
+    )
+    vlm_group.add_argument(
+        "--vlm-verify",
+        action="store_true",
+        help="Add a discriminative self-check pass per resolved figure (Config(vlm_verify=True)).",
+    )
+    vlm_group.add_argument(
+        "--vlm-model",
+        metavar="MODEL",
+        help=(
+            "Model slug/ID for the figure-description call. Required unless "
+            "--vlm-provider openrouter."
+        ),
+    )
+    vlm_group.add_argument(
+        "--vlm-judge-mode",
+        choices=["solo", "panel"],
+        help="Who judges when --vlm-verify is set (default: Config's own 'panel').",
+    )
+    vlm_group.add_argument(
+        "--vlm-provider",
+        choices=["openrouter", "openai", "anthropic"],
+        default="openrouter",
+        help=(
+            "VLM backend to call (default: openrouter). openai/anthropic use the "
+            "direct SDK client (refigure[vlm-direct])."
+        ),
+    )
+    vlm_group.add_argument(
+        "--vlm-base-url",
+        metavar="URL",
+        help="OpenAI-compatible endpoint (Ollama/vLLM/LM Studio). Requires --vlm-provider openai.",
+    )
+    vlm_group.add_argument(
+        "--vlm-image-format",
+        choices=["dict", "string"],
+        default="dict",
+        help=(
+            "Image content shape for the openai provider (default: dict; Ollama "
+            "needs 'string'). Requires --vlm-provider openai."
+        ),
+    )
+    vlm_group.add_argument(
+        "--vlm-api-key-file",
+        metavar="PATH",
+        help=(
+            "Read the VLM API key from this file instead of the usual environment "
+            "variable (OPENROUTER_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY). Avoids "
+            "putting a secret in argv/shell history."
+        ),
     )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
@@ -147,6 +212,81 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
+
+
+def _resolve_vlm_client(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> VlmClient | None:
+    """Construct the ``VlmClient`` implied by ``--vlm-provider`` and friends,
+    or ``None`` for the ``openrouter`` default (``Config.vlm_client`` itself
+    already falls back to ``OpenRouterClient`` lazily — no need to construct
+    one here just to hand it back). Lazily imports ``refigure.vlm.client``
+    (same lazy-import discipline ``_convert_fn`` already applies to
+    ``docx``/``xlsx`` in this module) — a bare/``[docx]``/``[xlsx]``-only
+    install still gets a clean ``MissingOptionalDependencyError`` out of
+    ``OpenAIClient``/``AnthropicClient``'s own constructor guard, no new
+    guard needed here.
+
+    Only Bedrock/Vertex/Foundry are out of reach from the CLI (see the
+    vlm-activation spec §4) — those need a whole SDK-specific
+    authentication chain (AWS region + boto3, GCP project + ADC, Azure
+    resource + Entra ID), not a couple of flags; use the Python API's
+    ``AnthropicClient(client=...)`` for those instead."""
+    if args.vlm_provider != "openai" and (
+        args.vlm_base_url is not None or args.vlm_image_format != "dict"
+    ):
+        parser.error("--vlm-base-url/--vlm-image-format require --vlm-provider openai")
+    if args.vlm_provider == "openrouter":
+        return None
+    api_key = Path(args.vlm_api_key_file).read_text().strip() if args.vlm_api_key_file else None
+    if args.vlm_provider == "openai":
+        from .vlm.client import OpenAIClient
+
+        return OpenAIClient(
+            api_key=api_key, base_url=args.vlm_base_url, image_content_format=args.vlm_image_format
+        )
+    from .vlm.client import AnthropicClient
+
+    return AnthropicClient(api_key=api_key)
+
+
+def _build_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Config:
+    """One ``Config`` built from every VLM-related flag, shared across every
+    source (including batch mode). Optional-kwargs-dict pattern, not
+    argparse-default-duplication: a flag left unset simply never appears in
+    ``kwargs``, so ``Config``'s own dataclass defaults apply unchanged —
+    duplicating them here (e.g. ``args.vlm_judge_mode or "panel"``) would
+    silently drift the moment ``Config``'s default changes."""
+    if args.vlm and args.vlm_provider != "openrouter" and args.vlm_model is None:
+        parser.error(
+            f"--vlm-model is required when --vlm-provider is {args.vlm_provider!r} "
+            "(no calibrated default outside openrouter)"
+        )
+    kwargs: dict[str, Any] = {"strict": args.strict}
+    if args.vlm:
+        kwargs["use_vlm"] = True
+    if args.vlm_verify:
+        kwargs["vlm_verify"] = True
+    if args.vlm_model is not None:
+        kwargs["vlm_model"] = args.vlm_model
+    if args.vlm_judge_mode is not None:
+        kwargs["vlm_judge_mode"] = args.vlm_judge_mode
+    if args.vlm:
+        # Provider/key-file resolution only matters when VLM is actually
+        # enabled — otherwise --vlm-provider openai with no --vlm would
+        # needlessly demand refigure[vlm-direct] for a client that's never
+        # used (see extras-isolation coverage: `--vlm --vlm-provider
+        # openai` is the pairing that's expected to require it, not
+        # --vlm-provider alone).
+        vlm_client = _resolve_vlm_client(args, parser)
+        if vlm_client is not None:
+            kwargs["vlm_client"] = vlm_client
+        elif args.vlm_api_key_file is not None:
+            kwargs["vlm_api_key"] = Path(args.vlm_api_key_file).read_text().strip()
+    return Config(**kwargs)
+
+
+_VLM_XLSX_WARNING = "--vlm has no effect on .xlsx sources (no VLM path)"
 
 
 def _configure_logging(args: argparse.Namespace) -> None:
@@ -208,6 +348,8 @@ def _report_warnings(warnings: list[str], *, quiet: bool) -> None:
 def _run_stdin(args: argparse.Namespace, config: Config, parser: argparse.ArgumentParser) -> int:
     if args.format is None:
         parser.error("--format is required when reading from stdin")
+    if args.format == "xlsx" and args.vlm:
+        _report_warnings([_VLM_XLSX_WARNING], quiet=args.quiet)
     data = sys.stdin.buffer.read()
     result, code, message = _convert_one(data, args.format, config)
     if result is None:
@@ -226,6 +368,8 @@ def _run_single(
     fmt = _format_for_path(path)
     if fmt is None:
         parser.error(f"{path}: unrecognized extension (expected .docx or .xlsx)")
+    if fmt == "xlsx" and args.vlm:
+        _report_warnings([_VLM_XLSX_WARNING], quiet=args.quiet)
 
     result, code, message = _convert_one(path, fmt, config)
     if result is None:
@@ -332,6 +476,8 @@ def _run_batch(
         fmt = _format_for_path(file_path)
         if fmt is None:  # pragma: no cover - _resolve_batch_sources/_plan_batch already filter
             continue
+        if fmt == "xlsx" and args.vlm and not args.quiet:
+            print(f"warning: {file_path}: {_VLM_XLSX_WARNING}", file=sys.stderr)
 
         result, code, message = _convert_one(file_path, fmt, config)
         if result is None:
@@ -360,7 +506,23 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _configure_logging(args)
-    config = Config(strict=args.strict)
+    try:
+        config = _build_config(args, parser)
+    except Exception as exc:
+        # _build_config can now construct a real VlmClient (--vlm-provider
+        # openai/anthropic) BEFORE any document is even read — its own SDK
+        # can raise for reasons refigure's typed exceptions don't cover
+        # (e.g. openai.OpenAIError on a missing API key with no
+        # OPENROUTER_API_KEY-equivalent env var set). Routed through the
+        # same _exit_code_for mapping _convert_one uses below, so a
+        # config-build failure gets the same clean typed exit code as a
+        # conversion failure, not an unhandled traceback — the exact
+        # "translate every failure into a typed exit code" gap this CLI was
+        # built to close in the first place (see module docstring).
+        code = _exit_code_for(exc)
+        message = str(exc) if code != EXIT_INTERNAL_ERROR else f"internal error: {exc}"
+        print(f"error: {message}", file=sys.stderr)
+        return code
 
     if not args.sources:
         return _run_stdin(args, config, parser)

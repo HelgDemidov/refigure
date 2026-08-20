@@ -273,3 +273,74 @@ def test_cli_xlsx_conversion_matches_extras(tmp_path: Path) -> None:
         result = _run_cli(str(xlsx_path))
         assert result.returncode == 5
         assert "refigure[xlsx]" in result.stderr
+
+
+# --- --vlm (vlm-activation spec §2/§3/Тестовое покрытие) -------------------
+# No real network call is exercised anywhere below — same principle as
+# test_anthropic_*_live.py: a live VLM call is opt-in-gated, never part of
+# the regular/extras-matrix CI run.
+
+
+def test_cli_vlm_flag_without_vlm_extra_is_exit_missing_dependency(tmp_path: Path) -> None:
+    """``refigure --vlm x.docx`` exits cleanly with EXIT_MISSING_DEPENDENCY
+    on every leg lacking ``[vlm]`` — ``bare``/``xlsx`` (``[docx]`` itself is
+    unavailable, that guard fires first, before ``--vlm`` is ever reached)
+    and the ``docx`` leg (docx parses fine, fails specifically on missing
+    pdfplumber/``[vlm]`` when ``use_vlm=True`` tries to import ``refigure.vlm``).
+    Legs that DO have ``[vlm]`` are covered by
+    ``test_cli_vlm_flag_matches_extras`` instead."""
+    if _HAS_VLM:
+        pytest.skip("this leg has [vlm] — covered by test_cli_vlm_flag_matches_extras instead")
+    doc_path = tmp_path / "doc.docx"
+    doc_path.write_bytes(_build_minimal_docx("hello"))
+
+    result = _run_cli(str(doc_path), "--vlm")
+
+    assert result.returncode == 5, result.stderr
+    expected = "refigure[vlm]" if _HAS_DOCX else "refigure[docx]"
+    assert expected in result.stderr
+
+
+def test_cli_vlm_flag_matches_extras(tmp_path: Path) -> None:
+    """Complement of the test above: legs WITH ``[vlm]`` (``vlm``,
+    ``docx+vlm``, ``vlm-direct``). Only ``docx+vlm`` also has ``[docx]`` —
+    the sole leg in this matrix combining both — so only it can actually
+    complete a conversion; the other two still fail, but now on the
+    DIFFERENT, already-covered ``[docx]`` boundary (see
+    ``test_cli_docx_conversion_matches_extras``), not the one this test
+    targets."""
+    if not _HAS_VLM:
+        pytest.skip("this leg lacks [vlm] — covered by the test above instead")
+    doc_path = tmp_path / "doc.docx"
+    doc_path.write_bytes(_build_minimal_docx("hello from the extras matrix"))
+
+    result = _run_cli(str(doc_path), "--vlm")
+
+    if _HAS_DOCX:
+        assert result.returncode == 0, result.stderr
+        assert "hello from the extras matrix" in result.stdout
+    else:
+        assert result.returncode == 5
+        assert "refigure[docx]" in result.stderr
+
+
+def test_cli_vlm_provider_openai_without_vlm_direct_extra_is_exit_missing_dependency(
+    tmp_path: Path,
+) -> None:
+    """``--vlm --vlm-provider openai`` fails cleanly with
+    EXIT_MISSING_DEPENDENCY on every leg lacking ``[vlm-direct]``. Client
+    construction happens in ``_build_config()``, before any source file is
+    even read — the placeholder file's content/format is irrelevant to this
+    outcome, unlike the plain ``--vlm`` test above (which needs a real
+    ``.docx`` to reach the point where ``refigure.vlm`` gets imported at
+    all)."""
+    if _HAS_VLM_DIRECT:
+        pytest.skip("this leg has [vlm-direct] — no negative case without live credentials")
+    doc_path = tmp_path / "doc.docx"
+    doc_path.write_bytes(b"placeholder, _build_config fails before this is ever read")
+
+    result = _run_cli(str(doc_path), "--vlm", "--vlm-provider", "openai", "--vlm-model", "m")
+
+    assert result.returncode == 5, result.stderr
+    expected = "refigure[vlm-direct]" if _HAS_VLM else "refigure[vlm]"
+    assert expected in result.stderr
