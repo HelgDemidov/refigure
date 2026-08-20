@@ -216,6 +216,25 @@ Output in English, in two parts:
    - Dated schedule or project plan — ``gantt``: `dateFormat YYYY-MM-DD`,
      one or more `section Name` blocks, then `Task name : id, start,
      duration` lines, using only dates actually printed.
+   - Actor interaction over time (message exchange) —
+     ``sequenceDiagram``: `Actor->>Actor: Message` lines, one per arrow
+     actually drawn on the figure — never infer an exchange that isn't
+     shown.
+   - Class/entity structure with attributes and UML relations —
+     ``classDiagram``: `class Name` blocks with `Name : +attribute`
+     lines, and relation lines (`<|--`, `-->`, `o--`, etc.) matching the
+     arrow style actually drawn. Use only when UML-style inheritance/
+     aggregation arrowheads are visible — a plain box-and-arrow structure
+     with no such arrowheads is a ``flowchart``, not this.
+   - Transitions between states or statuses — ``stateDiagram-v2``: `[*]
+     --> State`, `State --> State2` lines; `[*]` marks an initial or
+     final state.
+   - Entity-relationship schema (database structure) — ``erDiagram``:
+     `ENTITY1 ||--o{ ENTITY2 : relation` lines. Use only when explicit
+     cardinality marks (crow's-foot notation, `1..N`-style labels) are
+     visible — otherwise prefer ``classDiagram`` or ``flowchart``.
+   - User journey with satisfaction scores — ``journey``: `section Name`
+     blocks containing `Task: score: Actor` lines (score 1-5).
 
 Output ONLY the prose description, optionally followed by a ```mermaid code
 fence — no other commentary."""
