@@ -1,6 +1,7 @@
 """VLM interpretation of composite DOCX figures (stage 4b), gated behind
-``Config.use_vlm`` — implemented and tested, but deliberately not
-active/announced as a v1 feature.
+``Config.use_vlm`` — active and announced as a v1 feature since PR #24,
+with full CLI support (``--vlm`` and friends, multi-provider selection via
+``--vlm-provider``).
 
 Scope is hard-limited to DOCX: XLSX has no VLM path at all (its native
 charts resolve data-driven, at conversion time — an unreadable chart stays
