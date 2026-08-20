@@ -235,6 +235,24 @@ Output in English, in two parts:
      visible — otherwise prefer ``classDiagram`` or ``flowchart``.
    - User journey with satisfaction scores — ``journey``: `section Name`
      blocks containing `Task: score: Actor` lines (score 1-5).
+   - Commit/branch history (version control) — ``gitGraph``: `commit`,
+     `branch name`, `checkout name`, `merge name` lines, in the order
+     shown.
+   - Network packet layout (bit/byte field breakdown) — ``packet-beta``:
+     one `N-M: "Field label"` line per field, N/M as the bit or byte
+     range actually labeled.
+   - System context diagram (C4 model) — ``C4Context``: `Person(id,
+     "Name", "Desc")`, `System(id, "Name", "Desc")`, `Rel(a, b, "label")`
+     lines. Use only when the figure carries explicit C4 markers
+     ("System"/"Container"/"Person" labels or C4 boundary boxes) — a
+     generic box-and-arrow system diagram with no such markers is a
+     ``flowchart``, not this.
+   - Kanban board of tasks by column — ``kanban``: one bare `ColumnName`
+     line per column, then indented `task[Label]` lines under it.
+   - Formal requirement with tracked attributes (id/risk/verification
+     method) — ``requirementDiagram``: `requirement name { id: ...;
+     text: ...; risk: ...; verifymethod: ... }` blocks, one per
+     requirement actually labeled with these fields.
 
 Output ONLY the prose description, optionally followed by a ```mermaid code
 fence — no other commentary."""
