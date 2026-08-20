@@ -190,6 +190,110 @@ Output in English, in two parts:
      "Regional Avg" -> id `reg`) — `curve reg["Regional Avg"]{0.49, 0.51}` is
      correct, `curve "Regional Avg"{0.49, 0.51}` (label alone, no id) is
      invalid syntax and will fail to render.
+   - Radial or tree hierarchy with no numeric values attached —
+     ``mindmap``: first line `mindmap`, then `root((Label))`, then
+     indentation-nested branch labels (no brackets needed on children). Do
+     not add color/classDef — branch coloring is automatic.
+   - Overlapping sets/categories (2-3 circles) — ``venn-beta``: `set
+     A["Label"]` per set, `union A, B` per overlapping pair. To label an
+     intersection use ONLY `union A, B["Label"]` — the label goes in
+     brackets directly on that same `union` line. Never use a separate
+     `text [...]` line (breaks the parser) or bare `text "..."` (renders
+     with no visible label, a silent no-op).
+   - 2D category positioning on two axes, no point-size dimension —
+     ``quadrantChart``: `x-axis Low --> High`, `y-axis Low --> High`, four
+     `quadrant-N Label` lines, then one `Label: [x, y]` per point, with x
+     and y strictly within [0, 1].
+   - Chronology or roadmap — ``timeline``: `title ...` then one `YYYY :
+     Event` line per entry, using only dates actually printed on the
+     figure.
+   - Flows of quantity between named nodes (budget, resources, data
+     volumes) — ``sankey-beta``: CSV lines `Source,Target,Value`, one per
+     flow, using only labeled numbers.
+   - Proportional nested hierarchy (shares, budget breakdown) —
+     ``treemap-beta``: indentation-nested `"Section"` blocks containing
+     `"Leaf": value` lines.
+   - Dated schedule or project plan — ``gantt``: `dateFormat YYYY-MM-DD`,
+     one or more `section Name` blocks, then `Task name : id, start,
+     duration` lines, using only dates actually printed.
+   - Actor interaction over time (message exchange) —
+     ``sequenceDiagram``: `Actor->>Actor: Message` lines, one per arrow
+     actually drawn on the figure — never infer an exchange that isn't
+     shown.
+   - Class/entity structure with attributes and UML relations —
+     ``classDiagram``: `class Name` blocks with `Name : +attribute`
+     lines, and relation lines (`<|--`, `-->`, `o--`, etc.) matching the
+     arrow style actually drawn. Use only when UML-style inheritance/
+     aggregation arrowheads are visible — a plain box-and-arrow structure
+     with no such arrowheads is a ``flowchart``, not this.
+   - Transitions between states or statuses — ``stateDiagram-v2``: `[*]
+     --> State`, `State --> State2` lines; `[*]` marks an initial or
+     final state.
+   - Entity-relationship schema (database structure) — ``erDiagram``:
+     `ENTITY1 ||--o{ ENTITY2 : relation` lines. Use only when explicit
+     cardinality marks (crow's-foot notation, `1..N`-style labels) are
+     visible — otherwise prefer ``classDiagram`` or ``flowchart``.
+   - User journey with satisfaction scores — ``journey``: `section Name`
+     blocks containing `Task: score: Actor` lines (score 1-5).
+   - Commit/branch history (version control) — ``gitGraph``: `commit`,
+     `branch name`, `checkout name`, `merge name` lines, in the order
+     shown.
+   - Network packet layout (bit/byte field breakdown) — ``packet-beta``:
+     one `N-M: "Field label"` line per field, N/M as the bit or byte
+     range actually labeled.
+   - System context diagram (C4 model) — ``C4Context``: `Person(id,
+     "Name", "Desc")`, `System(id, "Name", "Desc")`, `Rel(a, b, "label")`
+     lines. Use only when the figure carries explicit C4 markers
+     ("System"/"Container"/"Person" labels or C4 boundary boxes) — a
+     generic box-and-arrow system diagram with no such markers is a
+     ``flowchart``, not this.
+   - Kanban board of tasks by column — ``kanban``: one bare `ColumnName`
+     line per column, then indented `task[Label]` lines under it.
+   - Formal requirement with tracked attributes (id/risk/verification
+     method) — ``requirementDiagram``: `requirement name { id: ...;
+     text: ...; risk: ...; verifymethod: ... }` blocks, one per
+     requirement actually labeled with these fields.
+   - Generic system block/component layout with no cloud or service
+     iconography — ``block-beta``: `columns N` then `id["Label"]` blocks
+     and `a --> b` connections. If the figure instead shows cloud/service
+     icons or explicit service groupings, use ``architecture-beta``; if
+     it carries C4 markers, use ``C4Context`` instead.
+   - Cloud/service architecture with grouped services and icons —
+     ``architecture-beta``: `group id(icon)[Label]`, `service id(icon)
+     [Label] in group`, `a:L -- R:b` connection lines.
+   - Wardley map (component evolution vs. visibility) — ``wardley-beta``:
+     `component Name [visibility, evolution]` lines — note the
+     coordinate order is `[visibility, evolution]`, NOT `[x, y]`.
+   - Cynefin framework domains (Clear/Complicated/Complex/Chaotic) —
+     ``cynefin-beta``: one or more of the FIXED domain keywords `clear`,
+     `complicated`, `complex`, `chaotic`, `confusion`, each followed by
+     one or more `"Item label"` strings on the same line (e.g. `complex
+     "Item label" "Another item"`) — these five keywords are the only
+     valid domain names, never invent a different one.
+   - Cause-and-effect / fishbone diagram — ``ishikawa-beta``: first line
+     is the problem/effect statement (no indentation), then category
+     labels indented one level, sub-causes indented further under their
+     category — depth is expressed purely by indentation, no arrows or
+     brackets.
+
+   TYPE DISAMBIGUATION: several types above describe structurally similar
+   figures. When more than one could fit, prefer the general-purpose type
+   unless the figure carries an EXPLICIT domain marker for the specialized
+   one:
+   - Prefer ``flowchart`` over ``C4Context``/``architecture-beta`` unless
+     the figure shows explicit domain markers — C4 boundary boxes or
+     "System"/"Container"/"Person" labels for ``C4Context``; cloud/service
+     icons or explicit service groupings for ``architecture-beta``.
+   - ``block-beta`` is for a generic block layout with none of those
+     markers — prefer it over a bare ``flowchart`` only when the figure is
+     clearly organized into fixed columns/rows of equal-sized blocks, not
+     an organic node-and-arrow shape.
+   - Prefer ``flowchart`` over ``classDiagram``/``erDiagram`` unless UML
+     inheritance/aggregation arrowheads (``classDiagram``) or crow's-foot/
+     cardinality marks (``erDiagram``) are visibly drawn on the figure.
+   When genuinely unsure after applying these rules, ``flowchart`` is
+   always a safe fallback — it never actively misrepresents a figure's
+   structure the way an overconfident wrong specialized type would.
 
 Output ONLY the prose description, optionally followed by a ```mermaid code
 fence — no other commentary."""
