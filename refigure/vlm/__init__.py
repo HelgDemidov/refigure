@@ -193,7 +193,13 @@ Output in English, in two parts:
    - Radial or tree hierarchy with no numeric values attached —
      ``mindmap``: first line `mindmap`, then `root((Label))`, then
      indentation-nested branch labels (no brackets needed on children). Do
-     not add color/classDef — branch coloring is automatic.
+     not add color/classDef — branch coloring is automatic. NEVER put a
+     parenthesis `(` or `)` anywhere inside a quoted label (confirmed
+     live: even a single pair like `"Item (note)"` breaks the parser,
+     unlike other mermaid types where quoting protects punctuation) — for
+     an abbreviation/acronym printed with parentheses on the figure,
+     rephrase with a dash or colon instead, e.g. `"NB-IoT - LTE Cat
+     NB1/2"` or `"NB-IoT: LTE Cat NB1/2"`, never drop the information.
    - Overlapping sets/categories (2-3 circles) — ``venn-beta``: `set
      A["Label"]` per set, `union A, B` per overlapping pair. To label an
      intersection use ONLY `union A, B["Label"]` — the label goes in

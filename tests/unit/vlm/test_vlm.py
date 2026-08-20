@@ -1595,6 +1595,29 @@ def test_fig_prompt_documents_cynefin_beta_fixed_domain_keywords_only() -> None:
         assert keyword in vlm.FIG_PROMPT
 
 
+def test_fig_prompt_forbids_parentheses_in_mindmap_labels() -> None:
+    # Found live (post-merge, real corpus figure): a real model response
+    # correctly transcribed "NB-IoT (LTE Cat. NB1/2)" into a mindmap leaf
+    # label — mermaidx then failed to parse it. ANY parenthesis pair
+    # inside a quoted mindmap label breaks the parser (confirmed via a
+    # real mermaidx.render() call, not assumed) — unlike other mermaid
+    # types, quoting does not protect this punctuation here.
+    assert "NEVER put a" in vlm.FIG_PROMPT
+    assert "parenthesis" in vlm.FIG_PROMPT
+
+
+@pytest.mark.mermaid  # real mermaidx render — confirms the dash-rephrasing workaround works
+def test_mindmap_label_without_parentheses_renders() -> None:
+    code = 'mindmap\n  root((R))\n    "Parent"\n      "NB-IoT - LTE Cat NB1/2"'
+    assert chart_render.mermaid_renders(code) is True
+
+
+@pytest.mark.mermaid  # real mermaidx render — confirms the documented failure mode, not assumed
+def test_mindmap_label_with_parentheses_fails_to_render() -> None:
+    code = 'mindmap\n  root((R))\n    "Item (note)"'
+    assert chart_render.mermaid_renders(code) is False
+
+
 # --- §3-bis: cross-type disambiguation rule for structurally overlapping
 # types (block-beta/C4Context/architecture-beta/flowchart;
 # classDiagram/erDiagram/flowchart) — tested at the prompt-text level only.
