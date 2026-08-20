@@ -1593,3 +1593,36 @@ def test_fig_prompt_documents_wardley_beta_coordinate_order_is_not_xy() -> None:
 def test_fig_prompt_documents_cynefin_beta_fixed_domain_keywords_only() -> None:
     for keyword in ("clear", "complicated", "complex", "chaotic", "confusion"):
         assert keyword in vlm.FIG_PROMPT
+
+
+# --- §3-bis: cross-type disambiguation rule for structurally overlapping
+# types (block-beta/C4Context/architecture-beta/flowchart;
+# classDiagram/erDiagram/flowchart) — tested at the prompt-text level only.
+# Whether a live model actually FOLLOWS the rule consistently is §3-bis.2's
+# job (real, budget-gated VLM calls against ambiguous corpus figures), not
+# this offline suite's. ------------------------------------------------
+
+
+def test_fig_prompt_contains_type_disambiguation_rule() -> None:
+    assert "TYPE DISAMBIGUATION" in vlm.FIG_PROMPT
+    assert "Prefer ``flowchart`` over ``C4Context``/``architecture-beta``" in vlm.FIG_PROMPT
+    assert "Prefer ``flowchart`` over ``classDiagram``/``erDiagram``" in vlm.FIG_PROMPT
+
+
+def test_enhance_docx_markdown_sends_the_disambiguation_rule_to_the_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mocked VlmClient — confirms the disambiguation rule actually reaches
+    the model through the real enhance_docx_markdown call path, not just
+    that it sits somewhere in the FIG_PROMPT constant."""
+    monkeypatch.setattr(vlm, "_docx_media_uri", lambda *a, **k: "data:image/jpeg;base64,x")
+    client = _ScriptedVlmClient()
+    docx_bytes = build_minimal_docx(["text"])
+    config = Config(
+        use_vlm=True, vlm_verify=False, vlm_cache=InMemoryCacheBackend(), vlm_client=client
+    )
+
+    vlm.enhance_docx_markdown(_image_only_markdown(_IMAGE_ID), docx_bytes, config=config)
+
+    assert len(client.prompts) == 1
+    assert "TYPE DISAMBIGUATION" in client.prompts[0]

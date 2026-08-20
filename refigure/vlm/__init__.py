@@ -276,6 +276,25 @@ Output in English, in two parts:
      category — depth is expressed purely by indentation, no arrows or
      brackets.
 
+   TYPE DISAMBIGUATION: several types above describe structurally similar
+   figures. When more than one could fit, prefer the general-purpose type
+   unless the figure carries an EXPLICIT domain marker for the specialized
+   one:
+   - Prefer ``flowchart`` over ``C4Context``/``architecture-beta`` unless
+     the figure shows explicit domain markers — C4 boundary boxes or
+     "System"/"Container"/"Person" labels for ``C4Context``; cloud/service
+     icons or explicit service groupings for ``architecture-beta``.
+   - ``block-beta`` is for a generic block layout with none of those
+     markers — prefer it over a bare ``flowchart`` only when the figure is
+     clearly organized into fixed columns/rows of equal-sized blocks, not
+     an organic node-and-arrow shape.
+   - Prefer ``flowchart`` over ``classDiagram``/``erDiagram`` unless UML
+     inheritance/aggregation arrowheads (``classDiagram``) or crow's-foot/
+     cardinality marks (``erDiagram``) are visibly drawn on the figure.
+   When genuinely unsure after applying these rules, ``flowchart`` is
+   always a safe fallback — it never actively misrepresents a figure's
+   structure the way an overconfident wrong specialized type would.
+
 Output ONLY the prose description, optionally followed by a ```mermaid code
 fence — no other commentary."""
 
