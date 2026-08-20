@@ -253,6 +253,28 @@ Output in English, in two parts:
      method) — ``requirementDiagram``: `requirement name { id: ...;
      text: ...; risk: ...; verifymethod: ... }` blocks, one per
      requirement actually labeled with these fields.
+   - Generic system block/component layout with no cloud or service
+     iconography — ``block-beta``: `columns N` then `id["Label"]` blocks
+     and `a --> b` connections. If the figure instead shows cloud/service
+     icons or explicit service groupings, use ``architecture-beta``; if
+     it carries C4 markers, use ``C4Context`` instead.
+   - Cloud/service architecture with grouped services and icons —
+     ``architecture-beta``: `group id(icon)[Label]`, `service id(icon)
+     [Label] in group`, `a:L -- R:b` connection lines.
+   - Wardley map (component evolution vs. visibility) — ``wardley-beta``:
+     `component Name [visibility, evolution]` lines — note the
+     coordinate order is `[visibility, evolution]`, NOT `[x, y]`.
+   - Cynefin framework domains (Clear/Complicated/Complex/Chaotic) —
+     ``cynefin-beta``: one or more of the FIXED domain keywords `clear`,
+     `complicated`, `complex`, `chaotic`, `confusion`, each followed by
+     one or more `"Item label"` strings on the same line (e.g. `complex
+     "Item label" "Another item"`) — these five keywords are the only
+     valid domain names, never invent a different one.
+   - Cause-and-effect / fishbone diagram — ``ishikawa-beta``: first line
+     is the problem/effect statement (no indentation), then category
+     labels indented one level, sub-causes indented further under their
+     category — depth is expressed purely by indentation, no arrows or
+     brackets.
 
 Output ONLY the prose description, optionally followed by a ```mermaid code
 fence — no other commentary."""
