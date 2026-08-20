@@ -207,6 +207,15 @@ Output in English, in two parts:
    - Chronology or roadmap — ``timeline``: `title ...` then one `YYYY :
      Event` line per entry, using only dates actually printed on the
      figure.
+   - Flows of quantity between named nodes (budget, resources, data
+     volumes) — ``sankey-beta``: CSV lines `Source,Target,Value`, one per
+     flow, using only labeled numbers.
+   - Proportional nested hierarchy (shares, budget breakdown) —
+     ``treemap-beta``: indentation-nested `"Section"` blocks containing
+     `"Leaf": value` lines.
+   - Dated schedule or project plan — ``gantt``: `dateFormat YYYY-MM-DD`,
+     one or more `section Name` blocks, then `Task name : id, start,
+     duration` lines, using only dates actually printed.
 
 Output ONLY the prose description, optionally followed by a ```mermaid code
 fence — no other commentary."""
