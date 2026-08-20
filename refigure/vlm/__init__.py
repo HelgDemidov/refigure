@@ -190,6 +190,23 @@ Output in English, in two parts:
      "Regional Avg" -> id `reg`) — `curve reg["Regional Avg"]{0.49, 0.51}` is
      correct, `curve "Regional Avg"{0.49, 0.51}` (label alone, no id) is
      invalid syntax and will fail to render.
+   - Radial or tree hierarchy with no numeric values attached —
+     ``mindmap``: first line `mindmap`, then `root((Label))`, then
+     indentation-nested branch labels (no brackets needed on children). Do
+     not add color/classDef — branch coloring is automatic.
+   - Overlapping sets/categories (2-3 circles) — ``venn-beta``: `set
+     A["Label"]` per set, `union A, B` per overlapping pair. To label an
+     intersection use ONLY `union A, B["Label"]` — the label goes in
+     brackets directly on that same `union` line. Never use a separate
+     `text [...]` line (breaks the parser) or bare `text "..."` (renders
+     with no visible label, a silent no-op).
+   - 2D category positioning on two axes, no point-size dimension —
+     ``quadrantChart``: `x-axis Low --> High`, `y-axis Low --> High`, four
+     `quadrant-N Label` lines, then one `Label: [x, y]` per point, with x
+     and y strictly within [0, 1].
+   - Chronology or roadmap — ``timeline``: `title ...` then one `YYYY :
+     Event` line per entry, using only dates actually printed on the
+     figure.
 
 Output ONLY the prose description, optionally followed by a ```mermaid code
 fence — no other commentary."""
