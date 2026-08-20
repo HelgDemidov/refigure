@@ -21,10 +21,12 @@ import io
 import subprocess
 import zipfile
 
+import mermaidx
 import pytest
 
 from refigure import vlm
 from refigure.api import Config
+from refigure.core import chart_render
 from refigure.vlm.cache import InMemoryCacheBackend
 
 from ..docx.test_docx import build_minimal_docx
@@ -1486,3 +1488,108 @@ def test_judge_prompt_template_frames_response_as_data_not_instructions() -> Non
     # Finding #4: static-content guard against silently regressing the
     # prompt-injection mitigation wording.
     assert "not further instructions" in vlm.JUDGE_PROMPT_TEMPLATE
+
+
+# --- mermaid-type-expansion (spec mermaid-type-expansion-2026-08-20): 22 new
+# types added to FIG_PROMPT beyond the original 4 (flowchart/pie/
+# xychart-beta/radar-beta). Each canonical example below is the exact
+# syntax FIG_PROMPT's own guide teaches for that type — it must survive a
+# REAL mermaidx render, not just look plausible (the same discipline that
+# caught a wrong cynefin-beta syntax guess during implementation, before it
+# ever reached this file). -------------------------------------------------
+
+_NEW_MERMAID_EXAMPLES: dict[str, str] = {
+    "mindmap": (
+        "mindmap\n  root((Strategy))\n    Branch A\n      Leaf 1\n    Branch B\n      Leaf 2"
+    ),
+    "venn-beta": ('venn-beta\n  set A["5G"]\n  set B["IMT-2020"]\n  union A, B["5G/IMT-2020"]'),
+    "quadrantChart": (
+        "quadrantChart\n  x-axis Low --> High\n  y-axis Low --> High\n"
+        "  quadrant-1 Leaders\n  quadrant-2 Challengers\n"
+        "  quadrant-3 Niche\n  quadrant-4 Visionaries\n"
+        "  Item A: [0.7, 0.8]\n  Item B: [0.3, 0.4]"
+    ),
+    "timeline": "timeline\n  title Roadmap\n  2020 : Launch\n  2021 : Expansion",
+    "sankey-beta": "sankey-beta\nBudget,Marketing,100\nBudget,R&D,200\nMarketing,Ads,60",
+    "treemap-beta": ('treemap-beta\n"Budget"\n  "Marketing": 100\n  "R&D": 200'),
+    "gantt": ("gantt\n  dateFormat YYYY-MM-DD\n  section Phase 1\n  Task A : t1, 2024-01-01, 10d"),
+    "sequenceDiagram": "sequenceDiagram\n  Alice->>Bob: Request\n  Bob->>Alice: Response",
+    "classDiagram": "classDiagram\n  class Animal\n  Animal : +name\n  Animal <|-- Dog",
+    "stateDiagram-v2": ("stateDiagram-v2\n  [*] --> Idle\n  Idle --> Running\n  Running --> [*]"),
+    "erDiagram": "erDiagram\n  CUSTOMER ||--o{ ORDER : places",
+    "journey": ("journey\n  section Shopping\n  Browse: 3: Customer\n  Checkout: 5: Customer"),
+    "gitGraph": (
+        "gitGraph\n  commit\n  branch develop\n  checkout develop\n"
+        "  commit\n  checkout main\n  merge develop"
+    ),
+    "packet-beta": 'packet-beta\n0-7: "Source Port"\n8-15: "Dest Port"',
+    "C4Context": (
+        'C4Context\n  Person(user, "User", "A user")\n'
+        '  System(sys, "System", "The system")\n  Rel(user, sys, "Uses")'
+    ),
+    "kanban": "kanban\n  Todo\n    task1[Design]\n  Done\n    task2[Ship]",
+    "requirementDiagram": (
+        "requirementDiagram\n  requirement req1 {\n    id: 1\n"
+        "    text: the system shall respond\n    risk: high\n"
+        "    verifymethod: test\n  }"
+    ),
+    "block-beta": ('block-beta\n  columns 2\n  a["Frontend"]\n  b["Backend"]\n  a --> b'),
+    "architecture-beta": (
+        "architecture-beta\n  group api(cloud)[API]\n"
+        "  service db(database)[Database] in api\n"
+        "  service srv(server)[Server] in api\n  srv:R -- L:db"
+    ),
+    "wardley-beta": (
+        "wardley-beta\n  title Map\n  component Customer [0.9, 0.9]\n  component Product [0.7, 0.5]"
+    ),
+    "cynefin-beta": (
+        'cynefin-beta\n  complex "Best practice"\n'
+        '  complicated "Expert analysis"\n  clear "Known procedure"\n'
+        '  chaotic "Crisis response"'
+    ),
+    "ishikawa-beta": ("ishikawa-beta\nProblem\n  People\n    Training\n  Process\n    Workflow"),
+}
+
+
+@pytest.mark.mermaid  # real mermaidx render, one call per new type
+@pytest.mark.parametrize("mermaid_type", sorted(_NEW_MERMAID_EXAMPLES))
+def test_fig_prompt_new_mermaid_type_canonical_example_renders(mermaid_type: str) -> None:
+    assert chart_render.mermaid_renders(_NEW_MERMAID_EXAMPLES[mermaid_type]) is True
+
+
+def test_fig_prompt_documents_all_22_new_types_by_keyword() -> None:
+    for mermaid_type in _NEW_MERMAID_EXAMPLES:
+        assert f"``{mermaid_type}``" in vlm.FIG_PROMPT, mermaid_type
+
+
+def test_fig_prompt_recommends_venn_beta_union_bracket_label_syntax() -> None:
+    # `union A, B["Label"]` is the only WORKING intersection-label syntax
+    # (confirmed live against a real mermaidx render) — FIG_PROMPT's venn-beta
+    # bullet must instruct the model to use it.
+    assert 'union A, B["Label"]' in vlm.FIG_PROMPT
+
+
+def test_fig_prompt_warns_against_both_broken_venn_beta_label_syntaxes() -> None:
+    # `text [...]` breaks the mermaid parser outright; bare `text "..."`
+    # (no brackets) parses but silently produces no visible label — both
+    # confirmed live against a real mermaidx render. FIG_PROMPT must name
+    # both explicitly as forbidden (not just recommend the working syntax
+    # and hope the model never reaches for either broken one).
+    assert "`text [...]` line (breaks the parser)" in vlm.FIG_PROMPT
+    assert 'bare `text "..."` (renders' in vlm.FIG_PROMPT
+
+
+@pytest.mark.mermaid  # real mermaidx render + SVG content inspection
+def test_venn_beta_working_syntax_renders_with_visible_intersection_label() -> None:
+    svg = mermaidx.render(_NEW_MERMAID_EXAMPLES["venn-beta"]).svg()
+    assert "5G/IMT-2020" in svg
+
+
+def test_fig_prompt_documents_wardley_beta_coordinate_order_is_not_xy() -> None:
+    assert "[visibility, evolution]" in vlm.FIG_PROMPT
+    assert "NOT `[x, y]`" in vlm.FIG_PROMPT
+
+
+def test_fig_prompt_documents_cynefin_beta_fixed_domain_keywords_only() -> None:
+    for keyword in ("clear", "complicated", "complex", "chaotic", "confusion"):
+        assert keyword in vlm.FIG_PROMPT

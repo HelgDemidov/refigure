@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+import inspect
+
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from refigure.core import chart_render as chart_render_module
 from refigure.core.chart_data import ChartData, ChartSeries
 from refigure.core.chart_render import render_chart
 
@@ -438,3 +441,12 @@ def test_render_chart_never_crashes_and_output_is_well_formed(data: ChartData) -
         fence = result.split("```mermaid", 1)[1].split("```", 1)[0]
         for line in fence.splitlines():
             assert line.count('"') % 2 == 0
+
+
+def test_module_docstring_no_longer_claims_mermaid_js_itself_lacks_a_construct() -> None:
+    # spec mermaid-type-expansion-2026-08-20 §3-quater: the claim is true
+    # only for THIS module's numCache-driven mapping — mermaid.js itself
+    # has grown treemap-beta/mindmap/etc. since this was first written.
+    doc = inspect.getdoc(chart_render_module) or ""
+    assert "there is NO mermaid construct at all" not in doc
+    assert "no native numCache->mermaid mapping" in inspect.getsource(chart_render_module)
