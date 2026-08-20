@@ -1,56 +1,120 @@
-"""Regenerate docs/assets/demo-vlm-{light,dark}.svg (VLM interpretation —
-README Demo section, 4th hero).
+"""Regenerate docs/assets/demo-vlm-dark.svg (VLM interpretation — README
+Demo section, 1st hero as of 2026-08-20, replacing the retired
+trichinella-dashboard/bare-marker framing).
 
 Sibling of `gen_demo_asset.py`/`gen_demo_asset_groups.py`/
-`gen_demo_asset_docx_chart.py`, but a different story from all three: those
-show native OOXML chart-data extraction (no VLM at all) or a bare zero-loss
-marker. This one shows what `--vlm`/`Config(use_vlm=True)` ADDS on top of
-the zero-loss floor for a figure that is NOT a native chart at all — a raw
-screenshot embedded as an image inside a composite group, whose numbers
-exist nowhere in the file's own XML. Framing is a before/after WITHIN
-refigure itself (bare marker -> rich VLM prose), not docx-to-markdown in
-general — the same lesson `gen_demo_asset_groups.py`'s own docstring
-recorded from live user feedback: a marker is a placeholder, not recovered
-content, so don't visually imply otherwise. Here the rich text genuinely
-IS the recovered content, so showing it in full is honest, not
-overclaiming.
+`gen_demo_asset_docx_chart.py`. Unlike those three (native OOXML chart-data
+extraction, zero VLM involved) or this script's own PREVIOUS version
+(trichinella dashboard — a before/after of recovered NUMBERS, no rendered
+diagram at all, because that group's mermaid type — 4-series xychart-beta —
+has no grouped-bar support), this one shows VLM recovering both real
+transcribed content AND a genuinely renderable STRUCTURE: a dense wireless-
+technology sunburst chart (`iot-report-2022-national-strategies-excerpt.docx`,
+standalone image `007cf0f198bc`) that has no native chart data at all (a
+screenshot, not an OOXML chart part) and, before the mermaid-type-expansion
+work (spec `docs/vlm/mermaid-type-expansion/mermaid-type-expansion-2026-08-20.md`),
+had no matching mermaid construct either — VLM could only describe it as
+`graph TD`, which laid the whole thing out as an unreadable 17:1-aspect-ratio
+strip. `mindmap` (one of that spec's 22 new types) renders it radially
+instead — this hero is the concrete "was broken, now works" payoff of that
+work, not a synthetic example.
 
-Source: `efsa-trichinella-dashboard-guide.docx` (vlm-activation spec §6) —
-9 composite groups, all resolved by the real VLM call committed at
-`tests/integration/fixtures/vlm-cache/efsa-trichinella-dashboard-guide.json`
-(see that commit's message for cost/provenance). Group fa3bebd21344 chosen
-as the richest of the 9 after reading all of them: a full 4-category
-legend + 8 real transcribed numbers (2022/2023 x 4 housing conditions) +
-one synthesized narrative sentence, from what is genuinely just a
-dashboard-UI screenshot with a chart image inside it, not an OOXML chart
-part.
+Dark-only, no light variant, unlike this script's 3 siblings and its own
+previous version — explicit user decision 2026-08-20: the established Demo
+convention (per live review of the rendered README on GitHub) is the dark
+surface, and the mindmap's own categorical palette below is tuned
+specifically against it, not derived to also satisfy a light surface.
+README embeds this via a single `<img>`, not the other heroes'
+`<picture>`/`<source media="prefers-color-scheme">` pair.
 
-Deliberately does NOT re-render the VLM's own mermaid fence as a diagram
-(unlike the OTHER 3 demo scripts' "rendered" panel): this group's
-mermaid is a 4-series ``xychart-beta`` bar chart, and mermaid's
-xychart-beta has no grouped/side-by-side multi-series bar support — only
-overlay (see `gen_demo_asset_docx_chart.py`'s own docstring for the live
-confirmation of this exact limitation, which is why THAT demo picked a
-pie chart instead). Rendering this fence would reproduce the same
-occluded-bars artifact. The text itself (real numbers, real legend) is the
-point here, not a picture of a chart — so both OUTPUT panels stay raw text,
-consistent with the "as your LLM/RAG pipeline reads it" framing the other
-3 demos already use for their own top panel.
+**Direct SVG post-processing, not themeVariables — confirmed live, not
+assumed:**
+- `mindmap`'s per-branch/root fill and text color have NO reachable
+  themeVariable path. `cScale0`..`cScaleN` are silently ignored for the
+  root node specifically (`.section-root` is unconditionally hardcoded to
+  `hsl(240,100%,46%)`, a fixed deep blue, regardless of any themeVariable);
+  branch fills DO respond to `cScale1..cScaleN` (confirmed: `cScaleN` ->
+  the Nth top-level branch in source order, 1-indexed, root consumes no
+  slot), but branch TEXT color does not — dark theme hardcodes `lightgrey`
+  for every section's text regardless of the branch's own fill lightness,
+  which independently measured as failing WCAG AA against every fill in
+  this palette (worst case 1.93:1, `lightgrey` on `#9A988F`, an earlier
+  draft's muted-gray choice — see the git history of this file's palette
+  comments below for the full contrast-driven iteration). Both root's fill
+  and every section's text are therefore overridden after the fact by
+  regexing mermaidx's own generated `<style>` rules for the literal
+  `lightgrey`/`hsl(240,...)` values it emits — no other override surface
+  exists for either.
+- Mindmap does NOT need quotes around multi-word/Cyrillic labels (confirmed
+  live: `A\\n  B C` parses identically to `A\\n  "B C"`) — the source VLM
+  response quoted most labels anyway (habit carried over from this
+  prompt's flowchart guidance, where quoting IS required), and mindmap
+  renders the quote characters LITERALLY as part of the visible label —
+  stripped here before rendering, not fixed in `FIG_PROMPT` (a demo-
+  asset-local concern, not a prompt-wide one).
+- A real, previously undocumented mindmap parser bug was found producing
+  this exact asset: ANY parenthesis pair inside a quoted label breaks
+  mermaidx's parser (even a minimal `"Item (note)"` fails) — the cached
+  VLM response below was regenerated after fixing `FIG_PROMPT` to forbid
+  this (commit `a24f094`, direct-to-main) and rephrase with a dash/colon
+  instead; the committed cache is the POST-fix response, not the original
+  broken one.
+
+**Palette**: built with the `dataviz` skill (`scripts/validate_palette.js`,
+6-check validator) under `--pairs all` — mindmap's radial layout doesn't
+guarantee only-physical-neighbours the way a pie's wedge order does, so any
+2 of the 5 branches can end up visually adjacent; the stricter assumption.
+Exhaustively confirmed (all C(7,4)=35 four-hue extensions of the reference
+palette's mandatory "blue" slot tested against `--pairs all`, dark mode):
+NO 5-hue subset of this design system's reference categorical palette fully
+clears the CVD-separation/normal-vision floors at 5 simultaneous slots —
+this is a hard mathematical ceiling of the palette at this surface, not a
+search failure. Accepted per explicit user direction (real category count —
+matching the source figure's actual 5 top-level branches — takes priority
+over strict CVD compliance for this asset); every node always carries a
+visible text label regardless, which is the skill's own required secondary-
+encoding mitigation for a CVD separation WARN. Root is a 6th, neutral color
+distinct from all 5 branches (not reusing one of them) — a real design
+requirement from live user review, not incidental.
+
+Iterated live against 3 rounds of real user feedback on the rendered
+output, each a genuine correction, not a style preference:
+1. A `cScale`-index off-by-one bug scrambled the entire branch->color
+   mapping (caught by the user comparing the render against the intended
+   assignment, not by any check this script runs).
+2. LAN/PAN's and Спутниковая связь's blues were too close to reliably
+   tell apart at a glance — Спутниковая связь moved to light pink.
+3. Root was left identical to LAN/PAN's blue (an earlier live fix for a
+   *different* complaint — root not responding to color changes at all)
+   — re-separated to its own neutral pale blue per explicit request, with
+   the "Wireless Technologies" label split to 2 lines (`<br/>`) once room
+   allowed it to stay centered inside the wider root circle.
+
+**Input-crop label chip — a real bug fixed here, inherited from this
+script's previous version**: the label chip's background used the page's
+own theme `bg` token, which is dark in dark mode — painting a DARK box on
+top of the crop image, which is always a real screenshot's own LIGHT UI
+background regardless of page theme. Fixed to a fixed light chip color
+here (`_INPUT_CHIP_BG`), same "fixed, not per-theme" reasoning this
+script's `_INPUT_LABEL_COLOR` already used for the label text itself.
 
 What it does, in order:
-1. Gets the INPUT crop via `refigure.vlm._render_docx_group` directly (the
-   same private helper the real pipeline uses) — the EXACT crop the VLM
-   call actually saw, not a separately hand-cropped screenshot.
-2. Reads the real bare (no-VLM) marker text AND the real VLM-injected block
-   text for this group from two live `refigure.docx.convert()` calls (one
-   plain, one with `Config(use_vlm=True, vlm_cache=FileCacheBackend(...))`
-   pointed at the committed cache — 100% cache-hit, zero network) — both
-   asserted present, not hand-copied, so a future engine/prompt change that
-   drifts this content is caught, not silently stale.
-3. Composites INPUT (screenshot) + arrow + OUTPUT-A (bare marker, "without
-   --vlm") + OUTPUT-B (VLM prose excerpt, "with --vlm") into one SVG per
-   theme. Same design language as the other 3 heroes: dual OUTPUT panels,
-   one signature arrow, verified-live content only.
+1. Gets the INPUT crop via `refigure.vlm._docx_media_uri` directly (the
+   same private helper the real pipeline uses for a standalone image
+   marker) — the EXACT crop the VLM call actually saw.
+2. Reads the real cached VLM response for marker `007cf0f198bc` and splices
+   it through the real pipeline's own `_render_injected_docx_image` (so
+   `sanitize_vlm_markdown`/injection-block formatting is exercised live,
+   not hand-copied) — scoped to this ONE marker via the cache dict
+   directly, not a full `docx.convert()` call: the source document has 5
+   OTHER VLM-eligible markers with no cached entry, which would otherwise
+   force an unbudgeted real API call per marker on any cache miss.
+3. Renders the response's own mermaid `mindmap` fence via `mermaidx`, then
+   applies the palette above via direct SVG post-processing (see above).
+4. Composites INPUT (screenshot) + arrow + OUTPUT-A (raw text — prose
+   excerpt + mermaid fence excerpt, "as your LLM/RAG pipeline reads it") +
+   OUTPUT-B (the colored, rendered mindmap, embedded as a nested `<svg>`
+   the same way `gen_demo_asset_docx_chart.py` embeds its pie) into one SVG.
 
 Re-run whenever the demo's source fixture, cache, or palette tokens change.
 Does NOT run in CI — manual documentation-asset tooling, same as its 3
@@ -60,49 +124,71 @@ siblings.
 from __future__ import annotations
 
 import base64
+import json
 import re
 import textwrap
-from io import BytesIO
 from pathlib import Path
 
-from PIL import Image
+import mermaidx
 
 from refigure import vlm as vlm_module
-from refigure.api import Config
-from refigure.docx import convert as docx_convert
-from refigure.vlm.cache import FileCacheBackend
 
 REPO = Path(__file__).resolve().parent.parent
-FIXTURE = REPO / "tests/integration/fixtures/docx/efsa-trichinella-dashboard-guide.docx"
-CACHE_PATH = REPO / "tests/integration/fixtures/vlm-cache/efsa-trichinella-dashboard-guide.json"
+FIXTURE = REPO / "tests/integration/fixtures/docx/iot-report-2022-national-strategies-excerpt.docx"
+CACHE_PATH = (
+    REPO / "tests/integration/fixtures/vlm-cache/iot-report-2022-national-strategies-excerpt.json"
+)
 OUT_DIR = REPO / "docs/assets"
 
-GROUP_ID = "fa3bebd21344"
-_DISPLAY_W = 460
+MARKER_ID = "007cf0f198bc"
+_DISPLAY_W = 380
 
 FONT_MONO = "JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 FONT_SANS = "Inter, ui-sans-serif, -apple-system, Segoe UI, sans-serif"
 
-THEMES = {
-    "light": dict(
-        bg="#FAFAF8",
-        ink="#1A1A1A",
-        muted="#63635A",
-        teal="#1E7A6E",
-        blue="#3B5BA5",
-    ),
-    "dark": dict(
-        bg="#14150F",
-        ink="#EDEDE6",
-        muted="#9A988F",
-        teal="#4FBBA8",
-        blue="#7C9CD6",
-    ),
-}
-# Fixed (not per-theme), same reasoning as the other 3 demo scripts'
-# _INPUT_LABEL_COLOR: this label sits on the real screenshot's own
-# (light-UI) background in both themes.
+# Dark-only (see module docstring) — same token names as the 3 siblings'
+# per-theme dicts, just one instance.
+THEME = dict(
+    bg="#14150F",
+    ink="#EDEDE6",
+    muted="#9A988F",
+    blue="#7C9CD6",
+)
+# Fixed (not derived from THEME), same reasoning as the other 3 demo
+# scripts' _INPUT_LABEL_COLOR: this label sits on the real screenshot's
+# own light UI background, not the page's dark surface.
 _INPUT_LABEL_COLOR = "#1E7A6E"
+_INPUT_CHIP_BG = "#FFFFFF"
+
+# Branch order confirmed from the real cached response's own top-level
+# indentation, not assumed: RFID, LAN/PAN, LPWAN, Сотовая связь,
+# Спутниковая связь. cScaleN -> the Nth branch in that order (1-indexed;
+# root consumes no cScale slot at all, confirmed live — see module
+# docstring).
+_BRANCH_FILLS = {
+    1: "#9085e9",  # RFID -> violet
+    2: "#1E4A8C",  # LAN/PAN -> dark navy blue
+    3: "#199e70",  # LPWAN -> cool mint
+    4: "#c98500",  # Сотовая связь -> gold
+    5: "#F4A6C8",  # Спутниковая связь -> light pink
+}
+# section-(N-1) text color, matched per fill above for real WCAG AA
+# contrast (computed, not eyeballed — every value clears 4.5:1 against its
+# own fill): violet/mint/gold/pink all pair with black; the dark navy pairs
+# with white instead (black-on-navy measured at 2.4:1, a hard fail).
+_BRANCH_TEXT = {
+    0: "#000000",  # RFID
+    1: "#FFFFFF",  # LAN/PAN
+    2: "#000000",  # LPWAN
+    3: "#000000",  # Сотовая связь
+    4: "#000000",  # Спутниковая связь
+}
+_ROOT_FILL = "#B8D4F0"  # neutral pale blue, distinct from all 5 branches
+_ROOT_TEXT = "#000000"
+
+
+def _esc(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _wrap(text: str, width: int, max_lines: int) -> list[str]:
@@ -114,55 +200,91 @@ def _wrap(text: str, width: int, max_lines: int) -> list[str]:
     return truncated
 
 
-def _esc(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def get_input_crop() -> bytes:
-    data_uri = vlm_module._render_docx_group(FIXTURE, GROUP_ID, raw_name=FIXTURE.name)
-    assert data_uri is not None, f"group {GROUP_ID} failed to render — soffice/fixture issue?"
+    data_uri = vlm_module._docx_media_uri(FIXTURE.read_bytes(), MARKER_ID, raw_name=FIXTURE.name)
+    assert data_uri is not None, f"marker {MARKER_ID} failed to render — fixture/format issue?"
     _header, b64data = data_uri.split(";base64,", 1)
     return base64.b64decode(b64data)
 
 
 def get_live_text() -> tuple[str, str]:
-    """(bare marker text, VLM-injected prose) — both read from a REAL
-    `docx.convert()` call, the second via a 100%-cache-hit
-    `FileCacheBackend` (zero network)."""
-    bare_result = docx_convert(FIXTURE)
-    bare_match = re.search(
-        rf"^> \[Figure, docx group {GROUP_ID} — composite content not analyzed\]\n"
-        rf"^> captions:.*$",
-        bare_result.markdown,
-        re.MULTILINE,
-    )
-    assert bare_match is not None, f"bare marker for group {GROUP_ID} not found — fixture drifted?"
+    """(prose excerpt, mermaid code) — both sliced from the REAL cached
+    response after passing it through the real pipeline's own
+    `_render_injected_docx_image` (sanitize_vlm_markdown + injection-block
+    formatting exercised live, not hand-copied). Scoped to this one
+    marker's cache entry directly rather than a full `docx.convert()` call
+    — see module docstring for why."""
+    cache = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+    entry = cache[MARKER_ID]
+    injected = vlm_module._render_injected_docx_image(MARKER_ID, entry["model"], entry["markdown"])
+    fence_match = re.search(r"```mermaid\n(.*?)\n```", injected, re.DOTALL)
+    assert fence_match is not None, "no mermaid fence in the cached VLM response — cache stale?"
+    prose = injected.split("```mermaid", 1)[0]
+    # drop the injection-open marker line itself, keep only the prose body
+    prose = prose.split("]\n\n", 1)[-1].strip()
+    return prose, fence_match.group(1)
 
-    config = Config(use_vlm=True, vlm_cache=FileCacheBackend(CACHE_PATH))
-    vlm_result = docx_convert(FIXTURE, config=config)
-    vlm_match = re.search(
-        rf"^> \[Figure, docx group {GROUP_ID} — VLM interpretation.*?\]\n\n"
-        rf"(?P<body>.*?)\n\n> \[/VLM interpretation docx group {GROUP_ID}\]",
-        vlm_result.markdown,
-        re.MULTILINE | re.DOTALL,
-    )
-    assert vlm_match is not None, (
-        f"VLM-injected block for group {GROUP_ID} not found — cache stale/regenerated?"
-    )
-    return bare_match.group(0), vlm_match.group("body")
+
+def render_mindmap_svg(mermaid_code: str) -> str:
+    """The real VLM-generated mermaid code, colored + made legible via
+    direct SVG post-processing — see module docstring for why themeVariables
+    can't reach this diagram type's per-section color at all."""
+    lines = mermaid_code.splitlines()
+    unquoted = []
+    for line in lines:
+        m = re.match(r'^(\s*)"(.*)"\s*$', line)
+        unquoted.append((m.group(1) + m.group(2)) if m else line)
+    code = "\n".join(unquoted)
+    code = code.replace("root((Wireless Technologies))", "root((Wireless<br/>Technologies))")
+
+    theme_vars = ", ".join(f'"cScale{k}": "{v}"' for k, v in _BRANCH_FILLS.items())
+    init = f'%%{{init: {{"theme": "dark", "themeVariables": {{{theme_vars}}}}}}}%%'
+    svg = mermaidx.render(f"{init}\n{code}", theme="dark").svg()
+
+    for i, tcolor in _BRANCH_TEXT.items():
+        svg = re.sub(
+            rf"(\.section-{i} (?:rect|path|circle|polygon|text)[^{{]*\{{fill:)lightgrey(;)",
+            r"\1" + tcolor + r"\2",
+            svg,
+        )
+        svg = re.sub(rf"(\.section-{i} text\{{fill:)lightgrey(;)", r"\1" + tcolor + r"\2", svg)
+        svg = re.sub(
+            rf"(\.node-icon-{i}\{{font-size:40px;color:)lightgrey(;)",
+            r"\1" + tcolor + r"\2",
+            svg,
+        )
+        svg = re.sub(rf"(\.section-{i} span\{{color:)lightgrey(;)", r"\1" + tcolor + r"\2", svg)
+        svg = re.sub(
+            rf'(\[data-look="neo"\]\.mindmap-node\.section-{i} \.text-inner-tspan\{{fill:)'
+            r"lightgrey(;)",
+            r"\1" + tcolor + r"\2",
+            svg,
+        )
+    svg = re.sub(r"(\.section-root [^{]*\{fill:)hsl\([^)]+\)(;)", rf"\g<1>{_ROOT_FILL}\g<2>", svg)
+    svg = re.sub(r"(\.section-root text\{fill:)[^;]+(;)", rf"\g<1>{_ROOT_TEXT}\g<2>", svg)
+    return svg
+
+
+def _mermaid_viewbox(svg: str) -> tuple[float, float]:
+    match = re.search(r'viewBox="[\d.eE+-]+ [\d.eE+-]+ ([\d.]+) ([\d.]+)"', svg)
+    assert match, f"no viewBox found in mermaid svg output: {svg[:200]!r}"
+    return float(match.group(1)), float(match.group(2))
 
 
 def compose(
-    theme_name: str,
-    theme: dict[str, str],
     input_bytes: bytes,
-    bare_marker: str,
-    vlm_prose: str,
+    prose: str,
+    mermaid_code: str,
+    mindmap_svg: str,
     out_path: Path,
 ) -> None:
-    W, H = 1200, 700
+    W, H = 1400, 900
     pad = 40
     in_x, in_y, in_w = pad, 96, _DISPLAY_W
+
+    from io import BytesIO
+
+    from PIL import Image
 
     im = Image.open(BytesIO(input_bytes)).convert("RGB")
     in_h = round(im.height * in_w / im.width)
@@ -171,50 +293,46 @@ def compose(
     resized.save(buf, format="JPEG", quality=90, optimize=True)
     input_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-    arrow_gap = 90
+    arrow_gap = 70
     arrow_cx = in_x + in_w + arrow_gap
     arrow_y = in_y + in_h / 2
     out_x = arrow_cx + arrow_gap
     out_w = W - pad - out_x
 
-    boxA_y, boxA_h = 96, 110
+    boxA_y, boxA_h = 96, 200
     boxB_y = boxA_y + boxA_h + 26
     boxB_h = H - pad - boxB_y
-    mono_size, line_h, text_pad_x, text_pad_top = 10.5, 13.6, 18, 46
+    mono_size, line_h, text_pad_x, text_pad_top = 10, 12.8, 18, 46
 
-    bare_lines = _wrap(bare_marker, width=58, max_lines=3)
-    vlm_lines = _wrap(vlm_prose, width=58, max_lines=17)
-
-    bare_tspans = "".join(
+    prose_lines = _wrap(prose, width=68, max_lines=8)
+    fence_preview = ["```mermaid", *mermaid_code.splitlines()[:6], "    …", "```"]
+    text_lines = [*prose_lines, "", *fence_preview]
+    text_tspans = "".join(
         f'<tspan x="{out_x + text_pad_x}" dy="{0 if i == 0 else line_h}">{_esc(line)}</tspan>'
-        for i, line in enumerate(bare_lines)
-    )
-    vlm_tspans = "".join(
-        f'<tspan x="{out_x + text_pad_x}" dy="{0 if i == 0 else line_h}">{_esc(line)}</tspan>'
-        for i, line in enumerate(vlm_lines)
+        for i, line in enumerate(text_lines)
     )
 
-    bg, ink, muted, blue = theme["bg"], theme["ink"], theme["muted"], theme["blue"]
+    native_w, native_h = _mermaid_viewbox(mindmap_svg)
+    avail_w = out_w - 2 * text_pad_x
+    avail_h = boxB_h - 56
+    scale = min(avail_w / native_w, avail_h / native_h)
+    chart_w, chart_h = native_w * scale, native_h * scale
 
-    svg = f'''<svg width="{W}" height="{H}" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="refigure VLM interpretation demo: a real dashboard-screenshot composite figure from a docx file, shown first as the bare zero-loss marker without --vlm, then as the rich VLM-generated description with real transcribed numbers with --vlm">
+    bg, ink, muted, blue = THEME["bg"], THEME["ink"], THEME["muted"], THEME["blue"]
+
+    svg = f'''<svg width="{W}" height="{H}" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="refigure VLM interpretation demo: a real dense wireless-technology sunburst chart with no native chart data, converted by refigure.docx.convert(use_vlm=True) into a rich text description and a real rendered mermaid mindmap diagram">
 <rect width="{W}" height="{H}" fill="{bg}"/>
 
-<text x="{pad}" y="52" font-family="{FONT_SANS}" font-size="14" letter-spacing="0.04em" fill="{muted}">EFSA-TRICHINELLA-DASHBOARD-GUIDE.DOCX &#8594; refigure.docx.convert(use_vlm=True)</text>
+<text x="{pad}" y="52" font-family="{FONT_SANS}" font-size="14" letter-spacing="0.04em" fill="{muted}">IOT-REPORT-2022-NATIONAL-STRATEGIES-EXCERPT.DOCX &#8594; refigure.docx.convert(use_vlm=True)</text>
 
 <rect x="{in_x - 1}" y="{in_y - 1}" width="{in_w + 2}" height="{in_h + 2}" fill="none" stroke="{muted}" stroke-width="1" opacity="0.35"/>
 <image x="{in_x}" y="{in_y}" width="{in_w}" height="{in_h}" href="data:image/jpeg;base64,{input_b64}"/>
-<!-- Unlike the other 3 demo scripts' hand-picked crops (a genuinely empty
-     corner, verified visually), this crop comes from the real pipeline's
-     own automatic _render_docx_group — it can carry real content (a
-     document header) right where a label would sit. A background chip
-     keeps the label legible regardless of what's underneath, rather than
-     assuming an empty corner exists. -->
-<rect x="{in_x + 6}" y="{in_y + 6}" width="270" height="24" rx="4" fill="{bg}" opacity="0.88"/>
-<text x="{in_x + 14}" y="{in_y + 22}" font-family="{FONT_SANS}" font-size="14" font-weight="600" fill="{_INPUT_LABEL_COLOR}">INPUT — a screenshot, not a chart part</text>
+<rect x="{in_x + 6}" y="{in_y + 6}" width="230" height="24" rx="4" fill="{_INPUT_CHIP_BG}" opacity="0.9"/>
+<text x="{in_x + 14}" y="{in_y + 22}" font-family="{FONT_SANS}" font-size="14" font-weight="600" fill="{_INPUT_LABEL_COLOR}">INPUT — a screenshot, not a chart</text>
 <text x="{in_x}" y="{in_y + in_h + 24}" font-family="{FONT_SANS}" font-size="11.5" fill="{muted}">
-<tspan x="{in_x}" dy="0">a dashboard UI screenshot grouped with callout</tspan>
-<tspan x="{in_x}" dy="15">shapes — its numbers exist nowhere in the</tspan>
-<tspan x="{in_x}" dy="15">file's own XML, unlike a native OOXML chart.</tspan>
+<tspan x="{in_x}" dy="0">a dense wireless-tech sunburst — no native chart</tspan>
+<tspan x="{in_x}" dy="15">data at all, and (before this feature) no mermaid</tspan>
+<tspan x="{in_x}" dy="15">construct could represent it radially either &#8594;</tspan>
 </text>
 
 <text x="{arrow_cx}" y="{arrow_y - 16}" font-family="{FONT_MONO}" font-size="11" fill="{ink}" text-anchor="middle">--vlm</text>
@@ -223,34 +341,35 @@ def compose(
 <text x="{arrow_cx}" y="{arrow_y + 42}" font-family="{FONT_SANS}" font-size="11" fill="{muted}" text-anchor="middle">pixels, cached + reproducible</text>
 
 <rect x="{out_x}" y="{boxA_y}" width="{out_w}" height="{boxA_h}" fill="none" stroke="{muted}" stroke-width="1" opacity="0.35"/>
-<text x="{out_x + text_pad_x}" y="{boxA_y + 26}" font-family="{FONT_SANS}" font-size="15" font-weight="600" fill="{blue}">OUTPUT — without --vlm (zero-loss floor)</text>
-<text x="{out_x + text_pad_x}" y="{boxA_y + text_pad_top}" font-family="{FONT_MONO}" font-size="{mono_size}" fill="{ink}">{bare_tspans}</text>
+<text x="{out_x + text_pad_x}" y="{boxA_y + 26}" font-family="{FONT_SANS}" font-size="15" font-weight="600" fill="{blue}">OUTPUT — as your LLM/RAG pipeline reads it</text>
+<text x="{out_x + text_pad_x}" y="{boxA_y + text_pad_top}" font-family="{FONT_MONO}" font-size="{mono_size}" fill="{ink}">{text_tspans}</text>
 
 <rect x="{out_x}" y="{boxB_y}" width="{out_w}" height="{boxB_h}" fill="none" stroke="{muted}" stroke-width="1" opacity="0.35"/>
-<text x="{out_x + text_pad_x}" y="{boxB_y + 26}" font-family="{FONT_SANS}" font-size="15" font-weight="600" fill="{blue}">OUTPUT — with --vlm, real numbers recovered</text>
-<text x="{out_x + text_pad_x}" y="{boxB_y + text_pad_top}" font-family="{FONT_MONO}" font-size="{mono_size}" fill="{ink}">{vlm_tspans}</text>
+<text x="{out_x + text_pad_x}" y="{boxB_y + 26}" font-family="{FONT_SANS}" font-size="15" font-weight="600" fill="{blue}">OUTPUT — same response, rendered as a real diagram</text>
+<svg x="{out_x + (out_w - chart_w) / 2}" y="{boxB_y + 40 + (avail_h - chart_h) / 2}" width="{chart_w}" height="{chart_h}" viewBox="0 0 {native_w} {native_h}" preserveAspectRatio="xMidYMid meet">
+{mindmap_svg}
+</svg>
 
 </svg>'''
     out_path.write_text(svg, encoding="utf-8")
-    print(f"{theme_name}: {out_path} ({out_path.stat().st_size} bytes)")
+    print(f"{out_path} ({out_path.stat().st_size} bytes)")
 
 
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    bare_marker, vlm_prose = get_live_text()
-    print(f"verified live: bare marker + VLM block both found for group {GROUP_ID}")
+    prose, mermaid_code = get_live_text()
+    print(f"verified live: cached VLM response for marker {MARKER_ID} has a mermaid mindmap fence")
 
+    mindmap_svg = render_mindmap_svg(mermaid_code)
     input_bytes = get_input_crop()
-    for theme_name, theme in THEMES.items():
-        compose(
-            theme_name,
-            theme,
-            input_bytes,
-            bare_marker,
-            vlm_prose,
-            OUT_DIR / f"demo-vlm-{theme_name}.svg",
-        )
+
+    compose(input_bytes, prose, mermaid_code, mindmap_svg, OUT_DIR / "demo-vlm-dark.svg")
+
+    old_light = OUT_DIR / "demo-vlm-light.svg"
+    if old_light.exists():
+        old_light.unlink()
+        print(f"removed retired {old_light} (this hero is dark-only, no light variant)")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,14 @@ reproducible offline.
 
 ## Demo
 
+**Optional VLM interpretation** — for a figure with no native chart data at
+all (a screenshot, not an OOXML chart part) AND no matching mermaid
+construct either (a dense radial sunburst — nothing in the 4 original
+mermaid types could represent it), `--vlm` both recovers the real content
+and produces a genuinely renderable diagram, not just recovered text:
+
+<img src="docs/assets/demo-vlm-dark.svg" alt="A real docx image (a dense wireless-technology sunburst chart with no native chart data) converted by refigure.docx.convert(use_vlm=True) into a rich VLM-generated description and a real rendered mermaid mindmap diagram, laid out radially instead of the unreadable flat strip a generic flowchart construct would have produced">
+
 **Native chart-data extraction** — real OOXML `numCache`, not a screenshot,
 not OCR:
 
@@ -40,15 +48,6 @@ open >1 year):
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-groups-dark.svg">
   <img src="docs/assets/demo-groups-light.svg" alt="A real docx composite figure (a grouped diagram refigure.docx.convert() can't render) converted into a positioned zero-loss marker that keeps the figure's own caption/legend text">
-</picture>
-
-**Optional VLM interpretation** — for a figure with no native chart data at
-all (a dashboard screenshot, not an OOXML chart part), `--vlm` reads the
-pixels and recovers the real numbers on top of the zero-loss marker floor:
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-vlm-dark.svg">
-  <img src="docs/assets/demo-vlm-light.svg" alt="A real docx composite figure (a dashboard screenshot with no native chart data) converted by refigure.docx.convert(use_vlm=True) first into a bare zero-loss marker, then into a rich VLM-generated description with the real transcribed numbers">
 </picture>
 
 ## Quickstart
