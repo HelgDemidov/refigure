@@ -316,8 +316,11 @@ else:
     markdown = refigure.xlsx.convert(path).markdown
 ```
 
-`v0.3.0` published via trusted publishing (GitHub↔PyPI, no stored tokens).
-`refigure-md` is a reserved alternate name, not an active release.
+`v0.3.1` published via trusted publishing (GitHub↔PyPI, no stored tokens),
+also on GHCR as `ghcr.io/helgdemidov/refigure` and on the official
+[MCP Registry](https://registry.modelcontextprotocol.io) as
+`io.github.HelgDemidov/refigure`. `refigure-md` is a reserved alternate
+name, not an active release.
 
 ## License
 
