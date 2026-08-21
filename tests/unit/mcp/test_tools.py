@@ -182,6 +182,19 @@ async def test_list_tools_registers_both_convert_tools(client: Client) -> None:
         assert tool.annotations.read_only_hint is True
 
 
+async def test_server_reports_its_own_version_in_the_mcp_handshake(client: Client) -> None:
+    """Regression: MCPServer("refigure") was built with no version= kwarg
+    at all, so a real client's initialize() handshake saw an empty string
+    instead of refigure's actual version — found live via a real
+    subprocess stdio_client() round trip (this repo's first, every other
+    test here uses the in-memory Client), not by code review."""
+    import refigure
+
+    assert client.server_info is not None
+    assert client.server_info.version == refigure.__version__
+    assert client.server_info.version != ""
+
+
 async def test_corrupt_zip_bytes_are_rejected_as_corrupt_archive(client: Client) -> None:
     """A structurally-valid zip with no OOXML content still degrades to
     CorruptArchiveError, not something more exotic — belt-and-suspenders

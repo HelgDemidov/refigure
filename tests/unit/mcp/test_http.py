@@ -70,6 +70,35 @@ def _build_http_server(**kwargs):
     return build_server(transport="http", **kwargs)
 
 
+async def test_server_reports_its_own_version_over_http_too() -> None:
+    """Same regression as test_tools.py's stdio-side version, exercised
+    against the OTHER build_server() construction branch (token_map is
+    not None -> the token_verifier/AuthSettings path) — both branches
+    pass version=__version__ as a separate literal, line coverage alone
+    doesn't prove this one's value is right."""
+    import refigure
+
+    mcp_server = _build_http_server()
+    app = mcp_server.streamable_http_app()
+
+    async with app.router.lifespan_context(app):
+        http_client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url=_BASE_URL,
+            headers={"Authorization": "Bearer tok-alice"},
+        )
+        async with http_client:
+            async with streamable_http_client(url=f"{_BASE_URL}/mcp", http_client=http_client) as (
+                read,
+                write,
+            ):
+                async with ClientSession(read, write) as session:
+                    init = await session.initialize()
+
+    assert init.server_info.version == refigure.__version__
+    assert init.server_info.version != ""
+
+
 async def test_valid_bearer_token_converts_successfully() -> None:
     mcp_server = _build_http_server()
     app = mcp_server.streamable_http_app()

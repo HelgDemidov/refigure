@@ -45,6 +45,7 @@ from mcp.types import (
 )
 from pydantic import AnyHttpUrl
 
+from .. import __version__
 from ..api import (
     Config,
     ConversionResult,
@@ -1221,6 +1222,7 @@ def build_server(
     if token_map is not None:
         mcp = MCPServer(
             "refigure",
+            version=__version__,
             token_verifier=_StaticTokenVerifier(token_map),
             auth=AuthSettings(
                 issuer_url=AnyHttpUrl("http://localhost/"),
@@ -1228,7 +1230,7 @@ def build_server(
             ),
         )
     else:
-        mcp = MCPServer("refigure")
+        mcp = MCPServer("refigure", version=__version__)
     server_ctx = _ServerContext(
         limiter=anyio.CapacityLimiter(max_concurrent),
         vlm_client=vlm_client,
