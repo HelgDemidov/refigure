@@ -100,6 +100,9 @@ refigure report.docx --vlm                    # needs the system soffice/LibreOf
   chart/group counts + `vlm_used`), not a bare string.
 - **CLI included** — `refigure` console command, stdin/stdout-first, native
   batch mode, typed exit codes (see below).
+- **MCP server included** — `refigure-mcp` console command (`[mcp]` extra),
+  stdio or Streamable HTTP, tools/resources/prompts, batch conversion with
+  per-file isolation (see below).
 
 ## CLI
 
@@ -132,6 +135,49 @@ Exit codes:
 | 4 | input isn't a valid/safe archive |
 | 5 | the format's extra (`[docx]`/`[xlsx]`) isn't installed |
 | 6 | unexpected internal error |
+
+## MCP server
+
+`refigure-mcp` — the same converters as an
+[MCP](https://modelcontextprotocol.io) server, for agents/IDEs that speak
+the protocol directly instead of shelling out to a CLI or importing the
+library:
+
+```bash
+pip install "refigure[mcp,docx,xlsx]"
+refigure-mcp                              # stdio — the MCP client launches it
+```
+
+```json
+{
+  "mcpServers": {
+    "refigure": { "command": "refigure-mcp" }
+  }
+}
+```
+
+Three tools — `convert_docx`, `convert_xlsx`, and `convert_batch` (multiple
+files in one call: one bad file reports its own error without aborting the
+rest) — each registered only if its format extra is actually installed.
+`use_vlm`/`--vlm-provider` and friends work the same as the CLI. A result
+too large to inline is stored and handed back as a
+`refigure://conversion/{id}` resource instead of inflating the tool
+response. Two prompts (`ingest_for_rag`, `explain_conversion_warnings`)
+help a client pick the right tool/VLM settings for the job.
+
+Streamable HTTP is opt-in, for a shared/remote deployment — bearer-token
+auth is required, not optional:
+
+```bash
+echo "sk-... = alice" > tokens.txt
+refigure-mcp --transport http --mcp-auth-token-file tokens.txt
+```
+
+Per-caller rate-limiting (protects the operator's own spend from a
+leaked/runaway token) applies automatically over HTTP, together with a
+fairness soft-cap once 2+ callers are configured; `refigure-mcp --help`
+covers every tuning flag (concurrency, timeouts, resource-store limits,
+batch size, VLM ceiling).
 
 ## Real examples
 
