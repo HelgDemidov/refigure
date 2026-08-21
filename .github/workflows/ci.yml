@@ -389,7 +389,13 @@ jobs:
         # vlm-direct's own extras-isolation bug locally before it ever
         # reached CI (self-referential `refigure[vlm]` dependency, see
         # pyproject.toml's vlm-direct comment).
-        extras: [bare, docx, xlsx, both, vlm, docx+vlm, vlm-direct]
+        #
+        # mcp added stage 10 phase 1 (2026-08-21): no self-referential
+        # coupling to docx/xlsx/vlm (unlike vlm-direct) — a single leg is
+        # enough, no docx+mcp/both+mcp combinations needed. Verifies
+        # build_server() registers 0 tools without docx/xlsx present, and
+        # refigure-mcp --help/--version work.
+        extras: [bare, docx, xlsx, both, vlm, docx+vlm, vlm-direct, mcp]
     steps:
       - uses: actions/checkout@v7
 
@@ -410,6 +416,7 @@ jobs:
             vlm) uv pip install ".[vlm]" ;;
             docx+vlm) uv pip install ".[docx,vlm]" ;;
             vlm-direct) uv pip install ".[vlm-direct]" ;;
+            mcp) uv pip install ".[mcp]" ;;
           esac
           uv pip install pytest
 
