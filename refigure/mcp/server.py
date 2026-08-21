@@ -159,6 +159,38 @@ class _ServerContext:
     this dataclass."""
 
 
+async def _bridge_only(
+    convert_fn: Callable[..., ConversionResult],
+    source: Path | bytes,
+    config: Config,
+    *,
+    limiter: anyio.CapacityLimiter,
+    timeout_s: float,
+) -> ConversionResult:
+    """The raw sync-core -> async bridge: a hard per-call timeout
+    (``anyio.fail_after``) around ``anyio.to_thread.run_sync`` (bounded by
+    ``limiter``, ``abandon_on_cancel=True`` for the reason
+    ``_convert_with_bridge``'s own docstring below explains). NO task
+    group and NO heartbeat here, unlike ``_convert_with_bridge`` — exists
+    for phase 4's ``convert_batch`` (``docs/mcp-server/
+    mcp-server-phase4-batch-progress/mcp-server-phase4-batch-progress-
+    2026-08-21.md`` §2/§3): N of these run as independent tasks inside
+    ONE shared outer task group (``_run_batch_item``/``convert_batch``'s
+    own registration), each needing to raise its OWN plain exception
+    (``CorruptArchiveError``, ``TimeoutError``, ...) for per-item
+    classification — an ``ExceptionGroup`` wrapper only ever comes from a
+    task group's own ``async with`` block, which this function
+    deliberately has none of, so no unwrap is needed at its call sites.
+    ``_convert_with_bridge`` is this function plus a heartbeat task group,
+    for the single-item tools that still want one."""
+    with anyio.fail_after(timeout_s):
+        return await anyio.to_thread.run_sync(
+            functools.partial(convert_fn, source, config=config),
+            abandon_on_cancel=True,
+            limiter=limiter,
+        )
+
+
 async def _convert_with_bridge(
     convert_fn: Callable[..., ConversionResult],
     source: Path | bytes,
@@ -168,20 +200,31 @@ async def _convert_with_bridge(
     limiter: anyio.CapacityLimiter,
     timeout_s: float,
 ) -> ConversionResult:
-    """Sync-core -> async bridge: ``anyio.to_thread.run_sync`` bounded by
-    ``limiter`` (``--mcp-max-concurrent-conversions``), plus an
-    elapsed-time heartbeat (``ctx.report_progress``) in the SAME task
-    group as the bridge call — not a bare fire-and-forget, which would
-    race a heartbeat tick against the final response (architecture doc
-    §7). ``abandon_on_cancel=True`` is required explicitly: the SDK
-    default (``False``) makes a timeout a no-op — the calling coroutine
-    would not regain control until the sync thread finishes on its own,
-    confirmed experimentally against this exact ``mcp`` version during
-    architecture review. Even abandoned, the orphaned thread keeps
-    running in the background (also confirmed) — this hard timeout
-    protects caller responsiveness and pool availability, never spend;
-    spend is bounded only by ``Config.vlm_max_markers`` (see
-    ``_run_convert_tool``)."""
+    """Sync-core -> async bridge: ``_bridge_only`` (above) inside a task
+    group that also runs an elapsed-time heartbeat (``ctx.report_progress``)
+    — not a bare fire-and-forget, which would race a heartbeat tick
+    against the final response (architecture doc §7). ``abandon_on_cancel=
+    True`` is required explicitly: the SDK default (``False``) makes a
+    timeout a no-op — the calling coroutine would not regain control
+    until the sync thread finishes on its own, confirmed experimentally
+    against this exact ``mcp`` version during architecture review. Even
+    abandoned, the orphaned thread keeps running in the background (also
+    confirmed) — this hard timeout protects caller responsiveness and
+    pool availability, never spend; spend is bounded only by
+    ``Config.vlm_max_markers`` (see ``_run_convert_tool``).
+
+    A timeout or a conversion failure raised by ``_bridge_only`` propagates
+    as a plain exception out of this function's ``async with`` body (host
+    code raising inside a task group's block, not a child task) — anyio's
+    own ``__aexit__`` reacts exactly as it would to a child task's
+    failure: it cancels the sibling heartbeat task, THEN wraps the single
+    exception in an ``ExceptionGroup``, which ``_unwrap_task_group_exception``
+    below undoes. This is mechanically different from the pre-phase-4
+    version (where ``anyio.fail_after`` wrapped the whole task group
+    directly and cancelled it itself on timeout) but produces the
+    identical observable outcome — verified unchanged by this file's own
+    ``test_bridge.py`` timeout/heartbeat tests after this refactor, not
+    just reasoned about."""
 
     async def _heartbeat() -> None:
         elapsed = 0
@@ -191,20 +234,17 @@ async def _convert_with_bridge(
             await mcp_ctx.report_progress(elapsed, message="still converting")
 
     try:
-        with anyio.fail_after(timeout_s):
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(_heartbeat)
-                result = await anyio.to_thread.run_sync(
-                    functools.partial(convert_fn, source, config=config),
-                    abandon_on_cancel=True,
-                    limiter=limiter,
-                )
-                # Cancel the heartbeat BEFORE returning — the task group's
-                # own __aexit__ (triggered by this return unwinding through
-                # it) would otherwise wait forever for the heartbeat's
-                # `while True` to finish on its own, which it never does.
-                tg.cancel_scope.cancel()
-                return result
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_heartbeat)
+            result = await _bridge_only(
+                convert_fn, source, config, limiter=limiter, timeout_s=timeout_s
+            )
+            # Cancel the heartbeat BEFORE returning — the task group's
+            # own __aexit__ (triggered by this return unwinding through
+            # it) would otherwise wait forever for the heartbeat's
+            # `while True` to finish on its own, which it never does.
+            tg.cancel_scope.cancel()
+            return result
     except BaseException as exc:  # noqa: BLE001 - re-raises the unwrapped cause, see _unwrap_task_group_exception
         raise _unwrap_task_group_exception(exc) from exc
     # Unreachable: the block above always either returns or raises. mypy's
@@ -415,34 +455,61 @@ def _redact(text: str) -> str:
     return _redact_secrets(text)
 
 
+def _classify_exception(exc: Exception, *, transport: Literal["stdio", "http"]) -> str:
+    """The one place an exception becomes a stable, transport-redacted
+    string — shared by ``_call_and_wrap_errors`` (below, which wraps it in
+    ``RuntimeError`` for a single-item tool call) and phase 4's
+    ``_run_batch_item`` (which stores it directly as
+    ``BatchItemOutput.error``, never raising it at all — per-item
+    isolation, ``docs/mcp-server/mcp-server-phase4-batch-progress/
+    mcp-server-phase4-batch-progress-2026-08-21.md`` §2/§3). A bare
+    ``ValueError`` (input-validation failures) is NOT routed through this
+    function by ``_call_and_wrap_errors`` — its own ``str(exc)`` is
+    already a clean, stable message needing no ``ClassName`` prefix, so
+    that caller still special-cases it before ever reaching here.
+    ``_run_batch_item`` DOES route a per-item ``ValueError`` here (e.g. a
+    malformed ``content_base64`` on just one batch element) — this
+    function's own ``isinstance(exc, ValueError)`` branch reproduces the
+    identical bare-message treatment for that caller, so both paths agree
+    on what a ``ValueError``'s text looks like even though only one of
+    them special-cases it at its own call site."""
+    if isinstance(exc, _TYPED_EXCEPTIONS):
+        message = _redact(str(exc)) if transport == "stdio" else "conversion failed"
+        return f"{type(exc).__name__}: {message}"
+    if isinstance(exc, ValueError):
+        return str(exc)
+    logger.error("refigure-mcp: unexpected error in a tool call", exc_info=True)
+    message = _redact(str(exc)) if transport == "stdio" else "internal error"
+    return f"internal_error: {message}"
+
+
 async def _call_and_wrap_errors(
     coro: Coroutine[Any, Any, _T], *, transport: Literal["stdio", "http"]
 ) -> _T:
-    """The one place every tool call's exceptions are classified and
-    formatted — not a decorator (see ``_run_convert_tool``'s docstring).
-    Refigure's typed exceptions become ``RuntimeError("ClassName:
-    message")`` so a calling agent can branch on the class name, mirroring
-    ``cli.py``'s ``_exit_code_for`` — ``MCPServer``'s own ``@mcp.tool()``
-    wrapper catches a plain exception raised here and reports it as
-    ``isError=True`` with the exception text as content (confirmed against
-    this ``mcp`` version's docs), so raising is sufficient, no manual
-    ``CallToolResult`` construction needed. ``transport`` is threaded
-    through already, unused on the only transport this phase has
-    (``"stdio"``) — phase 3 extends this, not rewrites it, per
+    """The one place every single-item tool call's exceptions are
+    classified and formatted — not a decorator (see
+    ``_run_convert_tool``'s docstring). Refigure's typed exceptions become
+    ``RuntimeError("ClassName: message")`` so a calling agent can branch
+    on the class name, mirroring ``cli.py``'s ``_exit_code_for`` —
+    ``MCPServer``'s own ``@mcp.tool()`` wrapper catches a plain exception
+    raised here and reports it as ``isError=True`` with the exception text
+    as content (confirmed against this ``mcp`` version's docs), so raising
+    is sufficient, no manual ``CallToolResult`` construction needed.
+    ``transport`` is threaded through already, unused on the only
+    transport phase 1 had (``"stdio"``) — phase 3 extended this for HTTP,
+    phase 4 extends it a third time for ``convert_batch`` (via
+    ``_classify_exception``, shared below), never rewriting it, per
     architecture doc §8."""
     try:
         return await coro
-    except _TYPED_EXCEPTIONS as exc:
-        message = _redact(str(exc)) if transport == "stdio" else "conversion failed"
-        raise RuntimeError(f"{type(exc).__name__}: {message}") from exc
     except ValueError:
         # Input-validation failures from _run_convert_tool itself — already
-        # a clean, stable message, nothing further to classify.
+        # a clean, stable message (see _classify_exception's own
+        # docstring for why this case is excluded from it here), nothing
+        # further to classify.
         raise
-    except Exception as exc:  # noqa: BLE001 - unexpected exceptions are the real-bug signal below
-        logger.error("refigure-mcp: unexpected error in a tool call", exc_info=True)
-        message = _redact(str(exc)) if transport == "stdio" else "internal error"
-        raise RuntimeError(f"internal_error: {message}") from exc
+    except Exception as exc:  # noqa: BLE001 - unexpected exceptions are the real-bug signal, see _classify_exception
+        raise RuntimeError(_classify_exception(exc, transport=transport)) from exc
 
 
 def _register_convert_docx(
