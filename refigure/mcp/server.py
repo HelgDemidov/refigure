@@ -134,6 +134,17 @@ class _ServerContext:
     state: ServerState
     vlm_cache: VlmCacheBackend
     resource_inline_threshold_bytes: int
+    transport: Literal["stdio", "http"]
+    """Same value ``build_server(transport=...)`` was called with — a
+    second copy of what ``_register_convert_docx``/``_register_convert_xlsx``
+    already receive as their own function parameter (used there for
+    ``_call_and_wrap_errors``'s redaction level), both sourced from the
+    one ``transport`` argument to ``build_server()`` (no drift risk).
+    ``_run_convert_tool`` needs its own copy for admission checks
+    (phase-3 spec §5) that must run BEFORE ``_call_and_wrap_errors`` ever
+    sees the call — a bare parameter, not a second constructor argument,
+    since every other transport-dependent decision already flows through
+    this dataclass."""
 
 
 async def _convert_with_bridge(
@@ -245,6 +256,35 @@ async def _run_convert_tool(
     Union annotation there is impossible, not just undesirable."""
     if (path is None) == (content_base64 is None):
         raise ValueError("exactly one of path or content_base64 is required")
+    if server_ctx.transport == "http" and path is not None:
+        # Considered-and-rejected, not deferred (phase-3 spec §5): a
+        # realpath+commonpath check against an allowed-root would preserve
+        # remote filesystem access but adds permanent surface (a new flag,
+        # symlink/traversal edge cases, dedicated tests) for convenience
+        # the self-hosted deployment model doesn't need — content_base64
+        # already covers remote input. Same principle as
+        # core.zipsafe.safe_read(): remove the vulnerability class outright
+        # rather than mitigate it.
+        raise ValueError(
+            "path is not accepted over HTTP — use content_base64, or run over "
+            "stdio for local filesystem access"
+        )
+
+    if server_ctx.transport == "http":
+        # Rate-limit is HTTP-always (architecture doc §6 п.3), including a
+        # deployment with only one configured token — unlike soft-cap, it
+        # needs no caller_id diversity to matter (it protects the
+        # operator's own resources/spend from a runaway or leaked token,
+        # not inter-caller fairness). Checked here, before any input is
+        # even decoded, so a rejected call never reaches the (expensive)
+        # bridge — admission, not a post-hoc check. stdio skips this
+        # block entirely, not just harmlessly always-True: resolve_caller_id()
+        # is never called for it either.
+        caller_id = resolve_caller_id()
+        if not server_ctx.state.check_and_consume_rate_limit(caller_id):
+            raise RateLimitExceededError(
+                f"caller_id {caller_id!r} exceeded its conversion rate limit"
+            )
 
     warnings: list[str] = []
     if fmt == "xlsx" and use_vlm:
@@ -738,6 +778,7 @@ def build_server(
         state=state,
         vlm_cache=vlm_cache,
         resource_inline_threshold_bytes=resource_inline_threshold_bytes,
+        transport=transport,
     )
     has_docx = _register_convert_docx(mcp, server_ctx, transport)
     has_xlsx = _register_convert_xlsx(mcp, server_ctx, transport)
