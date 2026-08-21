@@ -243,7 +243,7 @@ else:
     markdown = refigure.xlsx.convert(path).markdown
 ```
 
-`v0.1.0` published via trusted publishing (GitHub↔PyPI, no stored tokens).
+`v0.3.0` published via trusted publishing (GitHub↔PyPI, no stored tokens).
 `refigure-md` is a reserved alternate name, not an active release.
 
 ## License
