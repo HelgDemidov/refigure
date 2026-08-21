@@ -31,7 +31,17 @@ import anyio
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError
-from mcp.types import CallToolResult, ResourceLink, TextContent, ToolAnnotations
+from mcp.types import (
+    CallToolResult,
+    Completion,
+    CompletionArgument,
+    CompletionContext,
+    PromptReference,
+    ResourceLink,
+    ResourceTemplateReference,
+    TextContent,
+    ToolAnnotations,
+)
 
 from ..api import (
     Config,
@@ -586,6 +596,45 @@ def _register_prompts(mcp: MCPServer, *, has_docx: bool, has_xlsx: bool) -> None
         )
 
 
+def _register_completion(mcp: MCPServer) -> None:
+    """A single, server-wide ``@mcp.completion()`` dispatcher — NOT one
+    hook per prompt argument. ``completable()``, the mechanism the
+    architecture doc originally assumed (a per-argument annotation
+    wrapper), does not exist anywhere in ``mcp==2.0.0`` — confirmed live
+    during the tech-spec pass; the real API is this single handler,
+    receiving ``(ref, argument, context)`` and expected to branch
+    internally on which prompt/resource-template and which argument is
+    being completed.
+
+    Only handles ``ingest_for_rag``'s ``needs_figure_interpretation``
+    argument, dependent on ``document_format`` already being resolved
+    (``"true"`` only offered for ``docx`` — xlsx has no VLM path, offering
+    it there would be actively misleading). Every other ``ref``/
+    ``argument`` combination returns ``None`` — confirmed against the
+    SDK's own docstring: the client falls back to offering no
+    completions, not an error."""
+
+    # MCPServer.completion() itself carries no type annotations at all in
+    # mcp==2.0.0 (unlike .tool()/.resource()/.prompt()) — a genuine SDK stub
+    # gap, not something fixable here.
+    @mcp.completion()  # type: ignore[no-untyped-call, untyped-decorator]
+    async def handle_completion(
+        ref: PromptReference | ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: CompletionContext | None,
+    ) -> Completion | None:
+        if (
+            not isinstance(ref, PromptReference)
+            or ref.name != "ingest_for_rag"
+            or argument.name != "needs_figure_interpretation"
+        ):
+            return None
+        prior = (context.arguments if context is not None else None) or {}
+        if prior.get("document_format", "").strip().lower() == "docx":
+            return Completion(values=["true", "false"])
+        return Completion(values=["false"])
+
+
 def build_server(
     *,
     transport: Literal["stdio", "http"] = "stdio",
@@ -659,4 +708,5 @@ def build_server(
     has_xlsx = _register_convert_xlsx(mcp, server_ctx, transport)
     _register_conversion_resource(mcp, server_ctx)
     _register_prompts(mcp, has_docx=has_docx, has_xlsx=has_xlsx)
+    _register_completion(mcp)
     return mcp
