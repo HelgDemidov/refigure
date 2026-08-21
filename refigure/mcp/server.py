@@ -378,11 +378,15 @@ async def _call_and_wrap_errors(
 
 def _register_convert_docx(
     mcp: MCPServer, server_ctx: _ServerContext, transport: Literal["stdio", "http"]
-) -> None:
+) -> bool:
+    """Registers convert_docx and returns True, or returns False without
+    registering anything if [docx] isn't installed — build_server() needs
+    to know which tools actually registered to make _register_prompts
+    (below) capability-aware, not just silently skip a tool."""
     try:
         from .. import docx as docx_module
     except MissingOptionalDependencyError:  # pragma: no cover - see extras-isolation mcp leg
-        return
+        return False
 
     @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def convert_docx(
@@ -428,14 +432,17 @@ def _register_convert_docx(
             ),
         )
 
+    return True
+
 
 def _register_convert_xlsx(
     mcp: MCPServer, server_ctx: _ServerContext, transport: Literal["stdio", "http"]
-) -> None:
+) -> bool:
+    """See _register_convert_docx's docstring — same reasoning, xlsx side."""
     try:
         from .. import xlsx as xlsx_module
     except MissingOptionalDependencyError:  # pragma: no cover - see extras-isolation mcp leg
-        return
+        return False
 
     @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def convert_xlsx(
@@ -472,6 +479,8 @@ def _register_convert_xlsx(
                 transport=transport,
             ),
         )
+
+    return True
 
 
 def _register_conversion_resource(mcp: MCPServer, server_ctx: _ServerContext) -> None:
@@ -517,6 +526,64 @@ def _register_conversion_resource(mcp: MCPServer, server_ctx: _ServerContext) ->
         if markdown is None:
             raise ResourceNotFoundError(f"conversion result not found: {id}")
         return markdown
+
+
+def _register_prompts(mcp: MCPServer, *, has_docx: bool, has_xlsx: bool) -> None:
+    """Two prompts (architecture doc §5), both capability-aware: neither
+    recommends a tool/argument this particular server didn't actually
+    register (``has_docx``/``has_xlsx`` come straight from
+    ``_register_convert_docx``/``_register_convert_xlsx``'s own return
+    value, not a second guess at what's installed).
+
+    Prompt arguments are always plain strings on the wire — the MCP
+    protocol's own ``PromptArgument`` carries no type beyond
+    name/title/description/required (checked directly against
+    ``mcp.types.PromptArgument.model_fields``) — so both functions parse
+    their own ``bool``-shaped inputs from ``str`` rather than relying on
+    any implicit coercion."""
+
+    @mcp.prompt()
+    def ingest_for_rag(document_format: str, needs_figure_interpretation: str = "false") -> str:
+        """Which convert_* tool and VLM settings fit a RAG-ingestion goal,
+        given a document format and whether its figures matter."""
+        fmt = document_format.strip().lower()
+        if fmt not in ("docx", "xlsx"):
+            return f"Unrecognized document_format {document_format!r} — expected 'docx' or 'xlsx'."
+        if fmt == "docx" and not has_docx:
+            return "This server has no [docx] extra installed — convert_docx is not available here."
+        if fmt == "xlsx" and not has_xlsx:
+            return "This server has no [xlsx] extra installed — convert_xlsx is not available here."
+        if fmt == "xlsx":
+            return (
+                "Use convert_xlsx(path=...) — native chart data becomes mermaid diagrams "
+                "automatically. use_vlm has no effect on xlsx (no VLM path exists for it)."
+            )
+        wants_vlm = needs_figure_interpretation.strip().lower() == "true"
+        if wants_vlm:
+            return (
+                "Use convert_docx(path=..., use_vlm=True, vlm_verify=True) — native chart "
+                "data becomes mermaid diagrams automatically, and composite figures/groups "
+                "additionally get a cloud VLM interpretation, judged for defects before "
+                "you rely on it."
+            )
+        return (
+            "Use convert_docx(path=...) — native chart data becomes mermaid diagrams "
+            "automatically; composite figures stay as zero-loss 'not analyzed' markers "
+            "unless you also pass use_vlm=True."
+        )
+
+    @mcp.prompt()
+    def explain_conversion_warnings(warnings: str) -> str:
+        """Ask the model to explain a ConversionResult.warnings list (one
+        warning per line) in plain, non-technical language."""
+        items = [w for w in warnings.split("\n") if w.strip()]
+        if not items:
+            return "No warnings to explain — the conversion reported none."
+        bullet_list = "\n".join(f"- {w}" for w in items)
+        return (
+            "Explain each of the following refigure conversion warnings in plain, "
+            f"non-technical language:\n{bullet_list}"
+        )
 
 
 def build_server(
@@ -588,7 +655,8 @@ def build_server(
         vlm_cache=vlm_cache,
         resource_inline_threshold_bytes=resource_inline_threshold_bytes,
     )
-    _register_convert_docx(mcp, server_ctx, transport)
-    _register_convert_xlsx(mcp, server_ctx, transport)
+    has_docx = _register_convert_docx(mcp, server_ctx, transport)
+    has_xlsx = _register_convert_xlsx(mcp, server_ctx, transport)
     _register_conversion_resource(mcp, server_ctx)
+    _register_prompts(mcp, has_docx=has_docx, has_xlsx=has_xlsx)
     return mcp
