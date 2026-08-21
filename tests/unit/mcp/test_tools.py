@@ -173,7 +173,10 @@ async def test_convert_docx_use_vlm_is_inert_without_any_vlm_markers(client: Cli
 async def test_list_tools_registers_both_convert_tools(client: Client) -> None:
     tools = await client.list_tools()
     names = {t.name for t in tools.tools}
-    assert names == {"convert_docx", "convert_xlsx"}
+    # convert_batch (phase 4) registers alongside the two single-item tools
+    # whenever at least one format extra is installed — see test_batch.py
+    # for its own dedicated coverage.
+    assert names == {"convert_docx", "convert_xlsx", "convert_batch"}
     for tool in tools.tools:
         assert tool.annotations is not None
         assert tool.annotations.read_only_hint is True

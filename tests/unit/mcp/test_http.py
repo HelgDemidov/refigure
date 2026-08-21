@@ -162,7 +162,10 @@ async def test_two_tokens_get_isolated_resource_stores() -> None:
 
 
 async def test_rate_limit_rejects_over_a_real_http_round_trip() -> None:
-    mcp_server = _build_http_server(rate_limit_count=1)
+    # max_batch_size must not exceed rate_limit_count (build_server()'s own
+    # phase-4 validation) — explicit here since the default max_batch_size
+    # (20) would otherwise fail this deliberately tiny rate_limit_count.
+    mcp_server = _build_http_server(rate_limit_count=1, max_batch_size=1)
     app = mcp_server.streamable_http_app()
     b64 = base64.b64encode(build_minimal_docx(["one"])).decode("ascii")
 
