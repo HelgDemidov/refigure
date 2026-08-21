@@ -17,9 +17,11 @@ import anyio
 import openpyxl
 import pytest
 from mcp import Client
+from mcp.server.mcpserver import MCPServer
 
 from refigure.mcp.server import (
     BatchItem,
+    _register_convert_batch,
     _run_convert_batch_tool,
     _ServerContext,
     build_server,
@@ -409,3 +411,40 @@ async def test_format_with_no_registered_convert_fn_is_isolated_per_item() -> No
     assert result.items[1].status == "error"
     assert result.items[1].error is not None
     assert result.items[1].error.startswith("MissingOptionalDependencyError:")
+
+
+# --- registration guard + unexpected-exception unwrap (coverage closers) ---
+
+
+def test_register_convert_batch_registers_nothing_without_any_format() -> None:
+    """Mirrors test_prompts.py's own direct has_docx=False/has_xlsx=False
+    calls — a bare refigure[mcp]-only install (or a server built with
+    neither [docx] nor [xlsx]) must not publish a tool that can never
+    succeed for any item (phase-4 spec §4)."""
+    ctx = _build_ctx(batch_convert_fns={})
+    mcp = MCPServer("test")
+
+    _register_convert_batch(mcp, ctx, "stdio", has_docx=False, has_xlsx=False)
+
+    assert "convert_batch" not in mcp._tool_manager._tools  # type: ignore[attr-defined]
+
+
+async def test_an_unexpected_exception_mid_batch_is_unwrapped_and_reraised() -> None:
+    """The defensive except BaseException/_unwrap_task_group_exception
+    branch in _run_convert_batch_tool — should never fire in practice
+    (_run_batch_item catches everything itself), exercised here the same
+    way test_bridge.py's own timeout test exercises _convert_with_bridge's
+    identical branch: force a REAL exception to escape the task group,
+    from report_progress itself (e.g. a broken session mid-batch), and
+    confirm it surfaces as the real exception type, not a generic
+    ExceptionGroup."""
+
+    class _RaisingCtx:
+        async def report_progress(self, progress, total=None, message=None) -> None:
+            raise RuntimeError("session broke mid-batch")
+
+    ctx = _build_ctx()
+    items = [BatchItem(format="docx", content_base64=_b64_docx("x"))]
+
+    with pytest.raises(RuntimeError, match="session broke mid-batch"):
+        await _run_convert_batch_tool(items, False, False, None, None, ctx, _RaisingCtx())  # type: ignore[arg-type]
