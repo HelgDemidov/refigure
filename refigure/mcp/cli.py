@@ -66,6 +66,51 @@ def build_parser() -> argparse.ArgumentParser:
             "equivalent flag."
         ),
     )
+    parser.add_argument(
+        "--mcp-resource-inline-threshold-kb",
+        metavar="N",
+        type=int,
+        help=(
+            "Markdown at or under this size (KB) returns inline; larger "
+            "returns resource_uri instead, readable via the "
+            "refigure://conversion/{id} resource (default: 256)."
+        ),
+    )
+    parser.add_argument(
+        "--mcp-resource-max-entries",
+        metavar="N",
+        type=int,
+        help="Max conversion-result entries kept in the resource store (default: 200).",
+    )
+    parser.add_argument(
+        "--mcp-resource-max-mb",
+        metavar="N",
+        type=int,
+        help=(
+            "Total byte budget (MB) for the resource store, whichever "
+            "limit hits first (default: 500)."
+        ),
+    )
+    parser.add_argument(
+        "--mcp-resource-ttl-s",
+        metavar="N",
+        type=int,
+        help="Resource-store entry TTL in seconds (default: 3600).",
+    )
+    parser.add_argument(
+        "--mcp-vlm-cache",
+        metavar="PATH",
+        help=(
+            "Persist the shared VLM cache to this JSON file (requires "
+            "refigure[vlm]) instead of the default in-memory bounded-LRU "
+            "cache. Dev/small-corpus convenience, NOT memory-safe for a "
+            "large corpus (whole cache held in RAM, rewritten on every "
+            "write) — see FileCacheBackend's own docstring. Never point "
+            "two refigure-mcp instances at the same path — guarded "
+            "against with a file lock, fails fast with a clear error "
+            "instead of silently losing writes."
+        ),
+    )
     vlm_group = parser.add_argument_group(
         "VLM provider (resolved once at server start, never per tool call)"
     )
@@ -121,25 +166,40 @@ def main(argv: list[str] | None = None) -> int:
         vlm_api_key = None
         if vlm_client is None and args.vlm_api_key_file is not None:
             vlm_api_key = Path(args.vlm_api_key_file).read_text().strip()
+
+        kwargs: dict[str, Any] = {}
+        if args.mcp_max_concurrent_conversions is not None:
+            kwargs["max_concurrent"] = args.mcp_max_concurrent_conversions
+        if args.mcp_max_input_mb is not None:
+            kwargs["max_input_b64_mb"] = args.mcp_max_input_mb
+        if args.mcp_conversion_timeout_s is not None:
+            kwargs["timeout_s"] = args.mcp_conversion_timeout_s
+        if args.vlm_max_markers is not None:
+            kwargs["vlm_max_markers"] = args.vlm_max_markers
+        if args.mcp_resource_inline_threshold_kb is not None:
+            kwargs["resource_inline_threshold_bytes"] = args.mcp_resource_inline_threshold_kb * 1024
+        if args.mcp_resource_max_entries is not None:
+            kwargs["resource_max_entries"] = args.mcp_resource_max_entries
+        if args.mcp_resource_max_mb is not None:
+            kwargs["resource_max_bytes"] = args.mcp_resource_max_mb * 1024 * 1024
+        if args.mcp_resource_ttl_s is not None:
+            kwargs["resource_ttl_s"] = args.mcp_resource_ttl_s
+        if args.mcp_vlm_cache is not None:
+            kwargs["vlm_cache_path"] = Path(args.mcp_vlm_cache)
+
+        # build_server() can also raise here — MissingOptionalDependencyError
+        # (--mcp-vlm-cache without [vlm]) or ValueError (--mcp-vlm-cache path
+        # already locked by another instance) — same boundary as
+        # _resolve_vlm_client above, not a second, uncaught failure mode.
+        mcp_server = build_server(
+            transport="stdio", vlm_client=vlm_client, vlm_api_key=vlm_api_key, **kwargs
+        )
     except Exception as exc:
         code = _exit_code_for(exc)
         message = str(exc) if code != EXIT_INTERNAL_ERROR else f"internal error: {exc}"
         print(f"error: {message}", file=sys.stderr)
         return code
 
-    kwargs: dict[str, Any] = {}
-    if args.mcp_max_concurrent_conversions is not None:
-        kwargs["max_concurrent"] = args.mcp_max_concurrent_conversions
-    if args.mcp_max_input_mb is not None:
-        kwargs["max_input_b64_mb"] = args.mcp_max_input_mb
-    if args.mcp_conversion_timeout_s is not None:
-        kwargs["timeout_s"] = args.mcp_conversion_timeout_s
-    if args.vlm_max_markers is not None:
-        kwargs["vlm_max_markers"] = args.vlm_max_markers
-
-    mcp_server = build_server(
-        transport="stdio", vlm_client=vlm_client, vlm_api_key=vlm_api_key, **kwargs
-    )
     mcp_server.run(transport="stdio")
     return 0
 

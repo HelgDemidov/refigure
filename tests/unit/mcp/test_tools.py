@@ -271,3 +271,111 @@ async def test_server_ctx_vlm_api_key_reaches_per_call_config_when_no_client_set
 
     assert captured["config"].vlm_api_key == "sk-or-test-key"  # type: ignore[attr-defined]
     assert captured["config"].vlm_client is None  # type: ignore[attr-defined]
+
+
+async def test_markdown_over_the_inline_threshold_returns_resource_uri_not_markdown() -> None:
+    """Phase 2's headline behavior change: a document whose markdown
+    exceeds resource_inline_threshold_bytes returns a real ResourceLink
+    content block instead of the whole markdown inline."""
+    mcp_server = build_server(resource_inline_threshold_bytes=1)
+    async with Client(mcp_server, raise_exceptions=True) as c:
+        b64 = base64.b64encode(
+            build_minimal_docx(["hello world, this is definitely more than 1 byte"])
+        ).decode("ascii")
+
+        result = await c.call_tool("convert_docx", {"content_base64": b64})
+
+    assert result.is_error is False
+    sc = result.structured_content
+    assert sc["markdown"] is None
+    assert sc["resource_uri"] is not None
+    assert sc["resource_uri"].startswith("refigure://conversion/")
+    link_blocks = [c for c in result.content if type(c).__name__ == "ResourceLink"]
+    assert len(link_blocks) == 1
+    assert link_blocks[0].uri == sc["resource_uri"]
+
+
+async def test_a_small_document_still_stays_inline_with_a_low_threshold_server() -> None:
+    """Belt-and-suspenders alongside the test above: the SAME server
+    (custom threshold) still inlines a document that's under it — this
+    isn't a global "always resource_uri" toggle, it's a real per-document
+    size comparison."""
+    mcp_server = build_server(resource_inline_threshold_bytes=10_000)
+    async with Client(mcp_server, raise_exceptions=True) as c:
+        b64 = base64.b64encode(build_minimal_docx(["tiny"])).decode("ascii")
+
+        result = await c.call_tool("convert_docx", {"content_base64": b64})
+
+    assert result.is_error is False
+    sc = result.structured_content
+    assert sc["markdown"] is not None
+    assert sc["resource_uri"] is None
+
+
+async def test_resource_uri_is_readable_back_through_the_conversion_resource() -> None:
+    mcp_server = build_server(resource_inline_threshold_bytes=1)
+    async with Client(mcp_server, raise_exceptions=True) as c:
+        b64 = base64.b64encode(
+            build_minimal_docx(["hello world, definitely more than 1 byte"])
+        ).decode("ascii")
+        result = await c.call_tool("convert_docx", {"content_base64": b64})
+        resource_uri = result.structured_content["resource_uri"]
+
+        read_back = await c.read_resource(resource_uri)
+
+    assert "hello world" in read_back.contents[0].text
+
+
+async def test_config_vlm_cache_is_the_same_object_across_two_calls() -> None:
+    """Phase 2's other headline change: Config.vlm_cache is now ALWAYS
+    server_ctx.vlm_cache, the SAME instance every call — before this
+    phase it was never set at all, so core fell back to a fresh
+    InMemoryCacheBackend() per call (0% reuse, architecture doc §7-bis's
+    own measurement)."""
+    import refigure.docx as docx_module
+
+    captured_caches: list[object] = []
+
+    def _capture_convert(source: object, *, config: object = None) -> object:
+        captured_caches.append(config.vlm_cache)  # type: ignore[attr-defined]
+        from refigure.api import ConversionResult
+
+        return ConversionResult(markdown="ok")
+
+    mcp_server = build_server()
+    with patch.object(docx_module, "convert", _capture_convert):
+        async with Client(mcp_server, raise_exceptions=True) as c:
+            b64 = base64.b64encode(build_minimal_docx(["one"])).decode("ascii")
+            await c.call_tool("convert_docx", {"content_base64": b64})
+            await c.call_tool("convert_docx", {"content_base64": b64})
+
+    assert len(captured_caches) == 2
+    assert captured_caches[0] is captured_caches[1]
+    assert captured_caches[0] is not None
+
+
+async def test_vlm_cache_path_wires_a_real_file_cache_backend(tmp_path) -> None:
+    """build_server(vlm_cache_path=...) — the opt-in FileCacheBackend path
+    (architecture doc §7-bis), as opposed to the default BoundedLruVlmCache
+    the test above exercises."""
+    import refigure.docx as docx_module
+    from refigure.vlm.cache import FileCacheBackend
+
+    cache_path = tmp_path / "vlm-cache.json"
+    captured: dict[str, object] = {}
+
+    def _capture_convert(source: object, *, config: object = None) -> object:
+        captured["config"] = config
+        from refigure.api import ConversionResult
+
+        return ConversionResult(markdown="ok")
+
+    mcp_server = build_server(vlm_cache_path=cache_path)
+    with patch.object(docx_module, "convert", _capture_convert):
+        async with Client(mcp_server, raise_exceptions=True) as c:
+            b64 = base64.b64encode(build_minimal_docx(["one"])).decode("ascii")
+            await c.call_tool("convert_docx", {"content_base64": b64})
+
+    vlm_cache = captured["config"].vlm_cache  # type: ignore[attr-defined]
+    assert isinstance(vlm_cache, FileCacheBackend)
+    assert vlm_cache.path == cache_path

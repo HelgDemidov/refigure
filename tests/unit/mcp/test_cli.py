@@ -65,6 +65,11 @@ def test_no_flags_uses_build_server_defaults(monkeypatch: pytest.MonkeyPatch) ->
     assert "max_input_b64_mb" not in captured
     assert "timeout_s" not in captured
     assert "vlm_max_markers" not in captured
+    assert "resource_inline_threshold_bytes" not in captured
+    assert "resource_max_entries" not in captured
+    assert "resource_max_bytes" not in captured
+    assert "resource_ttl_s" not in captured
+    assert "vlm_cache_path" not in captured
     assert captured["transport"] == "stdio"
     server = captured["_server"]
     assert isinstance(server, _FakeServer)
@@ -78,6 +83,10 @@ def test_no_flags_uses_build_server_defaults(monkeypatch: pytest.MonkeyPatch) ->
         ("--mcp-max-input-mb", "50", "max_input_b64_mb", 50),
         ("--mcp-conversion-timeout-s", "120", "timeout_s", 120),
         ("--vlm-max-markers", "10", "vlm_max_markers", 10),
+        ("--mcp-resource-inline-threshold-kb", "64", "resource_inline_threshold_bytes", 64 * 1024),
+        ("--mcp-resource-max-entries", "50", "resource_max_entries", 50),
+        ("--mcp-resource-max-mb", "10", "resource_max_bytes", 10 * 1024 * 1024),
+        ("--mcp-resource-ttl-s", "60", "resource_ttl_s", 60),
     ],
 )
 def test_numeric_flags_reach_build_server(
@@ -89,6 +98,49 @@ def test_numeric_flags_reach_build_server(
 
     assert code == 0
     assert captured[kwarg] == expected
+
+
+def test_mcp_vlm_cache_flag_reaches_build_server_as_a_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from pathlib import Path
+
+    captured = _capture_build_server(monkeypatch)
+    cache_path = tmp_path / "vlm-cache.json"
+
+    code = mcp_cli_module.main(["--mcp-vlm-cache", str(cache_path)])
+
+    assert code == 0
+    assert captured["vlm_cache_path"] == Path(cache_path)
+
+
+def test_mcp_vlm_cache_without_vlm_extra_is_missing_dependency() -> None:
+    """Same subprocess-poisoning technique as
+    test_vlm_provider_openai_without_vlm_direct_extra_is_missing_dependency
+    above — build_server()'s own lazy FileCacheBackend import (guarded by
+    refigure.vlm's [vlm] requirement) must route through _exit_code_for,
+    not escape as a raw traceback, now that build_server() is inside
+    main()'s try/except."""
+    import subprocess
+    import sys
+
+    from tests.support import REPO_ROOT
+
+    script = (
+        "import sys\n"
+        "sys.modules['pdfplumber'] = None\n"
+        "from refigure.mcp.cli import main\n"
+        "sys.exit(main(['--mcp-vlm-cache', '/tmp/refigure-mcp-test-cache.json']))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+        timeout=30,
+    )
+    assert result.returncode == EXIT_MISSING_DEPENDENCY
+    assert "refigure[vlm]" in result.stderr
 
 
 def test_vlm_provider_openrouter_default_needs_no_credentials(

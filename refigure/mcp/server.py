@@ -1,9 +1,13 @@
 """MCP server assembly: tool registration, the typed result schema, the
 error-wrapper, and the sync-core async bridge + heartbeat. See
 ``docs/mcp-server/mcp-server-architecture/mcp-server-architecture.md``
-§3/§6/§7/§7-bis for the full design this module implements, and
+§3/§4/§5/§6/§7/§7-bis for the full design this module implements, and
 ``docs/mcp-server/mcp-server-phase1-skeleton/
-mcp-server-phase1-skeleton-2026-08-21.md`` for the phase-1 scope.
+mcp-server-phase1-skeleton-2026-08-21.md`` (phase 1) /
+``docs/mcp-server/mcp-server-phase2-resources-prompts/
+mcp-server-phase2-resources-prompts-2026-08-21.md`` (phase 2 — resources,
+prompts, the shared VLM cache) for the phase scope this module actually
+implements.
 
 Format isolation extends here too, same discipline as ``refigure/cli.py``'s
 own module docstring: this module never imports ``refigure.docx``/
@@ -19,14 +23,25 @@ import base64
 import binascii
 import functools
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Literal, TypeVar
+from typing import Any, Callable, Coroutine, Literal, TypeVar, cast
 
 import anyio
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
-from mcp.types import ToolAnnotations
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError
+from mcp.types import (
+    CallToolResult,
+    Completion,
+    CompletionArgument,
+    CompletionContext,
+    PromptReference,
+    ResourceLink,
+    ResourceTemplateReference,
+    TextContent,
+    ToolAnnotations,
+)
 
 from ..api import (
     Config,
@@ -34,10 +49,23 @@ from ..api import (
     CorruptArchiveError,
     MissingOptionalDependencyError,
     UnsupportedFormatError,
+    VlmCacheBackend,
     VlmClient,
     VlmMarkerLimitExceededError,
 )
 from ..cli import _VLM_XLSX_WARNING
+
+# NOT `from ..vlm.cache import FileCacheBackend` at module level: refigure.vlm's
+# own __init__.py guard requires [vlm] (pdfplumber), and importing ANY submodule
+# of a guarded package always runs its __init__.py first — the exact
+# extras-isolation bug class this project has hit 3 times before (package
+# NESTING, PR #11's docx_groups.py incident). FileCacheBackend itself needs no
+# heavy dependency, but its container package does, so this module (which must
+# keep working with only [mcp] installed, no [docx]/[xlsx]/[vlm]) imports it
+# lazily, only inside build_server(), only when --mcp-vlm-cache is actually
+# passed.
+from .state import ServerState, resolve_caller_id
+from .vlm_cache import BoundedLruVlmCache, acquire_vlm_cache_file_lock
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +108,15 @@ class ConvertOutput:
 
 @dataclass
 class _ServerContext:
-    """Per-process settings shared across every tool call — NOT the
-    chartered ``ServerState`` (architecture doc §4: LRU resource-store +
-    rate/soft-cap counters under one lock, phase 2). Phase 1 has none of
-    that; this is just a plain settings container."""
+    """Per-process settings shared across every tool call. ``state`` IS
+    the chartered ``ServerState`` (architecture doc §4: LRU resource-store
+    + eventually rate/soft-cap counters under one lock — phase 2 only
+    adds the LRU-store half, soft-cap/rate-limit stay phase 3, needing a
+    token file and caller_id diversity that don't exist yet). ``vlm_cache``
+    is the ONE ``VlmCacheBackend`` instance shared by every ``convert_docx``
+    call for the server's lifetime (architecture doc §7-bis) — deliberately
+    outside ``state``, since it's written from worker threads, not the
+    event loop (see ``state.py``'s own module docstring)."""
 
     limiter: anyio.CapacityLimiter
     vlm_client: VlmClient | None
@@ -91,6 +124,9 @@ class _ServerContext:
     vlm_max_markers: int | None
     max_input_b64_mb: int
     timeout_s: float
+    state: ServerState
+    vlm_cache: VlmCacheBackend
+    resource_inline_threshold_bytes: int
 
 
 async def _convert_with_bridge(
@@ -186,12 +222,20 @@ async def _run_convert_tool(
     vlm_model: str | None,
     server_ctx: _ServerContext,
     mcp_ctx: Context,
-) -> ConvertOutput:
+) -> ConvertOutput | CallToolResult:
     """Shared body for both convert_* tools — a plain function, not a
     decorator wrapping convert_docx/convert_xlsx: each tool stays a thin,
     directly-signatured wrapper the SDK introspects for inputSchema
     without any risk of a decorator's ``functools.wraps`` not fully
-    preserving that introspection (architecture doc §5/§6)."""
+    preserving that introspection (architecture doc §5/§6).
+
+    Returns a real ``CallToolResult`` (not ``ConvertOutput``) when the
+    markdown is too large to inline (``resource_uri`` branch, architecture
+    doc §3/§4) — this function's OWN signature is honest about that; the
+    outer ``convert_docx``/``convert_xlsx`` (annotated ``-> ConvertOutput``
+    for the SDK's schema derivation) each ``cast()`` this at their single
+    ``return`` site, not here — see their docstrings for why a WIDENED
+    Union annotation there is impossible, not just undesirable."""
     if (path is None) == (content_base64 is None):
         raise ValueError("exactly one of path or content_base64 is required")
 
@@ -216,7 +260,7 @@ async def _run_convert_tool(
     else:  # pragma: no cover - unreachable, the XOR check above already excludes this
         raise ValueError("exactly one of path or content_base64 is required")
 
-    kwargs: dict[str, Any] = {}
+    kwargs: dict[str, Any] = {"vlm_cache": server_ctx.vlm_cache}
     if use_vlm:
         kwargs["use_vlm"] = True
     if vlm_verify:
@@ -246,14 +290,54 @@ async def _run_convert_tool(
         timeout_s=server_ctx.timeout_s,
     )
 
-    return ConvertOutput(
-        markdown=result.markdown,
-        resource_uri=None,
+    markdown_bytes = len(result.markdown.encode("utf-8"))
+    if markdown_bytes <= server_ctx.resource_inline_threshold_bytes:
+        return ConvertOutput(
+            markdown=result.markdown,
+            resource_uri=None,
+            warnings=[*warnings, *result.warnings],
+            charts_found=result.charts_found,
+            charts_rendered=result.charts_rendered,
+            groups_found=result.groups_found,
+            vlm_used=result.vlm_used,
+        )
+
+    # Too large to inline: store the markdown in ServerState, return a
+    # ResourceLink instead — architecture doc §3/§4. caller_id resolved
+    # HERE, after the async bridge already returned (on the event loop,
+    # never inside the to_thread worker) — see state.py's own docstring
+    # for why this ordering is safe (get_access_token() is stable across
+    # an internal await within one request coroutine, confirmed live).
+    caller_id = resolve_caller_id()
+    conversion_id = server_ctx.state.insert(caller_id, result.markdown)
+    resource_uri = f"refigure://conversion/{conversion_id}"
+    output = ConvertOutput(
+        markdown=None,
+        resource_uri=resource_uri,
         warnings=[*warnings, *result.warnings],
         charts_found=result.charts_found,
         charts_rendered=result.charts_rendered,
         groups_found=result.groups_found,
         vlm_used=result.vlm_used,
+    )
+    return CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=(
+                    f"Markdown is {markdown_bytes} bytes, over the "
+                    f"{server_ctx.resource_inline_threshold_bytes} byte inline cap — "
+                    "see resource_uri."
+                ),
+            ),
+            ResourceLink(
+                name=f"conversion-{conversion_id}",
+                uri=resource_uri,
+                description="Full converted markdown",
+                mime_type="text/markdown",
+            ),
+        ],
+        structured_content=asdict(output),
     )
 
 
@@ -304,11 +388,15 @@ async def _call_and_wrap_errors(
 
 def _register_convert_docx(
     mcp: MCPServer, server_ctx: _ServerContext, transport: Literal["stdio", "http"]
-) -> None:
+) -> bool:
+    """Registers convert_docx and returns True, or returns False without
+    registering anything if [docx] isn't installed — build_server() needs
+    to know which tools actually registered to make _register_prompts
+    (below) capability-aware, not just silently skip a tool."""
     try:
         from .. import docx as docx_module
     except MissingOptionalDependencyError:  # pragma: no cover - see extras-isolation mcp leg
-        return
+        return False
 
     @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def convert_docx(
@@ -324,31 +412,47 @@ def _register_convert_docx(
         becomes mermaid diagrams, composite figures/groups become
         positioned zero-loss markers. Exactly one of path/content_base64
         is required. use_vlm additionally interprets composite figures
-        via a cloud VLM call (prose + mermaid), off by default."""
-        return await _call_and_wrap_errors(
-            _run_convert_tool(
-                docx_module.convert,
-                "docx",
-                path,
-                content_base64,
-                use_vlm,
-                vlm_verify,
-                vlm_judge_mode,
-                vlm_model,
-                server_ctx,
-                mcp_ctx,
+        via a cloud VLM call (prose + mermaid), off by default. A result
+        too large to inline returns resource_uri instead of markdown —
+        read it via the refigure://conversion/{id} resource."""
+        # cast: _run_convert_tool's real return type is ConvertOutput |
+        # CallToolResult (see its docstring) — the SDK's own ToolManager
+        # special-cases an actual CallToolResult regardless of a tool
+        # function's declared annotation (verified live), but REJECTS a
+        # widened `-> ConvertOutput | CallToolResult` signature outright
+        # at registration time ("CallToolResult cannot be used in Union
+        # or Optional types") — this stays `-> ConvertOutput` and the
+        # cast is the one place that honestly acknowledges the mismatch.
+        return cast(
+            ConvertOutput,
+            await _call_and_wrap_errors(
+                _run_convert_tool(
+                    docx_module.convert,
+                    "docx",
+                    path,
+                    content_base64,
+                    use_vlm,
+                    vlm_verify,
+                    vlm_judge_mode,
+                    vlm_model,
+                    server_ctx,
+                    mcp_ctx,
+                ),
+                transport=transport,
             ),
-            transport=transport,
         )
+
+    return True
 
 
 def _register_convert_xlsx(
     mcp: MCPServer, server_ctx: _ServerContext, transport: Literal["stdio", "http"]
-) -> None:
+) -> bool:
+    """See _register_convert_docx's docstring — same reasoning, xlsx side."""
     try:
         from .. import xlsx as xlsx_module
     except MissingOptionalDependencyError:  # pragma: no cover - see extras-isolation mcp leg
-        return
+        return False
 
     @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
     async def convert_xlsx(
@@ -363,22 +467,184 @@ def _register_convert_xlsx(
         """Convert an XLSX file to Markdown — native chart data becomes
         mermaid diagrams. Exactly one of path/content_base64 is required.
         use_vlm has no effect on XLSX (no VLM path exists for it) — a
-        warning is returned instead of a silent no-op."""
-        return await _call_and_wrap_errors(
-            _run_convert_tool(
-                xlsx_module.convert,
-                "xlsx",
-                path,
-                content_base64,
-                use_vlm,
-                vlm_verify,
-                vlm_judge_mode,
-                vlm_model,
-                server_ctx,
-                mcp_ctx,
+        warning is returned instead of a silent no-op. A result too large
+        to inline returns resource_uri instead of markdown — read it via
+        the refigure://conversion/{id} resource."""
+        # cast: see convert_docx's identical comment above.
+        return cast(
+            ConvertOutput,
+            await _call_and_wrap_errors(
+                _run_convert_tool(
+                    xlsx_module.convert,
+                    "xlsx",
+                    path,
+                    content_base64,
+                    use_vlm,
+                    vlm_verify,
+                    vlm_judge_mode,
+                    vlm_model,
+                    server_ctx,
+                    mcp_ctx,
+                ),
+                transport=transport,
             ),
-            transport=transport,
         )
+
+    return True
+
+
+def _register_conversion_resource(mcp: MCPServer, server_ctx: _ServerContext) -> None:
+    """``refigure://conversion/{id}`` — the resource behind the
+    ``resource_uri`` branch above. Registered unconditionally (unlike
+    ``convert_docx``/``convert_xlsx``): it has no format-specific
+    dependency, and a bare ``refigure[mcp]`` install still benefits from
+    being able to read back anything a caller inserted (there just won't
+    be a convert tool to have produced an entry in the first place).
+
+    ``async def``, not sync ``def``: keeps the O(1) LRU lookup directly
+    on the event loop, matching architecture doc §4's "mutations only
+    from the event loop" invariant, without an unneeded ``to_thread`` hop
+    for what's fast, pure, in-memory work.
+
+    A template resource (``{id}`` in the URI) is NEVER listed by
+    ``resources/list`` — confirmed live against ``mcp==2.0.0``: a
+    registered ``{id}``-template produces an empty ``resources/list``
+    regardless of how many entries ``ServerState`` holds. "Unlisted" per
+    architecture doc §4 falls out of this mechanism for free, not a
+    separate filter this function has to implement.
+
+    ``ResourceNotFoundError`` (not a bespoke exception): the SDK's own
+    resource-template handler collapses ANY other exception — a bare
+    ``ValueError``, a custom class — into a generic ``ResourceError``
+    with no real message reaching the client (confirmed live: a custom
+    exception's own text never made it past
+    ``mcp/server/mcpserver/resources/templates.py``'s
+    ``except Exception`` branch). ``ResourceNotFoundError`` is the one
+    type that branch passes through untouched, with the SEP-2164
+    ``-32602`` code and the real message intact — exactly what
+    architecture doc §4's "an explicit not-found error, not a generic
+    exception" asks for. No separate try/except for a genuinely
+    unexpected failure here: ``ServerState.get()`` is pure in-memory
+    work with no I/O, realistically incapable of raising anything else,
+    and the SDK already degrades a truly unexpected exception safely on
+    its own (the same collapsing behavior just described)."""
+
+    @mcp.resource("refigure://conversion/{id}")
+    async def read_conversion(id: str) -> str:
+        caller_id = resolve_caller_id()
+        markdown = server_ctx.state.get(id, caller_id)
+        if markdown is None:
+            raise ResourceNotFoundError(f"conversion result not found: {id}")
+        return markdown
+
+
+def _register_prompts(mcp: MCPServer, *, has_docx: bool, has_xlsx: bool) -> None:
+    """Two prompts (architecture doc §5), both capability-aware: neither
+    recommends a tool/argument this particular server didn't actually
+    register (``has_docx``/``has_xlsx`` come straight from
+    ``_register_convert_docx``/``_register_convert_xlsx``'s own return
+    value, not a second guess at what's installed).
+
+    Prompt arguments are always plain strings on the wire — the MCP
+    protocol's own ``PromptArgument`` carries no type beyond
+    name/title/description/required (checked directly against
+    ``mcp.types.PromptArgument.model_fields``) — so both functions parse
+    their own ``bool``-shaped inputs from ``str`` rather than relying on
+    any implicit coercion."""
+
+    @mcp.prompt()
+    def ingest_for_rag(
+        document_format: str, use_vlm: str = "false", vlm_judge_mode: str = ""
+    ) -> str:
+        """Which convert_* tool and VLM settings fit a RAG-ingestion goal,
+        given a document format and whether its figures should be
+        VLM-interpreted. use_vlm/vlm_judge_mode mirror convert_docx's own
+        tool arguments by name (architecture doc §5) — vlm_judge_mode is
+        completable, dependent on use_vlm (see _register_completion)."""
+        fmt = document_format.strip().lower()
+        if fmt not in ("docx", "xlsx"):
+            return f"Unrecognized document_format {document_format!r} — expected 'docx' or 'xlsx'."
+        if fmt == "docx" and not has_docx:
+            return "This server has no [docx] extra installed — convert_docx is not available here."
+        if fmt == "xlsx" and not has_xlsx:
+            return "This server has no [xlsx] extra installed — convert_xlsx is not available here."
+        if fmt == "xlsx":
+            return (
+                "Use convert_xlsx(path=...) — native chart data becomes mermaid diagrams "
+                "automatically. use_vlm has no effect on xlsx (no VLM path exists for it)."
+            )
+        wants_vlm = use_vlm.strip().lower() == "true"
+        if not wants_vlm:
+            return (
+                "Use convert_docx(path=...) — native chart data becomes mermaid diagrams "
+                "automatically; composite figures stay as zero-loss 'not analyzed' markers "
+                "unless you also pass use_vlm=True."
+            )
+        judge_mode = vlm_judge_mode.strip().lower()
+        judge_clause = f", vlm_judge_mode={judge_mode!r}" if judge_mode in ("solo", "panel") else ""
+        return (
+            f"Use convert_docx(path=..., use_vlm=True, vlm_verify=True{judge_clause}) — "
+            "native chart data becomes mermaid diagrams automatically, and composite "
+            "figures/groups additionally get a cloud VLM interpretation, judged for "
+            "defects before you rely on it (panel mode is the higher-recall default "
+            "if vlm_judge_mode is left unset)."
+        )
+
+    @mcp.prompt()
+    def explain_conversion_warnings(warnings: str) -> str:
+        """Ask the model to explain a ConversionResult.warnings list (one
+        warning per line) in plain, non-technical language."""
+        items = [w for w in warnings.split("\n") if w.strip()]
+        if not items:
+            return "No warnings to explain — the conversion reported none."
+        bullet_list = "\n".join(f"- {w}" for w in items)
+        return (
+            "Explain each of the following refigure conversion warnings in plain, "
+            f"non-technical language:\n{bullet_list}"
+        )
+
+
+def _register_completion(mcp: MCPServer) -> None:
+    """A single, server-wide ``@mcp.completion()`` dispatcher — NOT one
+    hook per prompt argument. ``completable()``, the mechanism the
+    architecture doc originally assumed (a per-argument annotation
+    wrapper), does not exist anywhere in ``mcp==2.0.0`` — confirmed live
+    during the tech-spec pass; the real API is this single handler,
+    receiving ``(ref, argument, context)`` and expected to branch
+    internally on which prompt/resource-template and which argument is
+    being completed.
+
+    Only handles ``ingest_for_rag``'s ``vlm_judge_mode`` argument,
+    dependent on ``use_vlm`` already being resolved — architecture doc
+    §5's literal target (not the ``document_format``/
+    ``needs_figure_interpretation`` pair an earlier draft of this phase
+    used instead, a real deviation from the charter caught on review:
+    ``vlm_judge_mode`` is meaningless when ``use_vlm`` isn't even
+    ``"true"``, so completion offers nothing in that case rather than a
+    misleading solo/panel choice). Every other ``ref``/``argument``
+    combination returns ``None`` — confirmed against the SDK's own
+    docstring: the client falls back to offering no completions, not an
+    error."""
+
+    # MCPServer.completion() itself carries no type annotations at all in
+    # mcp==2.0.0 (unlike .tool()/.resource()/.prompt()) — a genuine SDK stub
+    # gap, not something fixable here.
+    @mcp.completion()  # type: ignore[no-untyped-call, untyped-decorator]
+    async def handle_completion(
+        ref: PromptReference | ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: CompletionContext | None,
+    ) -> Completion | None:
+        if (
+            not isinstance(ref, PromptReference)
+            or ref.name != "ingest_for_rag"
+            or argument.name != "vlm_judge_mode"
+        ):
+            return None
+        prior = (context.arguments if context is not None else None) or {}
+        if prior.get("use_vlm", "").strip().lower() == "true":
+            return Completion(values=["solo", "panel"])
+        return Completion(values=[])
 
 
 def build_server(
@@ -390,6 +656,11 @@ def build_server(
     timeout_s: float = 3600,
     vlm_client: VlmClient | None = None,
     vlm_api_key: str | None = None,
+    resource_inline_threshold_bytes: int = 256 * 1024,
+    resource_max_entries: int = 200,
+    resource_max_bytes: int = 500 * 1024 * 1024,
+    resource_ttl_s: float = 3600,
+    vlm_cache_path: Path | None = None,
 ) -> MCPServer:
     """Assemble the ``refigure-mcp`` server: register ``convert_docx``/
     ``convert_xlsx`` (each conditionally, see ``_register_convert_docx``/
@@ -398,7 +669,41 @@ def build_server(
     its matching flags unset by default and only forwards a value when the
     operator actually passed one, the same optional-kwargs-dict discipline
     ``refigure.cli``'s own ``_build_config`` already uses for ``Config``,
-    to avoid the two layers' defaults silently drifting apart."""
+    to avoid the two layers' defaults silently drifting apart.
+
+    ``vlm_cache_path is None`` (default): the shared cache is a
+    ``BoundedLruVlmCache`` (2000 entries or 100 MB, whichever hits first —
+    ``vlm/__init__.py``'s own ``_MAX_VLM_RESPONSE_CHARS=50_000`` bounds a
+    single entry to roughly 50 KB, so 2000 entries stays well inside
+    100 MB even at that ceiling). Passing a path switches to
+    ``FileCacheBackend`` as-is (dev/small-corpus persistence, NOT a
+    memory-safe alternative — it keeps its whole cache in RAM and
+    rewrites the entire file on every ``set()``, see its own docstring)
+    and guards it with ``acquire_vlm_cache_file_lock`` against a second
+    instance sharing the same path, which loses writes.
+
+    Can raise ``MissingOptionalDependencyError`` (``vlm_cache_path`` set
+    without ``[vlm]`` installed — ``FileCacheBackend`` lives inside the
+    ``refigure.vlm`` package, guarded the same as everything else in it)
+    or ``ValueError`` (``vlm_cache_path`` already locked by another
+    instance) — callers constructing a real server from user-supplied
+    config (``cli.py``) must route this through the same
+    exception-to-exit-code boundary every other optional-dependency/
+    external-resource construction in this codebase already uses
+    (CLAUDE.md's "Do NOT" list)."""
+    vlm_cache: VlmCacheBackend
+    if vlm_cache_path is not None:
+        from ..vlm.cache import FileCacheBackend  # lazy — see this module's import block
+
+        acquire_vlm_cache_file_lock(vlm_cache_path)
+        vlm_cache = FileCacheBackend(vlm_cache_path)
+    else:
+        vlm_cache = BoundedLruVlmCache(max_entries=2000, max_bytes=100 * 1024 * 1024)
+
+    state = ServerState(
+        max_entries=resource_max_entries, max_bytes=resource_max_bytes, ttl_s=resource_ttl_s
+    )
+
     mcp = MCPServer("refigure")
     server_ctx = _ServerContext(
         limiter=anyio.CapacityLimiter(max_concurrent),
@@ -407,7 +712,13 @@ def build_server(
         vlm_max_markers=vlm_max_markers,
         max_input_b64_mb=max_input_b64_mb,
         timeout_s=timeout_s,
+        state=state,
+        vlm_cache=vlm_cache,
+        resource_inline_threshold_bytes=resource_inline_threshold_bytes,
     )
-    _register_convert_docx(mcp, server_ctx, transport)
-    _register_convert_xlsx(mcp, server_ctx, transport)
+    has_docx = _register_convert_docx(mcp, server_ctx, transport)
+    has_xlsx = _register_convert_xlsx(mcp, server_ctx, transport)
+    _register_conversion_resource(mcp, server_ctx)
+    _register_prompts(mcp, has_docx=has_docx, has_xlsx=has_xlsx)
+    _register_completion(mcp)
     return mcp
