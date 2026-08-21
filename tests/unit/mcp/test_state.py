@@ -13,7 +13,9 @@ def test_resolve_caller_id_is_the_local_sentinel_outside_any_request() -> None:
 
 
 def test_insert_then_get_round_trips_the_markdown() -> None:
-    state = ServerState(max_entries=10, max_bytes=10_000, ttl_s=3600)
+    state = ServerState(
+        max_entries=10, max_bytes=10_000, ttl_s=3600, rate_limit_count=30, rate_limit_window_s=60
+    )
 
     conversion_id = state.insert("caller-A", "hello world markdown")
 
@@ -21,7 +23,9 @@ def test_insert_then_get_round_trips_the_markdown() -> None:
 
 
 def test_get_with_the_wrong_caller_id_is_not_found_not_forbidden() -> None:
-    state = ServerState(max_entries=10, max_bytes=10_000, ttl_s=3600)
+    state = ServerState(
+        max_entries=10, max_bytes=10_000, ttl_s=3600, rate_limit_count=30, rate_limit_window_s=60
+    )
     conversion_id = state.insert("caller-A", "secret to caller-A")
 
     result = state.get(conversion_id, "caller-B")
@@ -33,13 +37,17 @@ def test_get_with_the_wrong_caller_id_is_not_found_not_forbidden() -> None:
 
 
 def test_get_on_an_unknown_id_is_none() -> None:
-    state = ServerState(max_entries=10, max_bytes=10_000, ttl_s=3600)
+    state = ServerState(
+        max_entries=10, max_bytes=10_000, ttl_s=3600, rate_limit_count=30, rate_limit_window_s=60
+    )
 
     assert state.get("doesnotexist", "caller-A") is None
 
 
 def test_expired_ttl_is_treated_as_not_found(monkeypatch) -> None:
-    state = ServerState(max_entries=10, max_bytes=10_000, ttl_s=100)
+    state = ServerState(
+        max_entries=10, max_bytes=10_000, ttl_s=100, rate_limit_count=30, rate_limit_window_s=60
+    )
     ticks = iter([0.0, 200.0])  # insert() reads once (0.0), get() reads once (200.0)
     monkeypatch.setattr("refigure.mcp.state.time.monotonic", lambda: next(ticks))
 
@@ -49,7 +57,9 @@ def test_expired_ttl_is_treated_as_not_found(monkeypatch) -> None:
 
 
 def test_insert_returns_a_url_safe_token_of_the_expected_shape() -> None:
-    state = ServerState(max_entries=10, max_bytes=10_000, ttl_s=3600)
+    state = ServerState(
+        max_entries=10, max_bytes=10_000, ttl_s=3600, rate_limit_count=30, rate_limit_window_s=60
+    )
 
     conversion_id = state.insert("caller-A", "x")
 
@@ -59,7 +69,9 @@ def test_insert_returns_a_url_safe_token_of_the_expected_shape() -> None:
 
 
 def test_lru_and_byte_eviction_apply_through_server_state_too() -> None:
-    state = ServerState(max_entries=1, max_bytes=10_000, ttl_s=3600)
+    state = ServerState(
+        max_entries=1, max_bytes=10_000, ttl_s=3600, rate_limit_count=30, rate_limit_window_s=60
+    )
     first_id = state.insert("caller-A", "first")
 
     second_id = state.insert("caller-A", "second")  # evicts the first entry

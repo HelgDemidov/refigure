@@ -668,6 +668,8 @@ def build_server(
     resource_max_bytes: int = 500 * 1024 * 1024,
     resource_ttl_s: float = 3600,
     vlm_cache_path: Path | None = None,
+    rate_limit_count: int = 30,
+    rate_limit_window_s: float = 60.0,
 ) -> MCPServer:
     """Assemble the ``refigure-mcp`` server: register ``convert_docx``/
     ``convert_xlsx`` (each conditionally, see ``_register_convert_docx``/
@@ -689,6 +691,16 @@ def build_server(
     and guards it with ``acquire_vlm_cache_file_lock`` against a second
     instance sharing the same path, which loses writes.
 
+    ``rate_limit_count``/``rate_limit_window_s`` (phase-3 spec §4): fixed
+    per-``caller_id`` window, HTTP-always regardless of how many callers
+    are configured (architecture doc §6 п.3 — a single-token deployment
+    still gets this, unlike soft-cap below, which needs ≥2). Defaults (30
+    per 60s) are a reasoned choice for a single-operator self-hosted
+    deployment, not a chartered number — same status as
+    ``resource_inline_threshold_bytes``'s 256 KB default (phase 2).
+    ``_run_convert_tool`` only ever checks this when ``transport=="http"``
+    (stdio skips the check entirely, not just never hits the limit).
+
     Can raise ``MissingOptionalDependencyError`` (``vlm_cache_path`` set
     without ``[vlm]`` installed — ``FileCacheBackend`` lives inside the
     ``refigure.vlm`` package, guarded the same as everything else in it)
@@ -708,7 +720,11 @@ def build_server(
         vlm_cache = BoundedLruVlmCache(max_entries=2000, max_bytes=100 * 1024 * 1024)
 
     state = ServerState(
-        max_entries=resource_max_entries, max_bytes=resource_max_bytes, ttl_s=resource_ttl_s
+        max_entries=resource_max_entries,
+        max_bytes=resource_max_bytes,
+        ttl_s=resource_ttl_s,
+        rate_limit_count=rate_limit_count,
+        rate_limit_window_s=rate_limit_window_s,
     )
 
     mcp = MCPServer("refigure")

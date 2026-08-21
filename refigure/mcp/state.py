@@ -15,6 +15,7 @@ couldn't fit inline.
 from __future__ import annotations
 
 import secrets
+import threading
 import time
 
 from mcp.server.auth.middleware.auth_context import get_access_token
@@ -55,11 +56,56 @@ class ServerState:
     id, which the "unlisted" design (architecture doc §4) is meant to
     avoid leaking in the first place."""
 
-    def __init__(self, *, max_entries: int, max_bytes: int, ttl_s: float) -> None:
+    def __init__(
+        self,
+        *,
+        max_entries: int,
+        max_bytes: int,
+        ttl_s: float,
+        rate_limit_count: int,
+        rate_limit_window_s: float,
+    ) -> None:
         self._lru: BoundedLru[tuple[str, str, float]] = BoundedLru(
             max_entries=max_entries, max_bytes=max_bytes
         )
         self._ttl_s = ttl_s
+        self._rate_limit_count = rate_limit_count
+        self._rate_limit_window_s = rate_limit_window_s
+        # ServerState's OWN lock — separate from _lru's internal one
+        # (architecture doc §4: "всё admission-time состояние под ОДНИМ
+        # threading.Lock"). Same insurance-not-sole-defense role _lru.py's
+        # own lock plays: every real caller only ever touches ServerState
+        # from the event loop (get()/insert() are called from tool/resource
+        # handlers, never a to_thread worker), so this is a documented
+        # invariant backed by a lock, not the only thing preventing a race.
+        self._lock = threading.Lock()
+        self._rate_counters: dict[str, tuple[int, float]] = {}
+
+    def check_and_consume_rate_limit(self, caller_id: str, *, n: int = 1) -> bool:
+        """Admit (and atomically consume) ``n`` units of ``caller_id``'s
+        per-window conversion quota, or refuse without consuming anything.
+        Fixed window (not a token bucket — architecture doc §6 п.3 asks
+        for simple runaway/leaked-token protection, not strict fairness;
+        a caller straddling a window boundary can burst up to ~2x the
+        configured rate, an accepted tradeoff for this goal).
+
+        ``n`` defaults to 1 — one file conversion (architecture doc §6
+        п.3: "единица учёта — конверсия ОДНОГО файла"), which is all
+        phase 3 ever passes. The parameter exists so phase 4's
+        ``convert_batch`` can admit an entire batch atomically against
+        the same counter without a second admission mechanism (phase-3
+        spec §4/Вне скоупа) — not exercised with ``n != 1`` anywhere in
+        this phase."""
+        now = time.monotonic()
+        with self._lock:
+            count, window_start = self._rate_counters.get(caller_id, (0, now))
+            if now - window_start >= self._rate_limit_window_s:
+                count, window_start = 0, now
+            if count + n > self._rate_limit_count:
+                self._rate_counters[caller_id] = (count, window_start)
+                return False
+            self._rate_counters[caller_id] = (count + n, window_start)
+            return True
 
     def insert(self, caller_id: str, markdown: str) -> str:
         """Store ``markdown`` under a fresh random id, tagged with
