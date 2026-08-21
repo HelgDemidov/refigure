@@ -255,6 +255,35 @@ class Config:
     language-sensitivity — see ``vlm_verify``'s own docstring and
     ``witness_defects``'s."""
 
+    vlm_max_markers: int | None = None
+    """Maximum number of VLM markers this call may resolve with a PAID
+    call (docx-only — XLSX has no VLM path). ``None`` (default): no
+    ceiling, current behavior. A caller that sets this gets a pre-flight
+    check in ``vlm.enhance_docx_markdown``, before any paid call: every
+    marker that would incur at least one paid call — a cache-miss, OR (
+    when ``vlm_verify=True``) a cache-hit whose ``judge_verdict`` is still
+    unset (the judge-backfill pass is itself a paid call; without counting
+    it, a fully-cached document under ``vlm_verify=True`` would silently
+    bypass the ceiling) — is counted once, via a single memoized cache
+    probe reused by the main resolution loops (no doubled reads against a
+    networked ``VlmCacheBackend``, no TOCTOU window between the count and
+    the paid calls). Exceeding the count raises
+    ``VlmMarkerLimitExceededError`` immediately, before the first paid
+    call — no partial processing.
+
+    Motivation: input size alone does not bound the number of paid VLM
+    calls a document can trigger — a 1.46 MB real-world document carrying
+    9990 VLM-eligible markers was the concrete case that motivated this
+    field. This is the one lever specifically for VLM cost/latency
+    escalation; it is orthogonal to ``strict`` (which narrows exactly one
+    unrelated failure mode, a missing ``soffice`` binary) and to the
+    zero-loss-on-failure contract every other VLM failure path already
+    has (PR #16's security-audit contract) — an unavailable cache backend
+    still degrades every PROBE to "treat as a miss" (``vlm.
+    _cache_get_safely``'s existing behavior), which can trigger this
+    ceiling honestly (those calls really would have been paid), not a
+    weakening of that contract."""
+
 
 @dataclass
 class ConversionResult:
@@ -287,3 +316,9 @@ class MissingOptionalDependencyError(Exception):
     binary a pip extra can't provide (``soffice``/LibreOffice, needed to
     render a composite DOCX group under ``Config(use_vlm=True,
     strict=True)`` — see ``Config.strict``'s docstring)."""
+
+
+class VlmMarkerLimitExceededError(Exception):
+    """The document carries more VLM-eligible markers requiring a paid call
+    than ``Config.vlm_max_markers`` allows (see its docstring) — raised
+    before any paid call, not after partial processing."""

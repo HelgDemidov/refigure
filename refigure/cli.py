@@ -33,6 +33,7 @@ EXIT_UNSUPPORTED_FORMAT = 3
 EXIT_CORRUPT_ARCHIVE = 4
 EXIT_MISSING_DEPENDENCY = 5
 EXIT_INTERNAL_ERROR = 6
+EXIT_VLM_MARKER_LIMIT = 7
 
 _SUFFIX_TO_FORMAT = {".docx": "docx", ".xlsx": "xlsx"}
 
@@ -67,7 +68,12 @@ def _exit_code_for(exc: Exception) -> int:
     # Imported lazily too — importing refigure.api at module level is cheap
     # (lxml-only, see api.py), but the exception CLASSES only need to exist
     # once we actually have an exception to classify.
-    from .api import CorruptArchiveError, MissingOptionalDependencyError, UnsupportedFormatError
+    from .api import (
+        CorruptArchiveError,
+        MissingOptionalDependencyError,
+        UnsupportedFormatError,
+        VlmMarkerLimitExceededError,
+    )
 
     if isinstance(exc, UnsupportedFormatError):
         return EXIT_UNSUPPORTED_FORMAT
@@ -75,6 +81,8 @@ def _exit_code_for(exc: Exception) -> int:
         return EXIT_CORRUPT_ARCHIVE
     if isinstance(exc, MissingOptionalDependencyError):
         return EXIT_MISSING_DEPENDENCY
+    if isinstance(exc, VlmMarkerLimitExceededError):
+        return EXIT_VLM_MARKER_LIMIT
     return EXIT_INTERNAL_ERROR
 
 
@@ -200,6 +208,16 @@ def build_parser() -> argparse.ArgumentParser:
             "putting a secret in argv/shell history."
         ),
     )
+    vlm_group.add_argument(
+        "--vlm-max-markers",
+        metavar="N",
+        type=int,
+        help=(
+            "Cap on VLM markers requiring a paid call (Config(vlm_max_markers=...)). "
+            "Exceeding it exits with code 7 before any paid call. Unset: no cap "
+            "(the library default)."
+        ),
+    )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
         "-v",
@@ -271,6 +289,8 @@ def _build_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         kwargs["vlm_model"] = args.vlm_model
     if args.vlm_judge_mode is not None:
         kwargs["vlm_judge_mode"] = args.vlm_judge_mode
+    if args.vlm_max_markers is not None:
+        kwargs["vlm_max_markers"] = args.vlm_max_markers
     if args.vlm:
         # Provider/key-file resolution only matters when VLM is actually
         # enabled — otherwise --vlm-provider openai with no --vlm would

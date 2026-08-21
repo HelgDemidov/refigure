@@ -27,6 +27,7 @@ from refigure.cli import (
     EXIT_OK,
     EXIT_UNSUPPORTED_FORMAT,
     EXIT_USAGE,
+    EXIT_VLM_MARKER_LIMIT,
     _plan_batch,
     main,
 )
@@ -172,6 +173,38 @@ class TestTypedExitCodes:
         monkeypatch.setattr(docx_module, "convert", _boom)
         assert main([str(doc)]) == EXIT_INTERNAL_ERROR
         assert "internal error" in capsys.readouterr().err
+
+    def test_vlm_marker_limit_exceeded_is_its_own_exit_code(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Same technique as test_unexpected_exception_is_internal_error
+        # above (mock docx.convert itself) — constructing a REAL document
+        # that naturally triggers this exception needs a referenced VLM
+        # marker above DOCX_IMAGE_MIN_BYTES, which none of this file's
+        # existing docx-building helpers produce; the engine-level
+        # behavior (pre-flight counting, judge-backfill counting) is
+        # already exhaustively covered by tests/unit/test_vlm_max_markers.py
+        # — this test only proves the CLI maps the exception to exit code
+        # 7, not generic EXIT_INTERNAL_ERROR.
+        doc = _write_docx(tmp_path / "doc.docx", ["hi"])
+
+        import refigure.docx as docx_module
+        from refigure.api import VlmMarkerLimitExceededError
+
+        def _over_limit(*args: object, **kwargs: object) -> None:
+            raise VlmMarkerLimitExceededError("doc.docx: 3 marker(s) exceed vlm_max_markers=2")
+
+        monkeypatch.setattr(docx_module, "convert", _over_limit)
+        assert main([str(doc), "--vlm", "--vlm-max-markers", "2"]) == EXIT_VLM_MARKER_LIMIT
+        err = capsys.readouterr().err
+        assert "internal error" not in err
+        assert "vlm_max_markers=2" in err
+
+    def test_exit_code_for_vlm_marker_limit_exceeded_direct(self) -> None:
+        from refigure.api import VlmMarkerLimitExceededError
+        from refigure.cli import _exit_code_for
+
+        assert _exit_code_for(VlmMarkerLimitExceededError("x")) == EXIT_VLM_MARKER_LIMIT
 
 
 class TestBatchMode:
@@ -459,6 +492,24 @@ class TestVlmFlags:
         captured = self._capture_config(monkeypatch)
         assert main([str(doc), "--vlm", "--vlm-judge-mode", "solo"]) == EXIT_OK
         assert captured["config"].vlm_judge_mode == "solo"  # type: ignore[attr-defined]
+
+    def test_vlm_max_markers_flag_overrides_config_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+        assert main([str(doc), "--vlm", "--vlm-max-markers", "5"]) == EXIT_OK
+        assert captured["config"].vlm_max_markers == 5  # type: ignore[attr-defined]
+
+    def test_vlm_max_markers_unset_keeps_config_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from refigure.api import Config
+
+        doc = _write_docx(tmp_path / "doc.docx", ["Hello"])
+        captured = self._capture_config(monkeypatch)
+        assert main([str(doc), "--vlm"]) == EXIT_OK
+        assert captured["config"].vlm_max_markers == Config().vlm_max_markers  # type: ignore[attr-defined]
 
     def test_vlm_provider_openai_constructs_openai_client(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

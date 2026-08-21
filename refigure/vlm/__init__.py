@@ -74,7 +74,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import docx_groups
-from ..api import Config, VlmCacheBackend, VlmClient
+from ..api import Config, VlmCacheBackend, VlmClient, VlmMarkerLimitExceededError
 from ..core import chart_render, zipsafe
 from .cache import InMemoryCacheBackend
 from .client import OpenRouterClient
@@ -680,13 +680,33 @@ def _content_bbox(page: Any) -> BBox | None:
 
 
 def _render_via_soffice(
-    doc_bytes: bytes, *, suffix: str, raw_name: str, obj_id: str, obj_kind: str
+    doc_bytes: bytes,
+    *,
+    suffix: str,
+    raw_name: str,
+    obj_id: str,
+    obj_kind: str,
+    profile_dir: Path,
 ) -> str | None:
     """Render an isolated mini-document via headless LibreOffice -> PDF ->
     crop to visible content (``_content_bbox``) -> JPEG data-URI. Requires
     the system ``soffice`` binary — its absence/failure degrades to
     ``None`` + warning, the marker+captions stay as an honest fallback
-    (zero-loss without VLM), never a hard failure."""
+    (zero-loss without VLM), never a hard failure.
+
+    ``profile_dir`` — a LibreOffice user-profile directory (``-env:
+    UserInstallation``), supplied by the caller and shared across every
+    group marker in ONE ``enhance_docx_markdown`` call (not created fresh
+    per marker here). Concurrent ``soffice --headless`` invocations that
+    share the default profile conflict on its lock file — measured live:
+    ~1/3 failures at 3 concurrent renders. Markers within a single
+    conversion are already strictly sequential (no race to isolate there);
+    the isolation that matters is BETWEEN conversions running in different
+    threads, each with its own ``profile_dir`` — see
+    ``enhance_docx_markdown``'s group-marker loop, which owns the
+    ``TemporaryDirectory`` this parameter points into and reuses it across
+    every group in that one call (1/N the cost of a fresh profile per
+    marker, same isolation)."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
         doc_path = tmp_dir / f"obj{suffix}"
@@ -703,6 +723,7 @@ def _render_via_soffice(
             result = subprocess.run(  # noqa: S603 — args are fixed flags + tempfile-owned paths, not user input
                 [
                     soffice_path,
+                    f"-env:UserInstallation=file://{profile_dir}",
                     "--headless",
                     "--convert-to",
                     "pdf",
@@ -756,7 +777,12 @@ def _render_via_soffice(
 
 
 def _render_docx_group(
-    source: Path | bytes, id12: str, *, raw_name: str, strict: bool = False
+    source: Path | bytes,
+    id12: str,
+    *,
+    raw_name: str,
+    strict: bool = False,
+    profile_dir: Path,
 ) -> str | None:
     """Composite group -> isolated mini-docx (``docx_groups.extract_group_docx``)
     -> ``_render_via_soffice``.
@@ -793,12 +819,22 @@ def _render_docx_group(
         )
         return None
     return _render_via_soffice(
-        mini_docx, suffix=".docx", raw_name=raw_name, obj_id=id12, obj_kind="group"
+        mini_docx,
+        suffix=".docx",
+        raw_name=raw_name,
+        obj_id=id12,
+        obj_kind="group",
+        profile_dir=profile_dir,
     )
 
 
 def _render_docx_group_safely(
-    source: Path | bytes, id12: str, *, raw_name: str, strict: bool = False
+    source: Path | bytes,
+    id12: str,
+    *,
+    raw_name: str,
+    strict: bool = False,
+    profile_dir: Path,
 ) -> str | None:
     """See ``_docx_media_uri_safely`` — same gap, same fix, for the
     composite-group render path (``_render_docx_group`` ->
@@ -810,7 +846,9 @@ def _render_docx_group_safely(
     ever named the two archive-safety exceptions, never touched to add a
     third type."""
     try:
-        return _render_docx_group(source, id12, raw_name=raw_name, strict=strict)
+        return _render_docx_group(
+            source, id12, raw_name=raw_name, strict=strict, profile_dir=profile_dir
+        )
     except (zipsafe.ArchiveBombSuspected, zipfile.BadZipFile) as exc:
         logger.warning(
             "%s: group %s failed to re-read (%s) — marker left as-is", raw_name, id12, exc
@@ -1095,6 +1133,38 @@ def enhance_docx_markdown(
             resolved_client = OpenRouterClient(api_key=_resolve_api_key(config))
         return resolved_client
 
+    # Pre-flight for Config.vlm_max_markers (api.py's docstring has the full
+    # rationale): one memoized cache probe per marker, BEFORE any paid call.
+    # `_get_entry` below reuses this dict's result instead of a second probe
+    # against the same key when pre-flight ran; when it's off (the common
+    # case, vlm_max_markers=None), the dict stays empty and every lookup
+    # falls through to a normal _cache_get_safely call, unchanged behavior.
+    prefetched_entries: dict[str, dict[str, object] | None] = {}
+    if config.vlm_max_markers is not None:
+        paid_count = 0
+        for m in image_matches:
+            marker_id = m.group("id")
+            entry = _cache_get_safely(cache, marker_id, context=f"{raw_name}: {marker_id}")
+            prefetched_entries[marker_id] = entry
+            if entry is None or (config.vlm_verify and entry.get("judge_verdict") is None):
+                paid_count += 1
+        for m in group_matches:
+            gid = m.group("id")
+            entry = _cache_get_safely(cache, gid, context=f"{raw_name}: {gid}")
+            prefetched_entries[gid] = entry
+            if entry is None or (config.vlm_verify and entry.get("judge_verdict") is None):
+                paid_count += 1
+        if paid_count > config.vlm_max_markers:
+            raise VlmMarkerLimitExceededError(
+                f"{raw_name}: {paid_count} marker(s) require a paid VLM call, "
+                f"exceeding Config.vlm_max_markers={config.vlm_max_markers}"
+            )
+
+    def _get_entry(key: str, context: str) -> dict[str, object] | None:
+        if key in prefetched_entries:
+            return prefetched_entries[key]
+        return _cache_get_safely(cache, key, context=context)
+
     warnings: list[str] = []
     vlm_used = False
     replacements: list[tuple[int, int, str]] = []
@@ -1102,7 +1172,7 @@ def enhance_docx_markdown(
     for m in image_matches:
         marker_id = m.group("id")
         cache_context = f"{raw_name}: {marker_id}"
-        entry = _cache_get_safely(cache, marker_id, context=cache_context)
+        entry = _get_entry(marker_id, cache_context)
         if entry is None:
             data_uri = _docx_media_uri_safely(source, marker_id, raw_name=raw_name)
             if data_uri is None:
@@ -1140,50 +1210,89 @@ def enhance_docx_markdown(
             )
         )
 
-    for m in group_matches:
-        gid = m.group("id")
-        witness = m.group("witness")
-        cache_context = f"{raw_name}: {gid}"
-        entry = _cache_get_safely(cache, gid, context=cache_context)
-        if entry is None:
-            data_uri = _render_docx_group_safely(
-                source, gid, raw_name=raw_name, strict=config.strict
-            )
-            if data_uri is None:
-                continue
-            text = _call_client(
-                _get_client(), FIG_PROMPT, data_uri, model=model, raw_name=raw_name, obj_id=gid
-            )
-            if text is None:
-                continue
-            entry = {"model": model, "markdown": text, "judge_verdict": None}
-            if config.vlm_verify:
-                entry["judge_verdict"] = _judge_with_config(data_uri, text, config, _get_client)
-            _cache_set_safely(cache, gid, entry, context=cache_context)
-        elif config.vlm_verify and entry.get("judge_verdict") is None:
-            data_uri = _render_docx_group_safely(
-                source, gid, raw_name=raw_name, strict=config.strict
-            )
-            if data_uri is not None:
-                entry["judge_verdict"] = _judge_with_config(
-                    data_uri, str(entry["markdown"]), config, _get_client
+    if group_matches:
+        # One LibreOffice profile shared across every group marker in THIS
+        # call, not a fresh one per marker — see _render_via_soffice's
+        # docstring. Lazy: no group markers, no soffice call, no profile
+        # directory created at all.
+        with tempfile.TemporaryDirectory() as profile_tmp:
+            profile_dir = Path(profile_tmp)
+            for m in group_matches:
+                gid = m.group("id")
+                witness = m.group("witness")
+                cache_context = f"{raw_name}: {gid}"
+                entry = _get_entry(gid, cache_context)
+                if entry is None:
+                    data_uri = _render_docx_group_safely(
+                        source,
+                        gid,
+                        raw_name=raw_name,
+                        strict=config.strict,
+                        profile_dir=profile_dir,
+                    )
+                    if data_uri is None:
+                        # Visible only for the NEW failure mode this phase
+                        # targets — soffice installed but this specific
+                        # render call failed (the concurrent profile-
+                        # contention scenario). soffice missing entirely is
+                        # a separate, pre-existing, deployment-wide
+                        # condition — already server-logged, deliberately
+                        # NOT surfaced in the client-facing warnings list
+                        # (regression-tested: test_enhance_docx_markdown_
+                        # *_soffice_unavailable_* in test_vlm.py). Every
+                        # OTHER "marker could not be resolved" path (VLM
+                        # call failed, media not found) also stays silent,
+                        # as before — see the mcp-server-phase1-skeleton
+                        # spec §1.
+                        if _soffice_available():
+                            warnings.append(f"vlm-render-failed: {gid}")
+                        continue
+                    text = _call_client(
+                        _get_client(),
+                        FIG_PROMPT,
+                        data_uri,
+                        model=model,
+                        raw_name=raw_name,
+                        obj_id=gid,
+                    )
+                    if text is None:
+                        continue
+                    entry = {"model": model, "markdown": text, "judge_verdict": None}
+                    if config.vlm_verify:
+                        entry["judge_verdict"] = _judge_with_config(
+                            data_uri, text, config, _get_client
+                        )
+                    _cache_set_safely(cache, gid, entry, context=cache_context)
+                elif config.vlm_verify and entry.get("judge_verdict") is None:
+                    data_uri = _render_docx_group_safely(
+                        source,
+                        gid,
+                        raw_name=raw_name,
+                        strict=config.strict,
+                        profile_dir=profile_dir,
+                    )
+                    if data_uri is not None:
+                        entry["judge_verdict"] = _judge_with_config(
+                            data_uri, str(entry["markdown"]), config, _get_client
+                        )
+                        _cache_set_safely(cache, gid, entry, context=cache_context)
+                vlm_used = True
+                entry_markdown = str(entry["markdown"])
+                warnings.extend(
+                    witness_defects(
+                        witness, entry_markdown, gid, min_recall=config.vlm_witness_min_recall
+                    )
                 )
-                _cache_set_safely(cache, gid, entry, context=cache_context)
-        vlm_used = True
-        entry_markdown = str(entry["markdown"])
-        warnings.extend(
-            witness_defects(witness, entry_markdown, gid, min_recall=config.vlm_witness_min_recall)
-        )
-        judge_verdict = entry.get("judge_verdict")
-        if config.vlm_verify and isinstance(judge_verdict, list):
-            warnings.extend(f"{d}: {gid}" for d in judge_verdict)
-        replacements.append(
-            (
-                m.start(),
-                m.end(),
-                _render_injected_docx_group(gid, str(entry["model"]), entry_markdown),
-            )
-        )
+                judge_verdict = entry.get("judge_verdict")
+                if config.vlm_verify and isinstance(judge_verdict, list):
+                    warnings.extend(f"{d}: {gid}" for d in judge_verdict)
+                replacements.append(
+                    (
+                        m.start(),
+                        m.end(),
+                        _render_injected_docx_group(gid, str(entry["model"]), entry_markdown),
+                    )
+                )
 
     if not replacements:
         return markdown, False, warnings

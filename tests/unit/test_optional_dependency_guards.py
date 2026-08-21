@@ -63,6 +63,7 @@ _POISON_CASES = [
     # This case pins that intentional coupling, not the guard itself — see
     # pyproject.toml's vlm-direct comment for the full rationale.
     ("refigure.vlm.client", "pdfplumber"),
+    ("refigure.mcp", "mcp"),
 ]
 
 

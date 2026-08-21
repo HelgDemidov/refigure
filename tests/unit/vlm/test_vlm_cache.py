@@ -7,7 +7,10 @@ persistence and corrupted-file handling.
 from __future__ import annotations
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -98,6 +101,62 @@ def test_file_backend_corrupted_file_falls_back_to_empty_cache(tmp_path: Path) -
     backend = FileCacheBackend(path)
 
     assert backend.get("any-key") is None
+
+
+# --- FileCacheBackend concurrency/atomicity (mcp-server-phase1-skeleton
+# spec §3): a single instance shared across concurrently-running
+# conversions can have multiple set() calls interleave in one process —
+# these guard the lock + atomic-write fix, reproducing the live experiment
+# from that spec's design work as a real regression test. ---
+
+
+def test_file_backend_concurrent_set_loses_no_writes(tmp_path: Path) -> None:
+    path = tmp_path / "cache.json"
+    backend = FileCacheBackend(path)
+    n_threads, n_keys = 8, 50
+
+    def writer(t: int) -> None:
+        for i in range(n_keys):
+            backend.set(f"key-{t}-{i}", {"markdown": "x" * 200, "judge_verdict": None})
+
+    with ThreadPoolExecutor(max_workers=n_threads) as pool:
+        list(pool.map(writer, range(n_threads)))
+
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert len(on_disk) == n_threads * n_keys
+
+    reloaded = FileCacheBackend(path)
+    assert all(
+        reloaded.get(f"key-{t}-{i}") is not None for t in range(n_threads) for i in range(n_keys)
+    )
+
+
+def test_file_backend_set_failure_mid_write_leaves_the_original_file_intact(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "cache.json"
+    backend = FileCacheBackend(path)
+    backend.set("key-1", {"markdown": "original, untouched"})
+
+    with patch("refigure.vlm.cache.os.replace", side_effect=OSError("disk full")):
+        with pytest.raises(OSError, match="disk full"):
+            backend.set("key-2", {"markdown": "never lands"})
+
+    # The original file survives the failed write unmodified — never a
+    # half-written/truncated file — and the crashed set()'s temp file is
+    # cleaned up, not left behind.
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk == {"key-1": {"markdown": "original, untouched"}}
+    leftover_tmp_files = [p for p in tmp_path.iterdir() if p.name != "cache.json"]
+    assert leftover_tmp_files == []
+
+
+def test_file_backend_lock_is_a_real_threading_lock(tmp_path: Path) -> None:
+    """Cheap structural guard, not a race reproduction: confirms the fix
+    is actually wired up (a regression here would otherwise only show up
+    as an occasional flaky failure in the concurrency test above)."""
+    backend = FileCacheBackend(tmp_path / "cache.json")
+    assert isinstance(backend._lock, type(threading.Lock()))
 
 
 # --- InMemoryCacheBackend-specific ---

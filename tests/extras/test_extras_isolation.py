@@ -56,6 +56,10 @@ _HAS_XLSX = _EXTRAS in ("xlsx", "both")
 # pyproject.toml's vlm-direct comment) — pdfplumber is present there too.
 _HAS_VLM = _EXTRAS in ("vlm", "docx+vlm", "vlm-direct")
 _HAS_VLM_DIRECT = _EXTRAS == "vlm-direct"
+# [mcp] has no self-referential coupling to [docx]/[xlsx]/[vlm] (unlike
+# vlm-direct) — a single "mcp" leg is enough, no combinatorial legs needed
+# (mcp-server-phase1-skeleton spec §9).
+_HAS_MCP = _EXTRAS == "mcp"
 
 
 def test_core_types_always_importable() -> None:
@@ -98,6 +102,16 @@ def test_vlm_submodule_matches_extras() -> None:
     else:
         with pytest.raises(MissingOptionalDependencyError, match=r"refigure\[vlm\]"):
             import refigure.vlm  # noqa: F401
+
+
+def test_mcp_submodule_matches_extras() -> None:
+    from refigure import MissingOptionalDependencyError
+
+    if _HAS_MCP:
+        import refigure.mcp  # noqa: F401
+    else:
+        with pytest.raises(MissingOptionalDependencyError, match=r"refigure\[mcp\]"):
+            import refigure.mcp  # noqa: F401
 
 
 def test_mammoth_only_importable_when_docx_extra_present() -> None:
@@ -151,6 +165,67 @@ def test_openai_and_anthropic_only_importable_when_vlm_direct_extra_present() ->
             f"extras={_EXTRAS!r} — a leaked/missing transitive dependency in "
             "the [vlm-direct] extra"
         )
+
+
+def test_mcp_sdk_only_importable_when_mcp_extra_present() -> None:
+    try:
+        import mcp as _mcp_sdk  # noqa: F401
+
+        importable = True
+    except ModuleNotFoundError:
+        importable = False
+    assert importable == _HAS_MCP, (
+        f"mcp importable={importable}, expected={_HAS_MCP} for extras={_EXTRAS!r} "
+        "— a leaked/missing dependency in the [mcp] extra"
+    )
+
+
+def test_mcp_cli_help_and_version_work_on_the_mcp_leg() -> None:
+    if not _HAS_MCP:
+        pytest.skip("refigure-mcp isn't installed outside the mcp leg")
+    for flag in ("--help", "--version"):
+        result = subprocess.run(
+            [sys.executable, "-m", "refigure.mcp.cli", flag],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, (
+            f"refigure-mcp {flag} failed under extras={_EXTRAS!r}: {result.stderr}"
+        )
+
+
+def test_mcp_redact_degrades_gracefully_without_vlm_extra() -> None:
+    """server.py's _redact() reuses vlm._redact_secrets, lazily and
+    guarded — refigure.vlm requires [vlm] (pdfplumber), which [mcp] alone
+    does not pull in. On this leg the import genuinely fails, so this is
+    the one place this specific fallback branch is actually reachable
+    (coverage.py can't see across the subprocess boundary the OTHER extras
+    legs run in — see server.py's own pragma pointing here)."""
+    if not _HAS_MCP:
+        pytest.skip("only meaningful on the mcp leg, where [vlm] is genuinely absent")
+
+    from refigure.mcp.server import _redact
+
+    text = "failed calling Bearer sk-ant-abcdef123456"
+    assert _redact(text) == text, "expected the unredacted fallback (no [vlm] to redact with)"
+
+
+def test_mcp_build_server_registers_zero_tools_without_docx_or_xlsx() -> None:
+    """The exact format-isolation guarantee refigure/mcp/server.py's own
+    module docstring makes: a bare refigure[mcp] install (this leg has
+    neither [docx] nor [xlsx]) still builds a working server, just with
+    0 tools registered — never a crash from an eager top-level import of
+    refigure.docx/refigure.xlsx."""
+    if not _HAS_MCP:
+        pytest.skip("only meaningful on the mcp leg")
+    if _HAS_DOCX or _HAS_XLSX:  # pragma: no cover - not reachable on any current leg
+        pytest.skip("this leg unexpectedly also has [docx]/[xlsx] — not this test's case")
+
+    from refigure.mcp.server import build_server
+
+    server = build_server()
+    assert server._tool_manager.list_tools() == []
 
 
 def test_vlm_client_direct_classes_match_extras() -> None:
