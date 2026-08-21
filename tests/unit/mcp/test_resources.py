@@ -99,7 +99,13 @@ async def test_read_conversion_directly_raises_the_sdks_own_exception_class() ->
 
     class _FakeServerCtx:
         def __init__(self) -> None:
-            self.state = ServerState(max_entries=10, max_bytes=10_000, ttl_s=3600)
+            self.state = ServerState(
+                max_entries=10,
+                max_bytes=10_000,
+                ttl_s=3600,
+                rate_limit_count=30,
+                rate_limit_window_s=60,
+            )
 
     mcp = MCPServer("x")
     _register_conversion_resource(mcp, _FakeServerCtx())  # type: ignore[arg-type]

@@ -20,13 +20,25 @@ doc §4's "mutations only from the event loop" invariant), while
 ``enhance_docx_markdown`` calls ``VlmCacheBackend.set()`` synchronously,
 inside the ``anyio.to_thread`` bridge). A plain lock protects either
 caller identically — no async-specific primitive needed here.
+
+Phase 3 (``docs/mcp-server/mcp-server-phase3-http-auth/
+mcp-server-phase3-http-auth-2026-08-21.md`` §1) adds two additive members —
+existing callers that don't pass ``on_evict``/don't call ``remove()`` see
+no behavior change: an optional ``on_evict`` callback, invoked for entries
+evicted by ``insert()``'s own count/byte-budget loop (``ServerState``'s
+per-caller soft-cap accounting needs to know which OTHER caller's entry a
+given ``insert()`` just evicted — this class has no other way to tell it),
+and ``remove()``, an explicit point-eviction the caller already knows
+about (deliberately NOT routed through ``on_evict`` — the caller doing the
+removing already updates its own bookkeeping at the call site, invoking
+the callback too would double-count).
 """
 
 from __future__ import annotations
 
 import threading
 from collections import OrderedDict
-from typing import Generic, TypeVar
+from typing import Callable, Generic, TypeVar
 
 # Not PEP 695 generics (`class BoundedLru[T]`) — this repo's floor is
 # Python 3.10 (`pyproject.toml`'s `requires-python = ">=3.10"`), that
@@ -51,9 +63,16 @@ class BoundedLru(Generic[_T]):
     well under their respective budgets (see ``state.py``/
     ``vlm_cache.py``)."""
 
-    def __init__(self, *, max_entries: int, max_bytes: int) -> None:
+    def __init__(
+        self,
+        *,
+        max_entries: int,
+        max_bytes: int,
+        on_evict: Callable[[str, _T, int], None] | None = None,
+    ) -> None:
         self._max_entries = max_entries
         self._max_bytes = max_bytes
+        self._on_evict = on_evict
         self._lock = threading.Lock()
         self._data: OrderedDict[str, tuple[_T, int]] = OrderedDict()
         self._total_bytes = 0
@@ -64,7 +83,20 @@ class BoundedLru(Generic[_T]):
         caller BEFORE calling this — see the module docstring; computing
         it here (e.g. from ``value``) would put arbitrary caller-defined
         serialization cost back under the lock, exactly what this class
-        exists to avoid."""
+        exists to avoid.
+
+        ``on_evict`` (if set) is called once per entry evicted by THIS
+        call's own count/byte-budget loop — AFTER ``self._lock`` has
+        already been released (never while held: a lock this class
+        doesn't own must never be acquired while this one is, and
+        ``ServerState``'s own callback does exactly that with its own
+        ``self._lock`` — see the inline comment below for the full
+        lock-ordering rationale). A replacement of ``key`` itself
+        (already present, same key re-inserted) is NOT reported via
+        ``on_evict`` — that's a value update, not an eviction, and the
+        caller performing the ``insert()`` already knows about it
+        directly."""
+        evicted: list[tuple[str, _T, int]] = []
         with self._lock:
             if key in self._data:
                 _, old_size = self._data.pop(key)
@@ -74,8 +106,37 @@ class BoundedLru(Generic[_T]):
             while len(self._data) > 1 and (
                 len(self._data) > self._max_entries or self._total_bytes > self._max_bytes
             ):
-                _, (_, evicted_size) = self._data.popitem(last=False)
+                evicted_key, (evicted_value, evicted_size) = self._data.popitem(last=False)
                 self._total_bytes -= evicted_size
+                if self._on_evict is not None:
+                    evicted.append((evicted_key, evicted_value, evicted_size))
+        # Callbacks fire AFTER releasing the lock (not each iteration inside
+        # the loop above): a lock this class doesn't own must never be
+        # acquired while this one is held, and ServerState's own callback
+        # (§4 of the phase-3 spec) does exactly that (its own `self._lock`).
+        # Reporting collected evictions post-unlock avoids any risk of a
+        # lock-ordering cycle, at the cost of a caller theoretically
+        # observing `on_evict` fire slightly after `insert()`'s own state
+        # change is externally visible — irrelevant here, every real
+        # `on_evict` caller is on the same single-threaded event loop.
+        if self._on_evict is not None:
+            for evicted_key, evicted_value, evicted_size in evicted:
+                self._on_evict(evicted_key, evicted_value, evicted_size)
+
+    def remove(self, key: str) -> _T | None:
+        """Explicit point-eviction of ``key`` — the value it held, or
+        ``None`` if ``key`` wasn't present. Deliberately does NOT invoke
+        ``on_evict`` (see the module/class docstrings): the caller
+        removing a specific key already knows it's doing so and updates
+        its own bookkeeping at the call site — ``ServerState``'s soft-cap
+        self-eviction (phase-3 spec §4) is the one real caller."""
+        with self._lock:
+            entry = self._data.pop(key, None)
+            if entry is None:
+                return None
+            value, size_bytes = entry
+            self._total_bytes -= size_bytes
+            return value
 
     def get(self, key: str) -> _T | None:
         """The value for ``key``, or ``None`` on a miss. A hit touches the

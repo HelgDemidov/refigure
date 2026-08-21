@@ -29,6 +29,7 @@ from typing import Any, Callable, Coroutine, Literal, TypeVar, cast
 
 import anyio
 from mcp.server import MCPServer
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError
 from mcp.types import (
@@ -42,6 +43,7 @@ from mcp.types import (
     TextContent,
     ToolAnnotations,
 )
+from pydantic import AnyHttpUrl
 
 from ..api import (
     Config,
@@ -54,6 +56,8 @@ from ..api import (
     VlmMarkerLimitExceededError,
 )
 from ..cli import _VLM_XLSX_WARNING
+from .auth import _StaticTokenVerifier
+from .exceptions import RateLimitExceededError
 
 # NOT `from ..vlm.cache import FileCacheBackend` at module level: refigure.vlm's
 # own __init__.py guard requires [vlm] (pdfplumber), and importing ANY submodule
@@ -73,15 +77,30 @@ _T = TypeVar("_T")
 
 _HEARTBEAT_INTERVAL_S = 15
 
-# The 4 refigure exception types a conversion can legitimately raise —
-# reported to the caller as isError=True with a stable, parseable
+# build_server()'s own canonical default for max_input_b64_mb — a module
+# constant, not just an inline literal in the signature below, because
+# cli.py (phase-3 spec §7) needs the EFFECTIVE value (flag-provided or
+# this default) to size --transport http's max_request_body_size, and
+# duplicating "100" as a second literal there would be exactly the
+# default-drift this module's own docstring already warns against for
+# Config/build_server's kwargs-dict discipline.
+DEFAULT_MAX_INPUT_B64_MB = 100
+
+# The refigure/refigure-mcp exception types a conversion can legitimately
+# raise — reported to the caller as isError=True with a stable, parseable
 # "ClassName: message" prefix, never a bare str(exc) — see
-# _call_and_wrap_errors below.
+# _call_and_wrap_errors below. RateLimitExceededError (phase 3) is the
+# first MCP-LOCAL member of this tuple — everything else comes from
+# refigure.api, this one from refigure.mcp.exceptions (see that module's
+# docstring for why it isn't in api.py) — the dispatch in
+# _call_and_wrap_errors doesn't care which package a type comes from, only
+# that it's listed here.
 _TYPED_EXCEPTIONS: tuple[type[Exception], ...] = (
     UnsupportedFormatError,
     CorruptArchiveError,
     MissingOptionalDependencyError,
     VlmMarkerLimitExceededError,
+    RateLimitExceededError,
 )
 
 
@@ -127,6 +146,17 @@ class _ServerContext:
     state: ServerState
     vlm_cache: VlmCacheBackend
     resource_inline_threshold_bytes: int
+    transport: Literal["stdio", "http"]
+    """Same value ``build_server(transport=...)`` was called with — a
+    second copy of what ``_register_convert_docx``/``_register_convert_xlsx``
+    already receive as their own function parameter (used there for
+    ``_call_and_wrap_errors``'s redaction level), both sourced from the
+    one ``transport`` argument to ``build_server()`` (no drift risk).
+    ``_run_convert_tool`` needs its own copy for admission checks
+    (phase-3 spec §5) that must run BEFORE ``_call_and_wrap_errors`` ever
+    sees the call — a bare parameter, not a second constructor argument,
+    since every other transport-dependent decision already flows through
+    this dataclass."""
 
 
 async def _convert_with_bridge(
@@ -238,6 +268,35 @@ async def _run_convert_tool(
     Union annotation there is impossible, not just undesirable."""
     if (path is None) == (content_base64 is None):
         raise ValueError("exactly one of path or content_base64 is required")
+    if server_ctx.transport == "http" and path is not None:
+        # Considered-and-rejected, not deferred (phase-3 spec §5): a
+        # realpath+commonpath check against an allowed-root would preserve
+        # remote filesystem access but adds permanent surface (a new flag,
+        # symlink/traversal edge cases, dedicated tests) for convenience
+        # the self-hosted deployment model doesn't need — content_base64
+        # already covers remote input. Same principle as
+        # core.zipsafe.safe_read(): remove the vulnerability class outright
+        # rather than mitigate it.
+        raise ValueError(
+            "path is not accepted over HTTP — use content_base64, or run over "
+            "stdio for local filesystem access"
+        )
+
+    if server_ctx.transport == "http":
+        # Rate-limit is HTTP-always (architecture doc §6 п.3), including a
+        # deployment with only one configured token — unlike soft-cap, it
+        # needs no caller_id diversity to matter (it protects the
+        # operator's own resources/spend from a runaway or leaked token,
+        # not inter-caller fairness). Checked here, before any input is
+        # even decoded, so a rejected call never reaches the (expensive)
+        # bridge — admission, not a post-hoc check. stdio skips this
+        # block entirely, not just harmlessly always-True: resolve_caller_id()
+        # is never called for it either.
+        caller_id = resolve_caller_id()
+        if not server_ctx.state.check_and_consume_rate_limit(caller_id):
+            raise RateLimitExceededError(
+                f"caller_id {caller_id!r} exceeded its conversion rate limit"
+            )
 
     warnings: list[str] = []
     if fmt == "xlsx" and use_vlm:
@@ -651,7 +710,7 @@ def build_server(
     *,
     transport: Literal["stdio", "http"] = "stdio",
     max_concurrent: int = 4,
-    max_input_b64_mb: int = 100,
+    max_input_b64_mb: int = DEFAULT_MAX_INPUT_B64_MB,
     vlm_max_markers: int | None = 200,
     timeout_s: float = 3600,
     vlm_client: VlmClient | None = None,
@@ -661,6 +720,9 @@ def build_server(
     resource_max_bytes: int = 500 * 1024 * 1024,
     resource_ttl_s: float = 3600,
     vlm_cache_path: Path | None = None,
+    rate_limit_count: int = 30,
+    rate_limit_window_s: float = 60.0,
+    token_map: dict[str, str] | None = None,
 ) -> MCPServer:
     """Assemble the ``refigure-mcp`` server: register ``convert_docx``/
     ``convert_xlsx`` (each conditionally, see ``_register_convert_docx``/
@@ -682,6 +744,35 @@ def build_server(
     and guards it with ``acquire_vlm_cache_file_lock`` against a second
     instance sharing the same path, which loses writes.
 
+    ``rate_limit_count``/``rate_limit_window_s`` (phase-3 spec §4): fixed
+    per-``caller_id`` window, HTTP-always regardless of how many callers
+    are configured (architecture doc §6 п.3 — a single-token deployment
+    still gets this, unlike soft-cap below, which needs ≥2). Defaults (30
+    per 60s) are a reasoned choice for a single-operator self-hosted
+    deployment, not a chartered number — same status as
+    ``resource_inline_threshold_bytes``'s 256 KB default (phase 2).
+    ``_run_convert_tool`` only ever checks this when ``transport=="http"``
+    (stdio skips the check entirely, not just never hits the limit).
+
+    ``token_map`` (``{token: caller_id}``, from ``auth.load_token_file()``
+    — phase-3 spec §2/§6): ``None`` (default, stdio's only valid value —
+    ``cli.py`` fail-fasts before ever calling this with a non-``None``
+    map on stdio) builds a plain ``MCPServer("refigure")`` exactly as
+    phases 1-2 did. A real map builds
+    ``MCPServer("refigure", token_verifier=_StaticTokenVerifier(token_map),
+    auth=AuthSettings(issuer_url=..., resource_server_url=...))`` — both
+    URLs are fixed, meaningless placeholders (``http://localhost/``), not
+    a real authorization server: live-verified against ``mcp==2.0.0``
+    (this spec's own §0) that ``auth_server_provider=None`` (never set
+    here) means the SDK never mounts the OAuth grant-flow endpoints that
+    would make those URLs matter — they exist purely to satisfy
+    ``AuthSettings``' own required-field validation for a
+    resource-server-only (bearer-verification-only) setup. Soft-cap
+    (``ServerState.__init__``'s ``soft_cap_enabled``) is derived HERE from
+    the same map — ``len(set(token_map.values())) >= 2`` — the one and
+    only place that count is computed (architecture doc §4: active only
+    at ≥2 distinct configured ``caller_id``s).
+
     Can raise ``MissingOptionalDependencyError`` (``vlm_cache_path`` set
     without ``[vlm]`` installed — ``FileCacheBackend`` lives inside the
     ``refigure.vlm`` package, guarded the same as everything else in it)
@@ -700,11 +791,27 @@ def build_server(
     else:
         vlm_cache = BoundedLruVlmCache(max_entries=2000, max_bytes=100 * 1024 * 1024)
 
+    soft_cap_enabled = token_map is not None and len(set(token_map.values())) >= 2
     state = ServerState(
-        max_entries=resource_max_entries, max_bytes=resource_max_bytes, ttl_s=resource_ttl_s
+        max_entries=resource_max_entries,
+        max_bytes=resource_max_bytes,
+        ttl_s=resource_ttl_s,
+        rate_limit_count=rate_limit_count,
+        rate_limit_window_s=rate_limit_window_s,
+        soft_cap_enabled=soft_cap_enabled,
     )
 
-    mcp = MCPServer("refigure")
+    if token_map is not None:
+        mcp = MCPServer(
+            "refigure",
+            token_verifier=_StaticTokenVerifier(token_map),
+            auth=AuthSettings(
+                issuer_url=AnyHttpUrl("http://localhost/"),
+                resource_server_url=AnyHttpUrl("http://localhost/"),
+            ),
+        )
+    else:
+        mcp = MCPServer("refigure")
     server_ctx = _ServerContext(
         limiter=anyio.CapacityLimiter(max_concurrent),
         vlm_client=vlm_client,
@@ -715,6 +822,7 @@ def build_server(
         state=state,
         vlm_cache=vlm_cache,
         resource_inline_threshold_bytes=resource_inline_threshold_bytes,
+        transport=transport,
     )
     has_docx = _register_convert_docx(mcp, server_ctx, transport)
     has_xlsx = _register_convert_xlsx(mcp, server_ctx, transport)

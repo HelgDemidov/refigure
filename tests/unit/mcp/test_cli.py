@@ -13,15 +13,17 @@ from __future__ import annotations
 import pytest
 
 import refigure.mcp.cli as mcp_cli_module
-from refigure.cli import EXIT_INTERNAL_ERROR, EXIT_MISSING_DEPENDENCY
+from refigure.cli import EXIT_INTERNAL_ERROR, EXIT_MISSING_DEPENDENCY, EXIT_USAGE
 
 
 class _FakeServer:
     def __init__(self) -> None:
         self.ran_with: str | None = None
+        self.run_kwargs: dict[str, object] = {}
 
-    def run(self, transport: str) -> None:
+    def run(self, transport: str, **kwargs: object) -> None:
         self.ran_with = transport
+        self.run_kwargs = kwargs
 
 
 def _capture_build_server(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
@@ -87,6 +89,8 @@ def test_no_flags_uses_build_server_defaults(monkeypatch: pytest.MonkeyPatch) ->
         ("--mcp-resource-max-entries", "50", "resource_max_entries", 50),
         ("--mcp-resource-max-mb", "10", "resource_max_bytes", 10 * 1024 * 1024),
         ("--mcp-resource-ttl-s", "60", "resource_ttl_s", 60),
+        ("--mcp-rate-limit-count", "5", "rate_limit_count", 5),
+        ("--mcp-rate-limit-window-s", "30", "rate_limit_window_s", 30),
     ],
 )
 def test_numeric_flags_reach_build_server(
@@ -214,3 +218,177 @@ def test_vlm_provider_openai_without_vlm_direct_extra_is_missing_dependency() ->
     )
     assert result.returncode == EXIT_MISSING_DEPENDENCY
     assert "refigure[vlm-direct]" in result.stderr
+
+
+# --- phase 3: --transport http / auth flags ---------------------------------
+
+
+def test_transport_http_without_token_file_fails_fast(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        mcp_cli_module.main(["--transport", "http"])
+
+    assert exc_info.value.code == 2
+    assert "--mcp-auth-token-file" in capsys.readouterr().err
+
+
+def test_token_file_without_transport_http_fails_fast(
+    capsys: pytest.CaptureFixture[str], tmp_path
+) -> None:
+    token_file = tmp_path / "tokens.txt"
+    token_file.write_text("tok1 = alice\n")
+
+    with pytest.raises(SystemExit) as exc_info:
+        mcp_cli_module.main(["--mcp-auth-token-file", str(token_file)])
+
+    assert exc_info.value.code == 2
+    assert "--transport http" in capsys.readouterr().err
+
+
+def test_malformed_token_file_exits_usage_not_internal_error(
+    capsys: pytest.CaptureFixture[str], tmp_path
+) -> None:
+    token_file = tmp_path / "tokens.txt"
+    token_file.write_text("this line has no equals sign\n")
+
+    code = mcp_cli_module.main(["--transport", "http", "--mcp-auth-token-file", str(token_file)])
+
+    assert code == EXIT_USAGE
+    err = capsys.readouterr().err
+    assert "expected exactly one" in err
+    assert "internal error" not in err
+
+
+def test_missing_token_file_exits_usage_not_a_raw_traceback(
+    capsys: pytest.CaptureFixture[str], tmp_path
+) -> None:
+    """Regression: load_token_file()'s Path.read_text() raises
+    FileNotFoundError (an OSError, not a ValueError) for a nonexistent
+    path — the except clause around it must catch that too, not just
+    ValueError, or a plain --mcp-auth-token-file typo crashes with a raw
+    Python traceback and exit code 1 instead of this clean EXIT_USAGE
+    path (found by ultrareview on this PR)."""
+    missing_path = tmp_path / "does-not-exist.txt"
+
+    code = mcp_cli_module.main(["--transport", "http", "--mcp-auth-token-file", str(missing_path)])
+
+    assert code == EXIT_USAGE
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "Traceback" not in err
+    assert "internal error" not in err
+
+
+def test_valid_token_file_reaches_build_server_as_token_map(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured = _capture_build_server(monkeypatch)
+    token_file = tmp_path / "tokens.txt"
+    token_file.write_text("tok1 = alice\ntok2 = bob\n")
+
+    code = mcp_cli_module.main(["--transport", "http", "--mcp-auth-token-file", str(token_file)])
+
+    assert code == 0
+    assert captured["token_map"] == {"tok1": "alice", "tok2": "bob"}
+    assert captured["transport"] == "http"
+
+
+def test_transport_http_maps_to_the_sdk_streamable_http_literal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured = _capture_build_server(monkeypatch)
+    token_file = tmp_path / "tokens.txt"
+    token_file.write_text("tok1 = alice\n")
+
+    code = mcp_cli_module.main(["--transport", "http", "--mcp-auth-token-file", str(token_file)])
+
+    assert code == 0
+    server = captured["_server"]
+    assert isinstance(server, _FakeServer)
+    assert server.ran_with == "streamable-http"  # never the bare "http" this CLI accepts
+    assert server.run_kwargs["host"] == "127.0.0.1"
+    assert server.run_kwargs["port"] == 8000
+
+
+def test_transport_http_sizes_max_request_body_size_off_the_input_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    captured = _capture_build_server(monkeypatch)
+    token_file = tmp_path / "tokens.txt"
+    token_file.write_text("tok1 = alice\n")
+
+    code = mcp_cli_module.main(
+        [
+            "--transport",
+            "http",
+            "--mcp-auth-token-file",
+            str(token_file),
+            "--mcp-max-input-mb",
+            "10",
+        ]
+    )
+
+    assert code == 0
+    server = captured["_server"]
+    assert isinstance(server, _FakeServer)
+    assert server.run_kwargs["max_request_body_size"] == 10 * 1024 * 1024 + 4096
+
+
+def test_transport_http_default_input_cap_sizes_the_request_body_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Same as the test above but with --mcp-max-input-mb left UNSET —
+    the formula must fall back to DEFAULT_MAX_INPUT_B64_MB (100), not a
+    second, potentially drifted literal."""
+    from refigure.mcp.server import DEFAULT_MAX_INPUT_B64_MB
+
+    captured = _capture_build_server(monkeypatch)
+    token_file = tmp_path / "tokens.txt"
+    token_file.write_text("tok1 = alice\n")
+
+    code = mcp_cli_module.main(["--transport", "http", "--mcp-auth-token-file", str(token_file)])
+
+    assert code == 0
+    server = captured["_server"]
+    assert isinstance(server, _FakeServer)
+    assert (
+        server.run_kwargs["max_request_body_size"] == DEFAULT_MAX_INPUT_B64_MB * 1024 * 1024 + 4096
+    )
+
+
+def test_non_loopback_http_host_prints_a_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path
+) -> None:
+    _capture_build_server(monkeypatch)
+    token_file = tmp_path / "tokens.txt"
+    token_file.write_text("tok1 = alice\n")
+
+    code = mcp_cli_module.main(
+        [
+            "--transport",
+            "http",
+            "--mcp-auth-token-file",
+            str(token_file),
+            "--mcp-http-host",
+            "0.0.0.0",  # noqa: S104 - the value under test, never actually bound
+        ]
+    )
+
+    assert code == 0
+    err = capsys.readouterr().err
+    assert "non-loopback" in err
+    assert "0.0.0.0" in err
+
+
+def test_loopback_http_host_prints_no_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path
+) -> None:
+    _capture_build_server(monkeypatch)
+    token_file = tmp_path / "tokens.txt"
+    token_file.write_text("tok1 = alice\n")
+
+    code = mcp_cli_module.main(["--transport", "http", "--mcp-auth-token-file", str(token_file)])
+
+    assert code == 0
+    assert capsys.readouterr().err == ""
