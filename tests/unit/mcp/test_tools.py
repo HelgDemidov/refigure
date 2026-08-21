@@ -379,3 +379,60 @@ async def test_vlm_cache_path_wires_a_real_file_cache_backend(tmp_path) -> None:
     vlm_cache = captured["config"].vlm_cache  # type: ignore[attr-defined]
     assert isinstance(vlm_cache, FileCacheBackend)
     assert vlm_cache.path == cache_path
+
+
+# --- phase 3: admission (path policy + rate-limit) --------------------------
+
+
+async def test_path_is_rejected_when_transport_is_http(tmp_path) -> None:
+    mcp_server = build_server(transport="http")
+    async with Client(mcp_server, raise_exceptions=True) as c:
+        doc_path = tmp_path / "doc.docx"
+        doc_path.write_bytes(build_minimal_docx(["hello"]))
+
+        result = await c.call_tool("convert_docx", {"path": str(doc_path)})
+
+    assert result.is_error is True
+    assert "path is not accepted over HTTP" in _text(result)
+
+
+async def test_path_still_works_over_stdio_transport(client: Client, tmp_path) -> None:
+    # The default `client` fixture builds a stdio-transport server — makes
+    # the transport=="http" rejection above an explicit contrast, not an
+    # implicit assumption.
+    doc_path = tmp_path / "doc.docx"
+    doc_path.write_bytes(build_minimal_docx(["hello"]))
+
+    result = await client.call_tool("convert_docx", {"path": str(doc_path)})
+
+    assert result.is_error is False
+
+
+async def test_rate_limit_exceeded_over_http_reports_the_typed_exception() -> None:
+    mcp_server = build_server(transport="http", rate_limit_count=1)
+    async with Client(mcp_server, raise_exceptions=True) as c:
+        b64 = base64.b64encode(build_minimal_docx(["one"])).decode("ascii")
+
+        r1 = await c.call_tool("convert_docx", {"content_base64": b64})
+        r2 = await c.call_tool("convert_docx", {"content_base64": b64})
+
+    assert r1.is_error is False
+    assert r2.is_error is True
+    text = _text(r2)
+    assert text.startswith("Error executing tool convert_docx: RateLimitExceededError:")
+    # transport=="http" redacts to the generic phrase, same as every other
+    # _TYPED_EXCEPTIONS member (architecture doc §8) — never the raw
+    # caller_id-carrying message that transport=="stdio" would show.
+    assert "conversion failed" in text
+
+
+async def test_rate_limit_is_never_applied_over_stdio_even_if_configured() -> None:
+    mcp_server = build_server(rate_limit_count=1)  # transport defaults to "stdio"
+    async with Client(mcp_server, raise_exceptions=True) as c:
+        b64 = base64.b64encode(build_minimal_docx(["one"])).decode("ascii")
+
+        r1 = await c.call_tool("convert_docx", {"content_base64": b64})
+        r2 = await c.call_tool("convert_docx", {"content_base64": b64})
+
+    assert r1.is_error is False
+    assert r2.is_error is False
