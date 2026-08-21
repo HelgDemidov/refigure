@@ -30,6 +30,7 @@ from typing import Any, Callable, Coroutine, Literal, TypeVar, cast
 import anyio
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError
 from mcp.types import CallToolResult, ResourceLink, TextContent, ToolAnnotations
 
 from ..api import (
@@ -473,6 +474,51 @@ def _register_convert_xlsx(
         )
 
 
+def _register_conversion_resource(mcp: MCPServer, server_ctx: _ServerContext) -> None:
+    """``refigure://conversion/{id}`` — the resource behind the
+    ``resource_uri`` branch above. Registered unconditionally (unlike
+    ``convert_docx``/``convert_xlsx``): it has no format-specific
+    dependency, and a bare ``refigure[mcp]`` install still benefits from
+    being able to read back anything a caller inserted (there just won't
+    be a convert tool to have produced an entry in the first place).
+
+    ``async def``, not sync ``def``: keeps the O(1) LRU lookup directly
+    on the event loop, matching architecture doc §4's "mutations only
+    from the event loop" invariant, without an unneeded ``to_thread`` hop
+    for what's fast, pure, in-memory work.
+
+    A template resource (``{id}`` in the URI) is NEVER listed by
+    ``resources/list`` — confirmed live against ``mcp==2.0.0``: a
+    registered ``{id}``-template produces an empty ``resources/list``
+    regardless of how many entries ``ServerState`` holds. "Unlisted" per
+    architecture doc §4 falls out of this mechanism for free, not a
+    separate filter this function has to implement.
+
+    ``ResourceNotFoundError`` (not a bespoke exception): the SDK's own
+    resource-template handler collapses ANY other exception — a bare
+    ``ValueError``, a custom class — into a generic ``ResourceError``
+    with no real message reaching the client (confirmed live: a custom
+    exception's own text never made it past
+    ``mcp/server/mcpserver/resources/templates.py``'s
+    ``except Exception`` branch). ``ResourceNotFoundError`` is the one
+    type that branch passes through untouched, with the SEP-2164
+    ``-32602`` code and the real message intact — exactly what
+    architecture doc §4's "an explicit not-found error, not a generic
+    exception" asks for. No separate try/except for a genuinely
+    unexpected failure here: ``ServerState.get()`` is pure in-memory
+    work with no I/O, realistically incapable of raising anything else,
+    and the SDK already degrades a truly unexpected exception safely on
+    its own (the same collapsing behavior just described)."""
+
+    @mcp.resource("refigure://conversion/{id}")
+    async def read_conversion(id: str) -> str:
+        caller_id = resolve_caller_id()
+        markdown = server_ctx.state.get(id, caller_id)
+        if markdown is None:
+            raise ResourceNotFoundError(f"conversion result not found: {id}")
+        return markdown
+
+
 def build_server(
     *,
     transport: Literal["stdio", "http"] = "stdio",
@@ -544,4 +590,5 @@ def build_server(
     )
     _register_convert_docx(mcp, server_ctx, transport)
     _register_convert_xlsx(mcp, server_ctx, transport)
+    _register_conversion_resource(mcp, server_ctx)
     return mcp
