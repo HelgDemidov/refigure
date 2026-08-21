@@ -45,7 +45,7 @@ async def test_ingest_for_rag_docx_with_vlm() -> None:
     async with Client(mcp_server, raise_exceptions=True) as c:
         result = await c.get_prompt(
             "ingest_for_rag",
-            {"document_format": "docx", "needs_figure_interpretation": "true"},
+            {"document_format": "docx", "use_vlm": "true"},
         )
 
     text = _text_of(result)
@@ -53,12 +53,25 @@ async def test_ingest_for_rag_docx_with_vlm() -> None:
     assert "use_vlm=True" in text
 
 
+async def test_ingest_for_rag_docx_with_vlm_and_an_explicit_judge_mode() -> None:
+    """architecture doc §5's literal target: vlm_judge_mode surfaced as
+    its own argument, not just mentioned in passing."""
+    mcp_server = build_server()
+    async with Client(mcp_server, raise_exceptions=True) as c:
+        result = await c.get_prompt(
+            "ingest_for_rag",
+            {"document_format": "docx", "use_vlm": "true", "vlm_judge_mode": "solo"},
+        )
+
+    assert "vlm_judge_mode='solo'" in _text_of(result)
+
+
 async def test_ingest_for_rag_xlsx_never_mentions_use_vlm_true() -> None:
     mcp_server = build_server()
     async with Client(mcp_server, raise_exceptions=True) as c:
         result = await c.get_prompt(
             "ingest_for_rag",
-            {"document_format": "xlsx", "needs_figure_interpretation": "true"},
+            {"document_format": "xlsx", "use_vlm": "true"},
         )
 
     text = _text_of(result)
@@ -113,32 +126,49 @@ async def test_explain_conversion_warnings_empty_string() -> None:
     assert "No warnings to explain" in _text_of(result)
 
 
-async def test_completion_offers_true_and_false_when_docx_already_chosen() -> None:
+async def test_completion_offers_solo_and_panel_when_use_vlm_true() -> None:
+    """architecture doc §5's literal target: vlm_judge_mode completion,
+    dependent on use_vlm already being resolved to "true"."""
     mcp = MCPServer("x")
     _register_prompts(mcp, has_docx=True, has_xlsx=True)
     _register_completion(mcp)
     async with Client(mcp, raise_exceptions=True) as c:
         result = await c.complete(
             ref=PromptReference(name="ingest_for_rag"),
-            argument={"name": "needs_figure_interpretation", "value": ""},
-            context_arguments={"document_format": "docx"},
+            argument={"name": "vlm_judge_mode", "value": ""},
+            context_arguments={"use_vlm": "true"},
         )
 
-    assert result.completion.values == ["true", "false"]
+    assert result.completion.values == ["solo", "panel"]
 
 
-async def test_completion_offers_only_false_when_xlsx_already_chosen() -> None:
+async def test_completion_offers_nothing_when_use_vlm_false() -> None:
+    """solo/panel is meaningless when VLM isn't even wanted — offering it
+    anyway would be actively misleading, not just unhelpful."""
     mcp = MCPServer("x")
     _register_prompts(mcp, has_docx=True, has_xlsx=True)
     _register_completion(mcp)
     async with Client(mcp, raise_exceptions=True) as c:
         result = await c.complete(
             ref=PromptReference(name="ingest_for_rag"),
-            argument={"name": "needs_figure_interpretation", "value": ""},
-            context_arguments={"document_format": "xlsx"},
+            argument={"name": "vlm_judge_mode", "value": ""},
+            context_arguments={"use_vlm": "false"},
         )
 
-    assert result.completion.values == ["false"]
+    assert result.completion.values == []
+
+
+async def test_completion_offers_nothing_when_use_vlm_not_yet_resolved() -> None:
+    mcp = MCPServer("x")
+    _register_prompts(mcp, has_docx=True, has_xlsx=True)
+    _register_completion(mcp)
+    async with Client(mcp, raise_exceptions=True) as c:
+        result = await c.complete(
+            ref=PromptReference(name="ingest_for_rag"),
+            argument={"name": "vlm_judge_mode", "value": ""},
+        )
+
+    assert result.completion.values == []
 
 
 async def test_completion_on_an_irrelevant_argument_offers_nothing() -> None:

@@ -553,9 +553,14 @@ def _register_prompts(mcp: MCPServer, *, has_docx: bool, has_xlsx: bool) -> None
     any implicit coercion."""
 
     @mcp.prompt()
-    def ingest_for_rag(document_format: str, needs_figure_interpretation: str = "false") -> str:
+    def ingest_for_rag(
+        document_format: str, use_vlm: str = "false", vlm_judge_mode: str = ""
+    ) -> str:
         """Which convert_* tool and VLM settings fit a RAG-ingestion goal,
-        given a document format and whether its figures matter."""
+        given a document format and whether its figures should be
+        VLM-interpreted. use_vlm/vlm_judge_mode mirror convert_docx's own
+        tool arguments by name (architecture doc §5) — vlm_judge_mode is
+        completable, dependent on use_vlm (see _register_completion)."""
         fmt = document_format.strip().lower()
         if fmt not in ("docx", "xlsx"):
             return f"Unrecognized document_format {document_format!r} — expected 'docx' or 'xlsx'."
@@ -568,18 +573,21 @@ def _register_prompts(mcp: MCPServer, *, has_docx: bool, has_xlsx: bool) -> None
                 "Use convert_xlsx(path=...) — native chart data becomes mermaid diagrams "
                 "automatically. use_vlm has no effect on xlsx (no VLM path exists for it)."
             )
-        wants_vlm = needs_figure_interpretation.strip().lower() == "true"
-        if wants_vlm:
+        wants_vlm = use_vlm.strip().lower() == "true"
+        if not wants_vlm:
             return (
-                "Use convert_docx(path=..., use_vlm=True, vlm_verify=True) — native chart "
-                "data becomes mermaid diagrams automatically, and composite figures/groups "
-                "additionally get a cloud VLM interpretation, judged for defects before "
-                "you rely on it."
+                "Use convert_docx(path=...) — native chart data becomes mermaid diagrams "
+                "automatically; composite figures stay as zero-loss 'not analyzed' markers "
+                "unless you also pass use_vlm=True."
             )
+        judge_mode = vlm_judge_mode.strip().lower()
+        judge_clause = f", vlm_judge_mode={judge_mode!r}" if judge_mode in ("solo", "panel") else ""
         return (
-            "Use convert_docx(path=...) — native chart data becomes mermaid diagrams "
-            "automatically; composite figures stay as zero-loss 'not analyzed' markers "
-            "unless you also pass use_vlm=True."
+            f"Use convert_docx(path=..., use_vlm=True, vlm_verify=True{judge_clause}) — "
+            "native chart data becomes mermaid diagrams automatically, and composite "
+            "figures/groups additionally get a cloud VLM interpretation, judged for "
+            "defects before you rely on it (panel mode is the higher-recall default "
+            "if vlm_judge_mode is left unset)."
         )
 
     @mcp.prompt()
@@ -606,13 +614,17 @@ def _register_completion(mcp: MCPServer) -> None:
     internally on which prompt/resource-template and which argument is
     being completed.
 
-    Only handles ``ingest_for_rag``'s ``needs_figure_interpretation``
-    argument, dependent on ``document_format`` already being resolved
-    (``"true"`` only offered for ``docx`` — xlsx has no VLM path, offering
-    it there would be actively misleading). Every other ``ref``/
-    ``argument`` combination returns ``None`` — confirmed against the
-    SDK's own docstring: the client falls back to offering no
-    completions, not an error."""
+    Only handles ``ingest_for_rag``'s ``vlm_judge_mode`` argument,
+    dependent on ``use_vlm`` already being resolved — architecture doc
+    §5's literal target (not the ``document_format``/
+    ``needs_figure_interpretation`` pair an earlier draft of this phase
+    used instead, a real deviation from the charter caught on review:
+    ``vlm_judge_mode`` is meaningless when ``use_vlm`` isn't even
+    ``"true"``, so completion offers nothing in that case rather than a
+    misleading solo/panel choice). Every other ``ref``/``argument``
+    combination returns ``None`` — confirmed against the SDK's own
+    docstring: the client falls back to offering no completions, not an
+    error."""
 
     # MCPServer.completion() itself carries no type annotations at all in
     # mcp==2.0.0 (unlike .tool()/.resource()/.prompt()) — a genuine SDK stub
@@ -626,13 +638,13 @@ def _register_completion(mcp: MCPServer) -> None:
         if (
             not isinstance(ref, PromptReference)
             or ref.name != "ingest_for_rag"
-            or argument.name != "needs_figure_interpretation"
+            or argument.name != "vlm_judge_mode"
         ):
             return None
         prior = (context.arguments if context is not None else None) or {}
-        if prior.get("document_format", "").strip().lower() == "docx":
-            return Completion(values=["true", "false"])
-        return Completion(values=["false"])
+        if prior.get("use_vlm", "").strip().lower() == "true":
+            return Completion(values=["solo", "panel"])
+        return Completion(values=[])
 
 
 def build_server(
