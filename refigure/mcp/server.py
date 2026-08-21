@@ -77,6 +77,15 @@ _T = TypeVar("_T")
 
 _HEARTBEAT_INTERVAL_S = 15
 
+# build_server()'s own canonical default for max_input_b64_mb — a module
+# constant, not just an inline literal in the signature below, because
+# cli.py (phase-3 spec §7) needs the EFFECTIVE value (flag-provided or
+# this default) to size --transport http's max_request_body_size, and
+# duplicating "100" as a second literal there would be exactly the
+# default-drift this module's own docstring already warns against for
+# Config/build_server's kwargs-dict discipline.
+DEFAULT_MAX_INPUT_B64_MB = 100
+
 # The refigure/refigure-mcp exception types a conversion can legitimately
 # raise — reported to the caller as isError=True with a stable, parseable
 # "ClassName: message" prefix, never a bare str(exc) — see
@@ -701,7 +710,7 @@ def build_server(
     *,
     transport: Literal["stdio", "http"] = "stdio",
     max_concurrent: int = 4,
-    max_input_b64_mb: int = 100,
+    max_input_b64_mb: int = DEFAULT_MAX_INPUT_B64_MB,
     vlm_max_markers: int | None = 200,
     timeout_s: float = 3600,
     vlm_client: VlmClient | None = None,
