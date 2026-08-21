@@ -74,7 +74,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import docx_groups
-from ..api import Config, VlmCacheBackend, VlmClient
+from ..api import Config, VlmCacheBackend, VlmClient, VlmMarkerLimitExceededError
 from ..core import chart_render, zipsafe
 from .cache import InMemoryCacheBackend
 from .client import OpenRouterClient
@@ -1133,6 +1133,38 @@ def enhance_docx_markdown(
             resolved_client = OpenRouterClient(api_key=_resolve_api_key(config))
         return resolved_client
 
+    # Pre-flight for Config.vlm_max_markers (api.py's docstring has the full
+    # rationale): one memoized cache probe per marker, BEFORE any paid call.
+    # `_get_entry` below reuses this dict's result instead of a second probe
+    # against the same key when pre-flight ran; when it's off (the common
+    # case, vlm_max_markers=None), the dict stays empty and every lookup
+    # falls through to a normal _cache_get_safely call, unchanged behavior.
+    prefetched_entries: dict[str, dict[str, object] | None] = {}
+    if config.vlm_max_markers is not None:
+        paid_count = 0
+        for m in image_matches:
+            marker_id = m.group("id")
+            entry = _cache_get_safely(cache, marker_id, context=f"{raw_name}: {marker_id}")
+            prefetched_entries[marker_id] = entry
+            if entry is None or (config.vlm_verify and entry.get("judge_verdict") is None):
+                paid_count += 1
+        for m in group_matches:
+            gid = m.group("id")
+            entry = _cache_get_safely(cache, gid, context=f"{raw_name}: {gid}")
+            prefetched_entries[gid] = entry
+            if entry is None or (config.vlm_verify and entry.get("judge_verdict") is None):
+                paid_count += 1
+        if paid_count > config.vlm_max_markers:
+            raise VlmMarkerLimitExceededError(
+                f"{raw_name}: {paid_count} marker(s) require a paid VLM call, "
+                f"exceeding Config.vlm_max_markers={config.vlm_max_markers}"
+            )
+
+    def _get_entry(key: str, context: str) -> dict[str, object] | None:
+        if key in prefetched_entries:
+            return prefetched_entries[key]
+        return _cache_get_safely(cache, key, context=context)
+
     warnings: list[str] = []
     vlm_used = False
     replacements: list[tuple[int, int, str]] = []
@@ -1140,7 +1172,7 @@ def enhance_docx_markdown(
     for m in image_matches:
         marker_id = m.group("id")
         cache_context = f"{raw_name}: {marker_id}"
-        entry = _cache_get_safely(cache, marker_id, context=cache_context)
+        entry = _get_entry(marker_id, cache_context)
         if entry is None:
             data_uri = _docx_media_uri_safely(source, marker_id, raw_name=raw_name)
             if data_uri is None:
@@ -1189,7 +1221,7 @@ def enhance_docx_markdown(
                 gid = m.group("id")
                 witness = m.group("witness")
                 cache_context = f"{raw_name}: {gid}"
-                entry = _cache_get_safely(cache, gid, context=cache_context)
+                entry = _get_entry(gid, cache_context)
                 if entry is None:
                     data_uri = _render_docx_group_safely(
                         source,

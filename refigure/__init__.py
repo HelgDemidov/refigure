@@ -6,6 +6,7 @@ from .api import (
     CorruptArchiveError,
     MissingOptionalDependencyError,
     UnsupportedFormatError,
+    VlmMarkerLimitExceededError,
 )
 
 try:
@@ -24,4 +25,5 @@ __all__ = [
     "CorruptArchiveError",
     "MissingOptionalDependencyError",
     "UnsupportedFormatError",
+    "VlmMarkerLimitExceededError",
 ]
