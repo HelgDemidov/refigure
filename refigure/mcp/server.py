@@ -1,9 +1,13 @@
 """MCP server assembly: tool registration, the typed result schema, the
 error-wrapper, and the sync-core async bridge + heartbeat. See
 ``docs/mcp-server/mcp-server-architecture/mcp-server-architecture.md``
-§3/§6/§7/§7-bis for the full design this module implements, and
+§3/§4/§5/§6/§7/§7-bis for the full design this module implements, and
 ``docs/mcp-server/mcp-server-phase1-skeleton/
-mcp-server-phase1-skeleton-2026-08-21.md`` for the phase-1 scope.
+mcp-server-phase1-skeleton-2026-08-21.md`` (phase 1) /
+``docs/mcp-server/mcp-server-phase2-resources-prompts/
+mcp-server-phase2-resources-prompts-2026-08-21.md`` (phase 2 — resources,
+prompts, the shared VLM cache) for the phase scope this module actually
+implements.
 
 Format isolation extends here too, same discipline as ``refigure/cli.py``'s
 own module docstring: this module never imports ``refigure.docx``/
@@ -34,10 +38,23 @@ from ..api import (
     CorruptArchiveError,
     MissingOptionalDependencyError,
     UnsupportedFormatError,
+    VlmCacheBackend,
     VlmClient,
     VlmMarkerLimitExceededError,
 )
 from ..cli import _VLM_XLSX_WARNING
+
+# NOT `from ..vlm.cache import FileCacheBackend` at module level: refigure.vlm's
+# own __init__.py guard requires [vlm] (pdfplumber), and importing ANY submodule
+# of a guarded package always runs its __init__.py first — the exact
+# extras-isolation bug class this project has hit 3 times before (package
+# NESTING, PR #11's docx_groups.py incident). FileCacheBackend itself needs no
+# heavy dependency, but its container package does, so this module (which must
+# keep working with only [mcp] installed, no [docx]/[xlsx]/[vlm]) imports it
+# lazily, only inside build_server(), only when --mcp-vlm-cache is actually
+# passed.
+from .state import ServerState
+from .vlm_cache import BoundedLruVlmCache, acquire_vlm_cache_file_lock
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +97,15 @@ class ConvertOutput:
 
 @dataclass
 class _ServerContext:
-    """Per-process settings shared across every tool call — NOT the
-    chartered ``ServerState`` (architecture doc §4: LRU resource-store +
-    rate/soft-cap counters under one lock, phase 2). Phase 1 has none of
-    that; this is just a plain settings container."""
+    """Per-process settings shared across every tool call. ``state`` IS
+    the chartered ``ServerState`` (architecture doc §4: LRU resource-store
+    + eventually rate/soft-cap counters under one lock — phase 2 only
+    adds the LRU-store half, soft-cap/rate-limit stay phase 3, needing a
+    token file and caller_id diversity that don't exist yet). ``vlm_cache``
+    is the ONE ``VlmCacheBackend`` instance shared by every ``convert_docx``
+    call for the server's lifetime (architecture doc §7-bis) — deliberately
+    outside ``state``, since it's written from worker threads, not the
+    event loop (see ``state.py``'s own module docstring)."""
 
     limiter: anyio.CapacityLimiter
     vlm_client: VlmClient | None
@@ -91,6 +113,9 @@ class _ServerContext:
     vlm_max_markers: int | None
     max_input_b64_mb: int
     timeout_s: float
+    state: ServerState
+    vlm_cache: VlmCacheBackend
+    resource_inline_threshold_bytes: int
 
 
 async def _convert_with_bridge(
@@ -216,7 +241,7 @@ async def _run_convert_tool(
     else:  # pragma: no cover - unreachable, the XOR check above already excludes this
         raise ValueError("exactly one of path or content_base64 is required")
 
-    kwargs: dict[str, Any] = {}
+    kwargs: dict[str, Any] = {"vlm_cache": server_ctx.vlm_cache}
     if use_vlm:
         kwargs["use_vlm"] = True
     if vlm_verify:
@@ -390,6 +415,11 @@ def build_server(
     timeout_s: float = 3600,
     vlm_client: VlmClient | None = None,
     vlm_api_key: str | None = None,
+    resource_inline_threshold_bytes: int = 256 * 1024,
+    resource_max_entries: int = 200,
+    resource_max_bytes: int = 500 * 1024 * 1024,
+    resource_ttl_s: float = 3600,
+    vlm_cache_path: Path | None = None,
 ) -> MCPServer:
     """Assemble the ``refigure-mcp`` server: register ``convert_docx``/
     ``convert_xlsx`` (each conditionally, see ``_register_convert_docx``/
@@ -398,7 +428,41 @@ def build_server(
     its matching flags unset by default and only forwards a value when the
     operator actually passed one, the same optional-kwargs-dict discipline
     ``refigure.cli``'s own ``_build_config`` already uses for ``Config``,
-    to avoid the two layers' defaults silently drifting apart."""
+    to avoid the two layers' defaults silently drifting apart.
+
+    ``vlm_cache_path is None`` (default): the shared cache is a
+    ``BoundedLruVlmCache`` (2000 entries or 100 MB, whichever hits first —
+    ``vlm/__init__.py``'s own ``_MAX_VLM_RESPONSE_CHARS=50_000`` bounds a
+    single entry to roughly 50 KB, so 2000 entries stays well inside
+    100 MB even at that ceiling). Passing a path switches to
+    ``FileCacheBackend`` as-is (dev/small-corpus persistence, NOT a
+    memory-safe alternative — it keeps its whole cache in RAM and
+    rewrites the entire file on every ``set()``, see its own docstring)
+    and guards it with ``acquire_vlm_cache_file_lock`` against a second
+    instance sharing the same path, which loses writes.
+
+    Can raise ``MissingOptionalDependencyError`` (``vlm_cache_path`` set
+    without ``[vlm]`` installed — ``FileCacheBackend`` lives inside the
+    ``refigure.vlm`` package, guarded the same as everything else in it)
+    or ``ValueError`` (``vlm_cache_path`` already locked by another
+    instance) — callers constructing a real server from user-supplied
+    config (``cli.py``) must route this through the same
+    exception-to-exit-code boundary every other optional-dependency/
+    external-resource construction in this codebase already uses
+    (CLAUDE.md's "Do NOT" list)."""
+    vlm_cache: VlmCacheBackend
+    if vlm_cache_path is not None:
+        from ..vlm.cache import FileCacheBackend  # lazy — see this module's import block
+
+        acquire_vlm_cache_file_lock(vlm_cache_path)
+        vlm_cache = FileCacheBackend(vlm_cache_path)
+    else:
+        vlm_cache = BoundedLruVlmCache(max_entries=2000, max_bytes=100 * 1024 * 1024)
+
+    state = ServerState(
+        max_entries=resource_max_entries, max_bytes=resource_max_bytes, ttl_s=resource_ttl_s
+    )
+
     mcp = MCPServer("refigure")
     server_ctx = _ServerContext(
         limiter=anyio.CapacityLimiter(max_concurrent),
@@ -407,6 +471,9 @@ def build_server(
         vlm_max_markers=vlm_max_markers,
         max_input_b64_mb=max_input_b64_mb,
         timeout_s=timeout_s,
+        state=state,
+        vlm_cache=vlm_cache,
+        resource_inline_threshold_bytes=resource_inline_threshold_bytes,
     )
     _register_convert_docx(mcp, server_ctx, transport)
     _register_convert_xlsx(mcp, server_ctx, transport)
