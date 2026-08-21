@@ -72,6 +72,7 @@ def test_no_flags_uses_build_server_defaults(monkeypatch: pytest.MonkeyPatch) ->
     assert "resource_max_bytes" not in captured
     assert "resource_ttl_s" not in captured
     assert "vlm_cache_path" not in captured
+    assert "max_batch_size" not in captured
     assert captured["transport"] == "stdio"
     server = captured["_server"]
     assert isinstance(server, _FakeServer)
@@ -91,6 +92,7 @@ def test_no_flags_uses_build_server_defaults(monkeypatch: pytest.MonkeyPatch) ->
         ("--mcp-resource-ttl-s", "60", "resource_ttl_s", 60),
         ("--mcp-rate-limit-count", "5", "rate_limit_count", 5),
         ("--mcp-rate-limit-window-s", "30", "rate_limit_window_s", 30),
+        ("--mcp-max-batch-size", "10", "max_batch_size", 10),
     ],
 )
 def test_numeric_flags_reach_build_server(
@@ -278,6 +280,55 @@ def test_missing_token_file_exits_usage_not_a_raw_traceback(
     assert "error:" in err
     assert "Traceback" not in err
     assert "internal error" not in err
+
+
+def test_max_batch_size_over_rate_limit_count_is_a_clean_exit_not_a_crash(
+    capsys: pytest.CaptureFixture[str], tmp_path
+) -> None:
+    """build_server()'s own phase-4 validation (max_batch_size must not
+    exceed rate_limit_count when auth is configured) is a REAL ValueError
+    raised deep inside build_server(), not mocked away here — same class
+    of regression guard as test_vlm_provider_openai_missing_credentials_
+    is_a_clean_exit_not_a_crash above: it must route through
+    _exit_code_for, not escape as a raw traceback. --mcp-max-batch-size
+    defaults to 20, so a --mcp-rate-limit-count of 1 triggers it without
+    needing to set the batch size explicitly."""
+    token_file = tmp_path / "tokens.txt"
+    token_file.write_text("tok1 = alice\n")
+
+    code = mcp_cli_module.main(
+        [
+            "--transport",
+            "http",
+            "--mcp-auth-token-file",
+            str(token_file),
+            "--mcp-rate-limit-count",
+            "1",
+        ]
+    )
+
+    assert code == EXIT_INTERNAL_ERROR
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "max_batch_size" in err
+
+
+def test_max_batch_size_flag_avoids_the_rate_limit_mismatch(tmp_path) -> None:
+    """Complement of the test above: explicitly lowering --mcp-max-batch-size
+    to fit under a small --mcp-rate-limit-count builds a real server
+    successfully (no monkeypatched build_server — this exercises the real
+    one, same as the test above)."""
+    token_file = tmp_path / "tokens.txt"
+    token_file.write_text("tok1 = alice\n")
+
+    server = mcp_cli_module.build_server(
+        transport="http",
+        token_map={"tok1": "alice"},
+        rate_limit_count=1,
+        max_batch_size=1,
+    )
+
+    assert server is not None
 
 
 def test_valid_token_file_reaches_build_server_as_token_map(

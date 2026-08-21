@@ -180,6 +180,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Rate-limit window in seconds, --transport http only (default: 60).",
     )
     parser.add_argument(
+        "--mcp-max-batch-size",
+        metavar="N",
+        type=int,
+        help=(
+            "Max items per convert_batch call (default: 20). Over "
+            "--transport http, must not exceed --mcp-rate-limit-count — the "
+            "whole batch is admitted atomically against that same window, "
+            "and build_server() fails fast at startup if a full-size batch "
+            "could never be admitted."
+        ),
+    )
+    parser.add_argument(
         "--mcp-vlm-cache",
         metavar="PATH",
         help=(
@@ -315,6 +327,8 @@ def main(argv: list[str] | None = None) -> int:
             kwargs["rate_limit_count"] = args.mcp_rate_limit_count
         if args.mcp_rate_limit_window_s is not None:
             kwargs["rate_limit_window_s"] = args.mcp_rate_limit_window_s
+        if args.mcp_max_batch_size is not None:
+            kwargs["max_batch_size"] = args.mcp_max_batch_size
         if token_map is not None:
             kwargs["token_map"] = token_map
 
