@@ -146,7 +146,9 @@ async def _convert_with_bridge(
     # TaskGroup` as a guaranteed exit (reproduced in isolation against this
     # anyio version) — this satisfies it without a bare `assert` (ruff
     # S101 forbids that outside tests/).
-    raise AssertionError("unreachable — _convert_with_bridge's with-block always returns or raises")
+    raise AssertionError(  # pragma: no cover - provably unreachable, see the comment above
+        "unreachable — _convert_with_bridge's with-block always returns or raises"
+    )
 
 
 def _unwrap_task_group_exception(exc: BaseException) -> BaseException:
@@ -265,7 +267,7 @@ def _redact(text: str) -> str:
     begin with."""
     try:
         from ..vlm import _redact_secrets
-    except MissingOptionalDependencyError:
+    except MissingOptionalDependencyError:  # pragma: no cover - see extras-isolation mcp leg
         return text
     return _redact_secrets(text)
 
@@ -305,7 +307,7 @@ def _register_convert_docx(
 ) -> None:
     try:
         from .. import docx as docx_module
-    except MissingOptionalDependencyError:
+    except MissingOptionalDependencyError:  # pragma: no cover - see extras-isolation mcp leg
         return
 
     @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
@@ -345,7 +347,7 @@ def _register_convert_xlsx(
 ) -> None:
     try:
         from .. import xlsx as xlsx_module
-    except MissingOptionalDependencyError:
+    except MissingOptionalDependencyError:  # pragma: no cover - see extras-isolation mcp leg
         return
 
     @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))

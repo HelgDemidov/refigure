@@ -119,6 +119,33 @@ def test_judged_cache_hit_does_not_count_toward_the_ceiling() -> None:
     assert client.calls == 0
 
 
+def _group_markers_markdown(n: int) -> str:
+    return "\n".join(
+        f"> [Figure, docx group {_marker_id(i)} — composite content not analyzed]\n"
+        f"> captions: caption {i}"
+        for i in range(n)
+    )
+
+
+def test_group_marker_cache_miss_above_ceiling_raises_before_any_paid_call() -> None:
+    """Same pre-flight ceiling, but exercised through the group-marker loop
+    (composite-figure ``docx group`` markers) rather than the image-marker
+    loop every other test above uses — both loops feed the same paid_count/
+    _get_entry machinery, but only the image-marker one was covered until
+    this test. Never reaches soffice: the ceiling raises before any
+    rendering is attempted."""
+    client = _CountingClient()
+    config = Config(
+        use_vlm=True, vlm_max_markers=1, vlm_cache=InMemoryCacheBackend(), vlm_client=client
+    )
+    docx_bytes = build_minimal_docx(["irrelevant"])
+
+    with pytest.raises(VlmMarkerLimitExceededError, match=r"2 marker\(s\).*vlm_max_markers=1"):
+        enhance_docx_markdown(_group_markers_markdown(2), docx_bytes, config=config)
+
+    assert client.calls == 0
+
+
 def test_no_ceiling_by_default_is_unchanged_behavior() -> None:
     config = Config(use_vlm=True, vlm_cache=InMemoryCacheBackend(), vlm_client=_CountingClient())
     docx_bytes = build_minimal_docx(["irrelevant"])
