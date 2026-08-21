@@ -54,6 +54,7 @@ from ..api import (
     VlmMarkerLimitExceededError,
 )
 from ..cli import _VLM_XLSX_WARNING
+from .exceptions import RateLimitExceededError
 
 # NOT `from ..vlm.cache import FileCacheBackend` at module level: refigure.vlm's
 # own __init__.py guard requires [vlm] (pdfplumber), and importing ANY submodule
@@ -73,15 +74,21 @@ _T = TypeVar("_T")
 
 _HEARTBEAT_INTERVAL_S = 15
 
-# The 4 refigure exception types a conversion can legitimately raise —
-# reported to the caller as isError=True with a stable, parseable
+# The refigure/refigure-mcp exception types a conversion can legitimately
+# raise — reported to the caller as isError=True with a stable, parseable
 # "ClassName: message" prefix, never a bare str(exc) — see
-# _call_and_wrap_errors below.
+# _call_and_wrap_errors below. RateLimitExceededError (phase 3) is the
+# first MCP-LOCAL member of this tuple — everything else comes from
+# refigure.api, this one from refigure.mcp.exceptions (see that module's
+# docstring for why it isn't in api.py) — the dispatch in
+# _call_and_wrap_errors doesn't care which package a type comes from, only
+# that it's listed here.
 _TYPED_EXCEPTIONS: tuple[type[Exception], ...] = (
     UnsupportedFormatError,
     CorruptArchiveError,
     MissingOptionalDependencyError,
     VlmMarkerLimitExceededError,
+    RateLimitExceededError,
 )
 
 
