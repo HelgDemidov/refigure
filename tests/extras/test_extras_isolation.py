@@ -50,16 +50,19 @@ if _EXTRAS is None:
         allow_module_level=True,
     )
 
-_HAS_DOCX = _EXTRAS in ("docx", "both", "docx+vlm")
-_HAS_XLSX = _EXTRAS in ("xlsx", "both")
+_HAS_DOCX = _EXTRAS in ("docx", "both", "docx+vlm", "full")
+_HAS_XLSX = _EXTRAS in ("xlsx", "both", "full")
 # vlm-direct depends on [vlm] too (self-referential extra, see
 # pyproject.toml's vlm-direct comment) — pdfplumber is present there too.
-_HAS_VLM = _EXTRAS in ("vlm", "docx+vlm", "vlm-direct")
-_HAS_VLM_DIRECT = _EXTRAS == "vlm-direct"
+_HAS_VLM = _EXTRAS in ("vlm", "docx+vlm", "vlm-direct", "full")
+_HAS_VLM_DIRECT = _EXTRAS in ("vlm-direct", "full")
 # [mcp] has no self-referential coupling to [docx]/[xlsx]/[vlm] (unlike
-# vlm-direct) — a single "mcp" leg is enough, no combinatorial legs needed
-# (mcp-server-phase1-skeleton spec §9).
-_HAS_MCP = _EXTRAS == "mcp"
+# vlm-direct) — the plain "mcp" leg alone is enough for THAT isolation
+# claim. "full" (the [full] meta-extra, added for the uvx-distribution
+# work) is a different leg with a different job: it's the one place in
+# this matrix where [mcp] and [docx]/[xlsx] are BOTH present at once —
+# every other leg deliberately keeps them apart.
+_HAS_MCP = _EXTRAS in ("mcp", "full")
 
 
 def test_core_types_always_importable() -> None:
@@ -201,8 +204,10 @@ def test_mcp_redact_degrades_gracefully_without_vlm_extra() -> None:
     does not pull in. On this leg the import genuinely fails, so this is
     the one place this specific fallback branch is actually reachable
     (coverage.py can't see across the subprocess boundary the OTHER extras
-    legs run in — see server.py's own pragma pointing here)."""
-    if not _HAS_MCP:
+    legs run in — see server.py's own pragma pointing here). Deliberately
+    the plain "mcp" leg only, not `_HAS_MCP` generally — "full" also has
+    mcp=True but, unlike this leg, [vlm] genuinely present too."""
+    if _EXTRAS != "mcp":
         pytest.skip("only meaningful on the mcp leg, where [vlm] is genuinely absent")
 
     from refigure.mcp.server import _redact
@@ -219,13 +224,33 @@ def test_mcp_build_server_registers_zero_tools_without_docx_or_xlsx() -> None:
     refigure.docx/refigure.xlsx."""
     if not _HAS_MCP:
         pytest.skip("only meaningful on the mcp leg")
-    if _HAS_DOCX or _HAS_XLSX:  # pragma: no cover - not reachable on any current leg
-        pytest.skip("this leg unexpectedly also has [docx]/[xlsx] — not this test's case")
+    if _HAS_DOCX or _HAS_XLSX:
+        # Reached (and correctly skipped here) on the "full" leg, where
+        # [docx]/[xlsx] are both genuinely present — see
+        # test_mcp_build_server_registers_all_tools_with_full_extras below
+        # for that leg's own, positive equivalent of this assertion.
+        pytest.skip("this leg also has [docx]/[xlsx] — not this test's case")
 
     from refigure.mcp.server import build_server
 
     server = build_server()
     assert server._tool_manager.list_tools() == []
+
+
+def test_mcp_build_server_registers_all_tools_with_full_extras() -> None:
+    """Complement of the test above: "full" is the one leg in this matrix
+    where [mcp] and [docx]/[xlsx] are BOTH present at once — every other
+    leg deliberately keeps them apart, so no existing leg had ever
+    exercised convert_docx/convert_xlsx/convert_batch registering
+    together in one server."""
+    if _EXTRAS != "full":
+        pytest.skip("only meaningful on the full leg, where mcp+docx+xlsx are all present together")
+
+    from refigure.mcp.server import build_server
+
+    server = build_server()
+    names = {tool.name for tool in server._tool_manager.list_tools()}
+    assert names == {"convert_docx", "convert_xlsx", "convert_batch"}
 
 
 def test_vlm_client_direct_classes_match_extras() -> None:

@@ -7,6 +7,8 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
+<!-- mcp-name: io.github.HelgDemidov/refigure -->
+
 DOCX / XLSX → Markdown converters that treat embedded charts, composite
 diagrams and infographics as single semantic objects instead of silently
 dropping or fragmenting them: native OOXML chart-data extraction (no
@@ -66,6 +68,12 @@ from refigure.docx import convert
 result = convert("report.docx")
 print(result.markdown)
 print(f"{result.charts_found} charts, {result.groups_found} composite figures")
+```
+
+Or without a permanent install, via [uv](https://docs.astral.sh/uv/)/`uvx`:
+
+```bash
+uvx --from "refigure[docx,xlsx]" refigure report.docx
 ```
 
 Optional VLM interpretation, for a composite figure the chart engine can't
@@ -155,6 +163,22 @@ refigure-mcp                              # stdio — the MCP client launches it
   }
 }
 ```
+
+Or point the client at `uvx` instead, with no permanent install at all:
+
+```json
+{
+  "mcpServers": {
+    "refigure": {
+      "command": "uvx",
+      "args": ["--from", "refigure[mcp,docx,xlsx,vlm-direct]", "refigure-mcp"]
+    }
+  }
+}
+```
+
+`refigure[full]` is a shortcut for `refigure[mcp,docx,xlsx,vlm-direct]` —
+every tool, both formats, every VLM provider, one extras string.
 
 Three tools — `convert_docx`, `convert_xlsx`, and `convert_batch` (multiple
 files in one call: one bad file reports its own error without aborting the

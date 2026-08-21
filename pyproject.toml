@@ -64,6 +64,14 @@ vlm-direct = ["refigure[vlm]", "openai>=3.1.0,<4", "anthropic>=0.120,<1"]
 # registered — see docs/mcp-server/mcp-server-architecture/
 # mcp-server-architecture.md §2.
 mcp = ["mcp>=2.0,<3"]
+# Convenience meta-extra for one-shot `uvx --from 'refigure[full]' ...`
+# invocations — union of every capability extra, nothing of its own. Carries
+# no independent isolation contract: if any component subset breaks, the
+# per-extra CI legs above catch it first. Exists specifically because [mcp]
+# alone registers 0 tools (see comment above) and [vlm-direct] alone has no
+# format to convert — a useful refigure-mcp needs all four together, and
+# spelling that out by hand in every doc/README invocation got repetitive.
+full = ["refigure[mcp,docx,xlsx,vlm-direct]"]
 
 [project.scripts]
 refigure = "refigure.cli:main"

@@ -395,7 +395,13 @@ jobs:
         # enough, no docx+mcp/both+mcp combinations needed. Verifies
         # build_server() registers 0 tools without docx/xlsx present, and
         # refigure-mcp --help/--version work.
-        extras: [bare, docx, xlsx, both, vlm, docx+vlm, vlm-direct, mcp]
+        #
+        # full added for the uvx-distribution work (2026-08-21): the [full]
+        # meta-extra, and the one leg in this matrix where [mcp] and
+        # [docx]/[xlsx] are BOTH present at once — every other leg deliberately
+        # keeps them apart. Verifies build_server() registers all 3 tools
+        # together, not just the 0-tools case the plain `mcp` leg covers.
+        extras: [bare, docx, xlsx, both, vlm, docx+vlm, vlm-direct, mcp, full]
     steps:
       - uses: actions/checkout@v7
 
@@ -417,6 +423,7 @@ jobs:
             docx+vlm) uv pip install ".[docx,vlm]" ;;
             vlm-direct) uv pip install ".[vlm-direct]" ;;
             mcp) uv pip install ".[mcp]" ;;
+            full) uv pip install ".[full]" ;;
           esac
           uv pip install pytest
 

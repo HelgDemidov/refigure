@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.HelgDemidov/refigure",
+  "description": "DOCX/XLSX -> Markdown conversion with native OOXML chart-data extraction (no rasterize/OCR/VLM needed) + optional VLM interpretation for composite figures with no native chart data. Tools: convert_docx, convert_xlsx, convert_batch.",
+  "version": "0.3.0",
+  "repository": {
+    "url": "https://github.com/HelgDemidov/refigure",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "refigure",
+      "version": "0.3.0"
+    }
+  ]
+}
