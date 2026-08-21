@@ -87,6 +87,7 @@ class _ServerContext:
 
     limiter: anyio.CapacityLimiter
     vlm_client: VlmClient | None
+    vlm_api_key: str | None
     vlm_max_markers: int | None
     max_input_b64_mb: int
     timeout_s: float
@@ -226,6 +227,12 @@ async def _run_convert_tool(
         kwargs["vlm_max_markers"] = server_ctx.vlm_max_markers
     if server_ctx.vlm_client is not None:
         kwargs["vlm_client"] = server_ctx.vlm_client
+    elif server_ctx.vlm_api_key is not None:
+        # Only meaningful for the default OpenRouterClient path (vlm_client
+        # unset) — a custom vlm_client (openai/anthropic direct) already
+        # carries its own resolved credentials, see cli.py's
+        # _resolve_vlm_client.
+        kwargs["vlm_api_key"] = server_ctx.vlm_api_key
     config = Config(**kwargs)
 
     result = await _convert_with_bridge(
@@ -380,6 +387,7 @@ def build_server(
     vlm_max_markers: int | None = 200,
     timeout_s: float = 3600,
     vlm_client: VlmClient | None = None,
+    vlm_api_key: str | None = None,
 ) -> MCPServer:
     """Assemble the ``refigure-mcp`` server: register ``convert_docx``/
     ``convert_xlsx`` (each conditionally, see ``_register_convert_docx``/
@@ -393,6 +401,7 @@ def build_server(
     server_ctx = _ServerContext(
         limiter=anyio.CapacityLimiter(max_concurrent),
         vlm_client=vlm_client,
+        vlm_api_key=vlm_api_key,
         vlm_max_markers=vlm_max_markers,
         max_input_b64_mb=max_input_b64_mb,
         timeout_s=timeout_s,
