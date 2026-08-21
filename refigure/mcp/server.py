@@ -23,14 +23,14 @@ import base64
 import binascii
 import functools
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Literal, TypeVar
+from typing import Any, Callable, Coroutine, Literal, TypeVar, cast
 
 import anyio
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, ResourceLink, TextContent, ToolAnnotations
 
 from ..api import (
     Config,
@@ -53,7 +53,7 @@ from ..cli import _VLM_XLSX_WARNING
 # keep working with only [mcp] installed, no [docx]/[xlsx]/[vlm]) imports it
 # lazily, only inside build_server(), only when --mcp-vlm-cache is actually
 # passed.
-from .state import ServerState
+from .state import ServerState, resolve_caller_id
 from .vlm_cache import BoundedLruVlmCache, acquire_vlm_cache_file_lock
 
 logger = logging.getLogger(__name__)
@@ -211,12 +211,20 @@ async def _run_convert_tool(
     vlm_model: str | None,
     server_ctx: _ServerContext,
     mcp_ctx: Context,
-) -> ConvertOutput:
+) -> ConvertOutput | CallToolResult:
     """Shared body for both convert_* tools — a plain function, not a
     decorator wrapping convert_docx/convert_xlsx: each tool stays a thin,
     directly-signatured wrapper the SDK introspects for inputSchema
     without any risk of a decorator's ``functools.wraps`` not fully
-    preserving that introspection (architecture doc §5/§6)."""
+    preserving that introspection (architecture doc §5/§6).
+
+    Returns a real ``CallToolResult`` (not ``ConvertOutput``) when the
+    markdown is too large to inline (``resource_uri`` branch, architecture
+    doc §3/§4) — this function's OWN signature is honest about that; the
+    outer ``convert_docx``/``convert_xlsx`` (annotated ``-> ConvertOutput``
+    for the SDK's schema derivation) each ``cast()`` this at their single
+    ``return`` site, not here — see their docstrings for why a WIDENED
+    Union annotation there is impossible, not just undesirable."""
     if (path is None) == (content_base64 is None):
         raise ValueError("exactly one of path or content_base64 is required")
 
@@ -271,14 +279,54 @@ async def _run_convert_tool(
         timeout_s=server_ctx.timeout_s,
     )
 
-    return ConvertOutput(
-        markdown=result.markdown,
-        resource_uri=None,
+    markdown_bytes = len(result.markdown.encode("utf-8"))
+    if markdown_bytes <= server_ctx.resource_inline_threshold_bytes:
+        return ConvertOutput(
+            markdown=result.markdown,
+            resource_uri=None,
+            warnings=[*warnings, *result.warnings],
+            charts_found=result.charts_found,
+            charts_rendered=result.charts_rendered,
+            groups_found=result.groups_found,
+            vlm_used=result.vlm_used,
+        )
+
+    # Too large to inline: store the markdown in ServerState, return a
+    # ResourceLink instead — architecture doc §3/§4. caller_id resolved
+    # HERE, after the async bridge already returned (on the event loop,
+    # never inside the to_thread worker) — see state.py's own docstring
+    # for why this ordering is safe (get_access_token() is stable across
+    # an internal await within one request coroutine, confirmed live).
+    caller_id = resolve_caller_id()
+    conversion_id = server_ctx.state.insert(caller_id, result.markdown)
+    resource_uri = f"refigure://conversion/{conversion_id}"
+    output = ConvertOutput(
+        markdown=None,
+        resource_uri=resource_uri,
         warnings=[*warnings, *result.warnings],
         charts_found=result.charts_found,
         charts_rendered=result.charts_rendered,
         groups_found=result.groups_found,
         vlm_used=result.vlm_used,
+    )
+    return CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=(
+                    f"Markdown is {markdown_bytes} bytes, over the "
+                    f"{server_ctx.resource_inline_threshold_bytes} byte inline cap — "
+                    "see resource_uri."
+                ),
+            ),
+            ResourceLink(
+                name=f"conversion-{conversion_id}",
+                uri=resource_uri,
+                description="Full converted markdown",
+                mime_type="text/markdown",
+            ),
+        ],
+        structured_content=asdict(output),
     )
 
 
@@ -349,21 +397,34 @@ def _register_convert_docx(
         becomes mermaid diagrams, composite figures/groups become
         positioned zero-loss markers. Exactly one of path/content_base64
         is required. use_vlm additionally interprets composite figures
-        via a cloud VLM call (prose + mermaid), off by default."""
-        return await _call_and_wrap_errors(
-            _run_convert_tool(
-                docx_module.convert,
-                "docx",
-                path,
-                content_base64,
-                use_vlm,
-                vlm_verify,
-                vlm_judge_mode,
-                vlm_model,
-                server_ctx,
-                mcp_ctx,
+        via a cloud VLM call (prose + mermaid), off by default. A result
+        too large to inline returns resource_uri instead of markdown —
+        read it via the refigure://conversion/{id} resource."""
+        # cast: _run_convert_tool's real return type is ConvertOutput |
+        # CallToolResult (see its docstring) — the SDK's own ToolManager
+        # special-cases an actual CallToolResult regardless of a tool
+        # function's declared annotation (verified live), but REJECTS a
+        # widened `-> ConvertOutput | CallToolResult` signature outright
+        # at registration time ("CallToolResult cannot be used in Union
+        # or Optional types") — this stays `-> ConvertOutput` and the
+        # cast is the one place that honestly acknowledges the mismatch.
+        return cast(
+            ConvertOutput,
+            await _call_and_wrap_errors(
+                _run_convert_tool(
+                    docx_module.convert,
+                    "docx",
+                    path,
+                    content_base64,
+                    use_vlm,
+                    vlm_verify,
+                    vlm_judge_mode,
+                    vlm_model,
+                    server_ctx,
+                    mcp_ctx,
+                ),
+                transport=transport,
             ),
-            transport=transport,
         )
 
 
@@ -388,21 +449,27 @@ def _register_convert_xlsx(
         """Convert an XLSX file to Markdown — native chart data becomes
         mermaid diagrams. Exactly one of path/content_base64 is required.
         use_vlm has no effect on XLSX (no VLM path exists for it) — a
-        warning is returned instead of a silent no-op."""
-        return await _call_and_wrap_errors(
-            _run_convert_tool(
-                xlsx_module.convert,
-                "xlsx",
-                path,
-                content_base64,
-                use_vlm,
-                vlm_verify,
-                vlm_judge_mode,
-                vlm_model,
-                server_ctx,
-                mcp_ctx,
+        warning is returned instead of a silent no-op. A result too large
+        to inline returns resource_uri instead of markdown — read it via
+        the refigure://conversion/{id} resource."""
+        # cast: see convert_docx's identical comment above.
+        return cast(
+            ConvertOutput,
+            await _call_and_wrap_errors(
+                _run_convert_tool(
+                    xlsx_module.convert,
+                    "xlsx",
+                    path,
+                    content_base64,
+                    use_vlm,
+                    vlm_verify,
+                    vlm_judge_mode,
+                    vlm_model,
+                    server_ctx,
+                    mcp_ctx,
+                ),
+                transport=transport,
             ),
-            transport=transport,
         )
 
 
