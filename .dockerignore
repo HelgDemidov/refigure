@@ -1,0 +1,27 @@
+# Mirrors pyproject.toml's sdist exclude list, plus Docker/tooling-specific
+# entries — none of this is needed to build the wheel the Dockerfile
+# produces, and tests/integration/ alone is a 144MB fixture corpus that
+# would otherwise dominate the build context on every `docker build`.
+tests/integration/
+docs/
+.claude/
+.hypothesis/
+scripts/
+examples/
+
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+dist/
+build/
+*.egg-info/
+
+# Never let a local secret end up baked into an image layer.
+.env

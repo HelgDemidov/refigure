@@ -431,3 +431,65 @@ jobs:
         env:
           REFIGURE_EXTRAS_UNDER_TEST: ${{ matrix.extras }}
         run: python -m pytest tests/extras -v
+
+  # ---------------------------------------------------------------------------
+  # Docker distribution (2026-08-21): build-only, no push — catches a broken
+  # Dockerfile on every push/PR, before a release tag ever reaches it. The
+  # actual publish (GHCR, tag-triggered) is publish.yml's docker-publish job,
+  # gated on `needs: publish` there. No branch filters needed here either —
+  # this file's own `on:` block already has none (feedback_ci_branch_triggers).
+  # ---------------------------------------------------------------------------
+  docker-build:
+    name: Docker image (build + smoke test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build -t refigure:ci .
+
+      - name: Smoke test — both console scripts
+        run: |
+          docker run --rm refigure:ci refigure --version
+          docker run --rm refigure:ci refigure-mcp --version
+
+      - name: Smoke test — soffice binary is really there
+        # Direct confirmation the VLM composite-figure path's one true
+        # dependency is present, not an indirect inference from --version.
+        run: docker run --rm --entrypoint soffice refigure:ci --version
+
+      - name: Smoke test — real conversion via bind mount
+        run: |
+          mkdir -p /tmp/docker-smoke
+          python3 scripts/docker_smoke_fixture.py /tmp/docker-smoke/doc.docx \
+            "hello from the docker smoke test"
+          out="$(docker run --rm -v /tmp/docker-smoke:/data:ro refigure:ci refigure /data/doc.docx)"
+          echo "$out"
+          echo "$out" | grep -q "hello from the docker smoke test"
+
+      - name: Smoke test — HTTP transport reachable on a non-loopback bind
+        # Verifies the exact README-documented pattern: --mcp-http-host
+        # 0.0.0.0 is what makes -p published ports reachable at all (the
+        # default 127.0.0.1 bind is NOT reachable through Docker's own port
+        # publishing — NAT reaches the container's external interface, not
+        # its loopback). 401 confirms both "reachable" (not connection
+        # refused) and "auth enforced" (no bearer token sent).
+        run: |
+          printf 'sk-ci-smoke-token = ci\n' > /tmp/docker-smoke/tokens.txt
+          docker run -d --rm --name refigure-http-smoke -p 18000:8000 \
+            -v /tmp/docker-smoke/tokens.txt:/data/tokens.txt:ro \
+            refigure:ci refigure-mcp --transport http --mcp-http-host 0.0.0.0 \
+            --mcp-auth-token-file /data/tokens.txt
+
+          code=""
+          for _ in $(seq 1 10); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18000/mcp \
+              -X POST -H 'Content-Type: application/json' \
+              -H 'Accept: application/json, text/event-stream' -d '{}' || true)"
+            [ "$code" = "401" ] && break
+            sleep 1
+          done
+          docker logs refigure-http-smoke
+          docker stop refigure-http-smoke
+          echo "http_code=$code"
+          [ "$code" = "401" ]

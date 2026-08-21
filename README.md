@@ -111,6 +111,9 @@ refigure report.docx --vlm                    # needs the system soffice/LibreOf
 - **MCP server included** — `refigure-mcp` console command (`[mcp]` extra),
   stdio or Streamable HTTP, tools/resources/prompts, batch conversion with
   per-file isolation (see below).
+- **Docker image** — `ghcr.io/helgdemidov/refigure`, both console commands
+  on `PATH`, `soffice`/LibreOffice baked in — the VLM composite-figure
+  path works turnkey, no manual LibreOffice install (see below).
 
 ## CLI
 
@@ -202,6 +205,52 @@ leaked/runaway token) applies automatically over HTTP, together with a
 fairness soft-cap once 2+ callers are configured; `refigure-mcp --help`
 covers every tuning flag (concurrency, timeouts, resource-store limits,
 batch size, VLM ceiling).
+
+## Docker
+
+One image, both surfaces — `refigure` and `refigure-mcp` are already on
+`PATH`, no separate CLI/MCP builds to choose between. The one thing this
+format buys over `pip`/`uvx` that neither can: the system `soffice`/
+LibreOffice binary the VLM composite-figure path needs is baked in, not a
+manual install.
+
+```bash
+docker pull ghcr.io/helgdemidov/refigure:0.3.1
+```
+
+CLI, via a bind mount (the image's working directory is already `/data`):
+
+```bash
+docker run --rm -v "$PWD:/data:ro" ghcr.io/helgdemidov/refigure:0.3.1 \
+  refigure /data/report.docx
+```
+
+MCP, stdio — the client launches the container itself:
+
+```json
+{
+  "mcpServers": {
+    "refigure": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "ghcr.io/helgdemidov/refigure:0.3.1", "refigure-mcp"]
+    }
+  }
+}
+```
+
+MCP, Streamable HTTP — `--mcp-http-host 0.0.0.0` is required here, not
+optional: the default `127.0.0.1` bind is unreachable through `-p` port
+publishing (Docker's NAT reaches the container's external network
+interface, not its loopback), so the "obvious" invocation without this
+flag would silently never respond:
+
+```bash
+echo "sk-... = alice" > tokens.txt
+docker run --rm -p 8000:8000 -v "$PWD/tokens.txt:/data/tokens.txt:ro" \
+  ghcr.io/helgdemidov/refigure:0.3.1 \
+  refigure-mcp --transport http --mcp-http-host 0.0.0.0 \
+  --mcp-auth-token-file /data/tokens.txt
+```
 
 ## Real examples
 

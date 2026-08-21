@@ -64,6 +64,56 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
 
+  # Separate job, not a step tacked onto `publish` above — same isolation
+  # principle: `needs: publish` means this never runs for a failed/aborted
+  # PyPI publish, and it never needs `id-token: write`. GHCR auth is the
+  # ambient `GITHUB_TOKEN` with `packages: write` — no stored secret,
+  # same "nothing long-lived to leak" property `publish` gets from OIDC,
+  # via a different mechanism (GHCR has no PyPI-style trusted-publishing
+  # flow; this is the closest equivalent GitHub Actions offers it).
+  #
+  # GHCR, not Docker Hub (docs/distribution/docker-image spec §4) — path
+  # is lowercase (`helgdemidov`, not `HelgDemidov`): Docker registry
+  # naming requires it regardless of the actual GitHub login's case.
+  # Actions pinned by commit SHA, not tag — same discipline already
+  # applied to trivy-action/gh-action-pypi-publish (both have real
+  # supply-chain-compromise precedent in this project's own history);
+  # resolved+verified live 2026-08-21 via `git ls-remote --tags` + the
+  # GitHub API (same method the pypi-publish pin above used).
+  docker-publish:
+    name: Build and publish Docker image (GHCR)
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Strip the leading "v" from the tag (image tags are X.Y.Z, not vX.Y.Z)
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e  # v4.3.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (linux/amd64 only — v1 scope, see spec's "Вне скоупа")
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/helgdemidov/refigure:${{ steps.version.outputs.version }}
+            ghcr.io/helgdemidov/refigure:latest
+
   # Separate job, not a step tacked onto `publish` above — deliberately, so
   # this never needs to share that job's `id-token: write`. Runs only after
   # a REAL successful publish (`needs: publish`), so a failed/aborted
