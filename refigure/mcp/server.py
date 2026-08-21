@@ -126,6 +126,55 @@ class ConvertOutput:
 
 
 @dataclass
+class BatchItem:
+    """One element of a ``convert_batch`` call (phase-4 spec §1). Exactly
+    one of ``path``/``content_base64`` is required — validated up front
+    for the WHOLE batch, atomically, before any item runs (see
+    ``_run_convert_batch_tool``), the same "reject the whole call on a
+    structural shape problem" treatment ``_run_convert_tool``'s own XOR
+    check already gives a single-item call. ``path`` is rejected outright
+    over HTTP for the same reason it is on ``convert_docx``/
+    ``convert_xlsx`` (architecture doc §6.2)."""
+
+    format: Literal["docx", "xlsx"]
+    path: str | None = None
+    content_base64: str | None = None
+
+
+@dataclass
+class BatchItemOutput:
+    """One ``convert_batch`` result element — carries the FULL
+    ``ConvertOutput`` shape (not just markdown) on ``status="ok"``, or a
+    single ``error`` string (the identical ``"ClassName: message"``/
+    ``"internal_error: message"`` text ``_classify_exception`` produces
+    for the single-item tools) on ``status="error"``. Per-item isolation
+    (phase-4 spec §3): one bad element never prevents the others from
+    reporting a normal ``status="ok"`` result in the same call."""
+
+    status: Literal["ok", "error"]
+    markdown: str | None = None
+    resource_uri: str | None = None
+    warnings: list[str] = field(default_factory=list)
+    charts_found: int = 0
+    charts_rendered: int = 0
+    groups_found: int = 0
+    vlm_used: bool = False
+    error: str | None = None
+
+
+@dataclass
+class BatchOutput:
+    """``convert_batch``'s own result: every item's outcome plus
+    aggregate counts, mirroring ``refigure`` CLI's own batch-mode summary
+    line (``cli.py``'s ``_run_batch``: "N/M converted, K failed")."""
+
+    items: list[BatchItemOutput]
+    total: int
+    succeeded: int
+    failed: int
+
+
+@dataclass
 class _ServerContext:
     """Per-process settings shared across every tool call. ``state`` IS
     the chartered ``ServerState`` (architecture doc §4: LRU resource-store
@@ -146,6 +195,16 @@ class _ServerContext:
     state: ServerState
     vlm_cache: VlmCacheBackend
     resource_inline_threshold_bytes: int
+    max_batch_size: int
+    batch_convert_fns: dict[str, Callable[..., ConversionResult]]
+    """Populated by ``_register_convert_batch`` from its own guarded
+    per-format imports (phase-4 spec §4) — ``{"docx": docx.convert}``
+    and/or ``{"xlsx": xlsx.convert}``, whichever extras are actually
+    installed. ``_run_batch_item`` looks a ``BatchItem.format`` up here
+    rather than importing ``refigure.docx``/``refigure.xlsx`` itself —
+    same lazy-import discipline as ``_register_convert_docx``/
+    ``_register_convert_xlsx``, centralized once per server instead of
+    re-guarded per item."""
     transport: Literal["stdio", "http"]
     """Same value ``build_server(transport=...)`` was called with — a
     second copy of what ``_register_convert_docx``/``_register_convert_xlsx``
@@ -159,6 +218,38 @@ class _ServerContext:
     this dataclass."""
 
 
+async def _bridge_only(
+    convert_fn: Callable[..., ConversionResult],
+    source: Path | bytes,
+    config: Config,
+    *,
+    limiter: anyio.CapacityLimiter,
+    timeout_s: float,
+) -> ConversionResult:
+    """The raw sync-core -> async bridge: a hard per-call timeout
+    (``anyio.fail_after``) around ``anyio.to_thread.run_sync`` (bounded by
+    ``limiter``, ``abandon_on_cancel=True`` for the reason
+    ``_convert_with_bridge``'s own docstring below explains). NO task
+    group and NO heartbeat here, unlike ``_convert_with_bridge`` — exists
+    for phase 4's ``convert_batch`` (``docs/mcp-server/
+    mcp-server-phase4-batch-progress/mcp-server-phase4-batch-progress-
+    2026-08-21.md`` §2/§3): N of these run as independent tasks inside
+    ONE shared outer task group (``_run_batch_item``/``convert_batch``'s
+    own registration), each needing to raise its OWN plain exception
+    (``CorruptArchiveError``, ``TimeoutError``, ...) for per-item
+    classification — an ``ExceptionGroup`` wrapper only ever comes from a
+    task group's own ``async with`` block, which this function
+    deliberately has none of, so no unwrap is needed at its call sites.
+    ``_convert_with_bridge`` is this function plus a heartbeat task group,
+    for the single-item tools that still want one."""
+    with anyio.fail_after(timeout_s):
+        return await anyio.to_thread.run_sync(
+            functools.partial(convert_fn, source, config=config),
+            abandon_on_cancel=True,
+            limiter=limiter,
+        )
+
+
 async def _convert_with_bridge(
     convert_fn: Callable[..., ConversionResult],
     source: Path | bytes,
@@ -168,20 +259,31 @@ async def _convert_with_bridge(
     limiter: anyio.CapacityLimiter,
     timeout_s: float,
 ) -> ConversionResult:
-    """Sync-core -> async bridge: ``anyio.to_thread.run_sync`` bounded by
-    ``limiter`` (``--mcp-max-concurrent-conversions``), plus an
-    elapsed-time heartbeat (``ctx.report_progress``) in the SAME task
-    group as the bridge call — not a bare fire-and-forget, which would
-    race a heartbeat tick against the final response (architecture doc
-    §7). ``abandon_on_cancel=True`` is required explicitly: the SDK
-    default (``False``) makes a timeout a no-op — the calling coroutine
-    would not regain control until the sync thread finishes on its own,
-    confirmed experimentally against this exact ``mcp`` version during
-    architecture review. Even abandoned, the orphaned thread keeps
-    running in the background (also confirmed) — this hard timeout
-    protects caller responsiveness and pool availability, never spend;
-    spend is bounded only by ``Config.vlm_max_markers`` (see
-    ``_run_convert_tool``)."""
+    """Sync-core -> async bridge: ``_bridge_only`` (above) inside a task
+    group that also runs an elapsed-time heartbeat (``ctx.report_progress``)
+    — not a bare fire-and-forget, which would race a heartbeat tick
+    against the final response (architecture doc §7). ``abandon_on_cancel=
+    True`` is required explicitly: the SDK default (``False``) makes a
+    timeout a no-op — the calling coroutine would not regain control
+    until the sync thread finishes on its own, confirmed experimentally
+    against this exact ``mcp`` version during architecture review. Even
+    abandoned, the orphaned thread keeps running in the background (also
+    confirmed) — this hard timeout protects caller responsiveness and
+    pool availability, never spend; spend is bounded only by
+    ``Config.vlm_max_markers`` (see ``_run_convert_tool``).
+
+    A timeout or a conversion failure raised by ``_bridge_only`` propagates
+    as a plain exception out of this function's ``async with`` body (host
+    code raising inside a task group's block, not a child task) — anyio's
+    own ``__aexit__`` reacts exactly as it would to a child task's
+    failure: it cancels the sibling heartbeat task, THEN wraps the single
+    exception in an ``ExceptionGroup``, which ``_unwrap_task_group_exception``
+    below undoes. This is mechanically different from the pre-phase-4
+    version (where ``anyio.fail_after`` wrapped the whole task group
+    directly and cancelled it itself on timeout) but produces the
+    identical observable outcome — verified unchanged by this file's own
+    ``test_bridge.py`` timeout/heartbeat tests after this refactor, not
+    just reasoned about."""
 
     async def _heartbeat() -> None:
         elapsed = 0
@@ -191,20 +293,17 @@ async def _convert_with_bridge(
             await mcp_ctx.report_progress(elapsed, message="still converting")
 
     try:
-        with anyio.fail_after(timeout_s):
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(_heartbeat)
-                result = await anyio.to_thread.run_sync(
-                    functools.partial(convert_fn, source, config=config),
-                    abandon_on_cancel=True,
-                    limiter=limiter,
-                )
-                # Cancel the heartbeat BEFORE returning — the task group's
-                # own __aexit__ (triggered by this return unwinding through
-                # it) would otherwise wait forever for the heartbeat's
-                # `while True` to finish on its own, which it never does.
-                tg.cancel_scope.cancel()
-                return result
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_heartbeat)
+            result = await _bridge_only(
+                convert_fn, source, config, limiter=limiter, timeout_s=timeout_s
+            )
+            # Cancel the heartbeat BEFORE returning — the task group's
+            # own __aexit__ (triggered by this return unwinding through
+            # it) would otherwise wait forever for the heartbeat's
+            # `while True` to finish on its own, which it never does.
+            tg.cancel_scope.cancel()
+            return result
     except BaseException as exc:  # noqa: BLE001 - re-raises the unwrapped cause, see _unwrap_task_group_exception
         raise _unwrap_task_group_exception(exc) from exc
     # Unreachable: the block above always either returns or raises. mypy's
@@ -239,6 +338,74 @@ def _unwrap_task_group_exception(exc: BaseException) -> BaseException:
     if exceptions is not None and len(exceptions) == 1:
         return _unwrap_task_group_exception(exceptions[0])
     return exc
+
+
+def _decode_source(
+    path: str | None, content_base64: str | None, server_ctx: _ServerContext
+) -> Path | bytes:
+    """Turn a (caller-validated-exactly-one-of) ``path``/``content_base64``
+    pair into the core's own ``Path | bytes`` union. Assumes the caller
+    already confirmed exactly one of the two is set and that ``path``
+    isn't being used over HTTP — ``_run_convert_tool``'s own XOR check, or
+    ``_run_convert_batch_tool``'s upfront per-item shape validation
+    (phase-4 spec §4) — this function only handles the DATA-quality
+    failure that's still possible even for a well-formed item:
+    ``content_base64`` present but not actually valid base64, or over the
+    configured size cap. Raises ``ValueError`` for either — the
+    per-item-isolatable class of failure for ``convert_batch`` (phase-4
+    spec §3), unlike the two structural checks above it."""
+    if path is not None:
+        return Path(path)
+    if content_base64 is None:  # pragma: no cover - callers' own XOR check already excludes this
+        raise ValueError("exactly one of path or content_base64 is required")
+    max_chars = server_ctx.max_input_b64_mb * 1024 * 1024
+    if len(content_base64) > max_chars:
+        raise ValueError(
+            f"content_base64 is {len(content_base64)} chars, exceeding the "
+            f"{server_ctx.max_input_b64_mb} MB cap — checked before decoding"
+        )
+    try:
+        return base64.b64decode(content_base64, validate=True)
+    except binascii.Error as exc:
+        raise ValueError(f"content_base64 is not valid base64: {exc}") from exc
+
+
+def _build_config(
+    use_vlm: bool,
+    vlm_verify: bool,
+    vlm_judge_mode: Literal["solo", "panel"] | None,
+    vlm_model: str | None,
+    server_ctx: _ServerContext,
+) -> Config:
+    """Build a per-call ``Config`` from a tool call's VLM-parameter
+    arguments plus the server-wide fixed settings (provider/key/cache/
+    ceiling — architecture doc §3: "never per-call"). Shared by
+    ``_run_convert_tool`` (single-item tools) and ``_run_batch_item``
+    (phase 4) — ``convert_batch`` applies ONE policy per item within a
+    batch call (phase-4 spec §1: a single shared ``use_vlm``/
+    ``vlm_verify``/``vlm_judge_mode``/``vlm_model`` for the whole batch,
+    not a per-item schema), so this function is called once per item with
+    the same four arguments the whole ``convert_batch`` call received."""
+    kwargs: dict[str, Any] = {"vlm_cache": server_ctx.vlm_cache}
+    if use_vlm:
+        kwargs["use_vlm"] = True
+    if vlm_verify:
+        kwargs["vlm_verify"] = True
+    if vlm_judge_mode is not None:
+        kwargs["vlm_judge_mode"] = vlm_judge_mode
+    if vlm_model is not None:
+        kwargs["vlm_model"] = vlm_model
+    if server_ctx.vlm_max_markers is not None:
+        kwargs["vlm_max_markers"] = server_ctx.vlm_max_markers
+    if server_ctx.vlm_client is not None:
+        kwargs["vlm_client"] = server_ctx.vlm_client
+    elif server_ctx.vlm_api_key is not None:
+        # Only meaningful for the default OpenRouterClient path (vlm_client
+        # unset) — a custom vlm_client (openai/anthropic direct) already
+        # carries its own resolved credentials, see cli.py's
+        # _resolve_vlm_client.
+        kwargs["vlm_api_key"] = server_ctx.vlm_api_key
+    return Config(**kwargs)
 
 
 async def _run_convert_tool(
@@ -302,43 +469,8 @@ async def _run_convert_tool(
     if fmt == "xlsx" and use_vlm:
         warnings.append(_VLM_XLSX_WARNING)
 
-    source: Path | bytes
-    if path is not None:
-        source = Path(path)
-    elif content_base64 is not None:
-        max_chars = server_ctx.max_input_b64_mb * 1024 * 1024
-        if len(content_base64) > max_chars:
-            raise ValueError(
-                f"content_base64 is {len(content_base64)} chars, exceeding the "
-                f"{server_ctx.max_input_b64_mb} MB cap — checked before decoding"
-            )
-        try:
-            source = base64.b64decode(content_base64, validate=True)
-        except binascii.Error as exc:
-            raise ValueError(f"content_base64 is not valid base64: {exc}") from exc
-    else:  # pragma: no cover - unreachable, the XOR check above already excludes this
-        raise ValueError("exactly one of path or content_base64 is required")
-
-    kwargs: dict[str, Any] = {"vlm_cache": server_ctx.vlm_cache}
-    if use_vlm:
-        kwargs["use_vlm"] = True
-    if vlm_verify:
-        kwargs["vlm_verify"] = True
-    if vlm_judge_mode is not None:
-        kwargs["vlm_judge_mode"] = vlm_judge_mode
-    if vlm_model is not None:
-        kwargs["vlm_model"] = vlm_model
-    if server_ctx.vlm_max_markers is not None:
-        kwargs["vlm_max_markers"] = server_ctx.vlm_max_markers
-    if server_ctx.vlm_client is not None:
-        kwargs["vlm_client"] = server_ctx.vlm_client
-    elif server_ctx.vlm_api_key is not None:
-        # Only meaningful for the default OpenRouterClient path (vlm_client
-        # unset) — a custom vlm_client (openai/anthropic direct) already
-        # carries its own resolved credentials, see cli.py's
-        # _resolve_vlm_client.
-        kwargs["vlm_api_key"] = server_ctx.vlm_api_key
-    config = Config(**kwargs)
+    source = _decode_source(path, content_base64, server_ctx)
+    config = _build_config(use_vlm, vlm_verify, vlm_judge_mode, vlm_model, server_ctx)
 
     result = await _convert_with_bridge(
         convert_fn,
@@ -415,34 +547,61 @@ def _redact(text: str) -> str:
     return _redact_secrets(text)
 
 
+def _classify_exception(exc: Exception, *, transport: Literal["stdio", "http"]) -> str:
+    """The one place an exception becomes a stable, transport-redacted
+    string — shared by ``_call_and_wrap_errors`` (below, which wraps it in
+    ``RuntimeError`` for a single-item tool call) and phase 4's
+    ``_run_batch_item`` (which stores it directly as
+    ``BatchItemOutput.error``, never raising it at all — per-item
+    isolation, ``docs/mcp-server/mcp-server-phase4-batch-progress/
+    mcp-server-phase4-batch-progress-2026-08-21.md`` §2/§3). A bare
+    ``ValueError`` (input-validation failures) is NOT routed through this
+    function by ``_call_and_wrap_errors`` — its own ``str(exc)`` is
+    already a clean, stable message needing no ``ClassName`` prefix, so
+    that caller still special-cases it before ever reaching here.
+    ``_run_batch_item`` DOES route a per-item ``ValueError`` here (e.g. a
+    malformed ``content_base64`` on just one batch element) — this
+    function's own ``isinstance(exc, ValueError)`` branch reproduces the
+    identical bare-message treatment for that caller, so both paths agree
+    on what a ``ValueError``'s text looks like even though only one of
+    them special-cases it at its own call site."""
+    if isinstance(exc, _TYPED_EXCEPTIONS):
+        message = _redact(str(exc)) if transport == "stdio" else "conversion failed"
+        return f"{type(exc).__name__}: {message}"
+    if isinstance(exc, ValueError):
+        return str(exc)
+    logger.error("refigure-mcp: unexpected error in a tool call", exc_info=True)
+    message = _redact(str(exc)) if transport == "stdio" else "internal error"
+    return f"internal_error: {message}"
+
+
 async def _call_and_wrap_errors(
     coro: Coroutine[Any, Any, _T], *, transport: Literal["stdio", "http"]
 ) -> _T:
-    """The one place every tool call's exceptions are classified and
-    formatted — not a decorator (see ``_run_convert_tool``'s docstring).
-    Refigure's typed exceptions become ``RuntimeError("ClassName:
-    message")`` so a calling agent can branch on the class name, mirroring
-    ``cli.py``'s ``_exit_code_for`` — ``MCPServer``'s own ``@mcp.tool()``
-    wrapper catches a plain exception raised here and reports it as
-    ``isError=True`` with the exception text as content (confirmed against
-    this ``mcp`` version's docs), so raising is sufficient, no manual
-    ``CallToolResult`` construction needed. ``transport`` is threaded
-    through already, unused on the only transport this phase has
-    (``"stdio"``) — phase 3 extends this, not rewrites it, per
+    """The one place every single-item tool call's exceptions are
+    classified and formatted — not a decorator (see
+    ``_run_convert_tool``'s docstring). Refigure's typed exceptions become
+    ``RuntimeError("ClassName: message")`` so a calling agent can branch
+    on the class name, mirroring ``cli.py``'s ``_exit_code_for`` —
+    ``MCPServer``'s own ``@mcp.tool()`` wrapper catches a plain exception
+    raised here and reports it as ``isError=True`` with the exception text
+    as content (confirmed against this ``mcp`` version's docs), so raising
+    is sufficient, no manual ``CallToolResult`` construction needed.
+    ``transport`` is threaded through already, unused on the only
+    transport phase 1 had (``"stdio"``) — phase 3 extended this for HTTP,
+    phase 4 extends it a third time for ``convert_batch`` (via
+    ``_classify_exception``, shared below), never rewriting it, per
     architecture doc §8."""
     try:
         return await coro
-    except _TYPED_EXCEPTIONS as exc:
-        message = _redact(str(exc)) if transport == "stdio" else "conversion failed"
-        raise RuntimeError(f"{type(exc).__name__}: {message}") from exc
     except ValueError:
         # Input-validation failures from _run_convert_tool itself — already
-        # a clean, stable message, nothing further to classify.
+        # a clean, stable message (see _classify_exception's own
+        # docstring for why this case is excluded from it here), nothing
+        # further to classify.
         raise
-    except Exception as exc:  # noqa: BLE001 - unexpected exceptions are the real-bug signal below
-        logger.error("refigure-mcp: unexpected error in a tool call", exc_info=True)
-        message = _redact(str(exc)) if transport == "stdio" else "internal error"
-        raise RuntimeError(f"internal_error: {message}") from exc
+    except Exception as exc:  # noqa: BLE001 - unexpected exceptions are the real-bug signal, see _classify_exception
+        raise RuntimeError(_classify_exception(exc, transport=transport)) from exc
 
 
 def _register_convert_docx(
@@ -550,6 +709,242 @@ def _register_convert_xlsx(
         )
 
     return True
+
+
+async def _run_batch_item(
+    item: BatchItem,
+    use_vlm: bool,
+    vlm_verify: bool,
+    vlm_judge_mode: Literal["solo", "panel"] | None,
+    vlm_model: str | None,
+    server_ctx: _ServerContext,
+) -> BatchItemOutput:
+    """One element of a ``convert_batch`` call — fully isolated: ANY
+    failure here becomes a ``status="error"`` ``BatchItemOutput``, never
+    an exception escaping to the caller (phase-4 spec §3). Assumes
+    ``_run_convert_batch_tool`` already validated the WHOLE batch's shape
+    upfront (every item has exactly one of ``path``/``content_base64``, no
+    item uses ``path`` over HTTP — phase-4 spec §4) — this function only
+    handles per-item DATA failures: an unavailable format extra, a
+    malformed/oversized ``content_base64``, or a conversion failure from
+    the core itself. Uses ``_bridge_only`` (no task group of its own), not
+    ``_convert_with_bridge`` — no per-item heartbeat; ``convert_batch``'s
+    own registration runs ONE batch-level heartbeat instead (phase-4 spec
+    §4), avoiding N per-item heartbeats racing each other on the same
+    progress stream."""
+    try:
+        convert_fn = server_ctx.batch_convert_fns.get(item.format)
+        if convert_fn is None:
+            raise MissingOptionalDependencyError(
+                f"format {item.format!r} requires refigure[{item.format}]"
+            )
+
+        warnings: list[str] = []
+        if item.format == "xlsx" and use_vlm:
+            warnings.append(_VLM_XLSX_WARNING)
+
+        source = _decode_source(item.path, item.content_base64, server_ctx)
+        config = _build_config(use_vlm, vlm_verify, vlm_judge_mode, vlm_model, server_ctx)
+        result = await _bridge_only(
+            convert_fn, source, config, limiter=server_ctx.limiter, timeout_s=server_ctx.timeout_s
+        )
+
+        markdown_bytes = len(result.markdown.encode("utf-8"))
+        if markdown_bytes <= server_ctx.resource_inline_threshold_bytes:
+            return BatchItemOutput(
+                status="ok",
+                markdown=result.markdown,
+                resource_uri=None,
+                warnings=[*warnings, *result.warnings],
+                charts_found=result.charts_found,
+                charts_rendered=result.charts_rendered,
+                groups_found=result.groups_found,
+                vlm_used=result.vlm_used,
+            )
+
+        # Too large to inline — same resource-store branch _run_convert_tool
+        # takes (architecture doc §3/§4); caller_id resolved HERE, after the
+        # bridge already returned (on the event loop, never inside the
+        # to_thread worker), same ordering _run_convert_tool already relies
+        # on being safe.
+        caller_id = resolve_caller_id()
+        conversion_id = server_ctx.state.insert(caller_id, result.markdown)
+        return BatchItemOutput(
+            status="ok",
+            markdown=None,
+            resource_uri=f"refigure://conversion/{conversion_id}",
+            warnings=[*warnings, *result.warnings],
+            charts_found=result.charts_found,
+            charts_rendered=result.charts_rendered,
+            groups_found=result.groups_found,
+            vlm_used=result.vlm_used,
+        )
+    except Exception as exc:  # noqa: BLE001 - per-item isolation, see _classify_exception
+        return BatchItemOutput(
+            status="error", error=_classify_exception(exc, transport=server_ctx.transport)
+        )
+
+
+async def _run_convert_batch_tool(
+    items: list[BatchItem],
+    use_vlm: bool,
+    vlm_verify: bool,
+    vlm_judge_mode: Literal["solo", "panel"] | None,
+    vlm_model: str | None,
+    server_ctx: _ServerContext,
+    mcp_ctx: Context,
+) -> BatchOutput:
+    """``convert_batch``'s body — admission (structural shape check, batch-
+    size ceiling, atomic rate-limit) THEN per-item concurrent execution
+    with isolation (phase-4 spec §4). Raises for anything that rejects the
+    WHOLE batch before any item runs — mirroring ``_run_convert_tool``'s
+    own XOR/path-over-HTTP/rate-limit checks, just applied across every
+    item at once instead of one; a returned ``BatchOutput`` with per-item
+    ``status="error"`` entries covers everything isolatable per item
+    instead (see ``_run_batch_item``)."""
+    if not items:
+        raise ValueError("items must be non-empty")
+    if len(items) > server_ctx.max_batch_size:
+        raise ValueError(
+            f"batch of {len(items)} items exceeds the configured max_batch_size "
+            f"of {server_ctx.max_batch_size}"
+        )
+    for item in items:
+        if (item.path is None) == (item.content_base64 is None):
+            raise ValueError("each item needs exactly one of path or content_base64")
+        if server_ctx.transport == "http" and item.path is not None:
+            # Same considered-and-rejected policy as _run_convert_tool's own
+            # path-over-HTTP check (architecture doc §6.2) — a structural
+            # request-shape problem, so it rejects the WHOLE batch before
+            # anything runs, not just this one item.
+            raise ValueError(
+                "path is not accepted over HTTP — use content_base64, or run over "
+                "stdio for local filesystem access"
+            )
+
+    if server_ctx.transport == "http":
+        # Atomic whole-batch admission against the SAME per-caller counter
+        # _run_convert_tool's own single-file admission uses (architecture
+        # doc §6 п.3: "admit or reject целиком, no-refund при отказе
+        # файла") — check_and_consume_rate_limit's n parameter has existed
+        # unused since phase 3, built for exactly this call.
+        caller_id = resolve_caller_id()
+        if not server_ctx.state.check_and_consume_rate_limit(caller_id, n=len(items)):
+            raise RateLimitExceededError(
+                f"caller_id {caller_id!r}: batch of {len(items)} exceeds its "
+                "remaining conversion rate limit for this window"
+            )
+
+    results: list[BatchItemOutput | None] = [None] * len(items)
+    done = 0
+
+    async def _report(*, message: str) -> None:
+        await mcp_ctx.report_progress(done, total=len(items), message=message)
+
+    async def _heartbeat() -> None:
+        elapsed = 0
+        while True:
+            await anyio.sleep(_HEARTBEAT_INTERVAL_S)
+            elapsed += _HEARTBEAT_INTERVAL_S
+            # Batch-level heartbeat — a deliberate addition beyond the
+            # architecture doc's literal "per-file progress" wording
+            # (phase-4 spec §4): without it, a batch where every item is
+            # simultaneously slow could stay fully silent for up to
+            # timeout_s (default 1h) before the first per-file tick,
+            # reintroducing the exact silence problem the single-item
+            # heartbeat (§7) exists to avoid. Reuses the SAME (progress,
+            # total) pair as the completion tick below — only `message`
+            # differs — so the two triggers never disagree about what
+            # "done" means on one progress stream.
+            await _report(message=f"{done}/{len(items)} converted, {elapsed}s elapsed")
+
+    async def _worker(i: int, item: BatchItem) -> None:
+        nonlocal done
+        results[i] = await _run_batch_item(
+            item, use_vlm, vlm_verify, vlm_judge_mode, vlm_model, server_ctx
+        )
+        done += 1
+        await _report(message=f"{done}/{len(items)} converted")
+
+    try:
+        async with anyio.create_task_group() as outer_tg:
+            outer_tg.start_soon(_heartbeat)
+            # Inner group's __aexit__ blocks until every _worker finishes —
+            # the "await/gather, not unsupervised create_task" point
+            # architecture doc §7 asks for: each outcome always lands in
+            # `results`, the batch is never abandoned mid-flight. Only once
+            # ALL items are done does the outer heartbeat get cancelled —
+            # same tg.cancel_scope.cancel()-after-the-awaited-work-completes
+            # pattern _convert_with_bridge already uses for a single call.
+            async with anyio.create_task_group() as inner_tg:
+                for i, item in enumerate(items):
+                    inner_tg.start_soon(_worker, i, item)
+            outer_tg.cancel_scope.cancel()
+    except BaseException as exc:  # noqa: BLE001 - re-raises the unwrapped cause, see _unwrap_task_group_exception
+        raise _unwrap_task_group_exception(exc) from exc
+
+    final_results = cast(list[BatchItemOutput], results)
+    succeeded = sum(1 for r in final_results if r.status == "ok")
+    return BatchOutput(
+        items=final_results,
+        total=len(final_results),
+        succeeded=succeeded,
+        failed=len(final_results) - succeeded,
+    )
+
+
+def _register_convert_batch(
+    mcp: MCPServer,
+    server_ctx: _ServerContext,
+    transport: Literal["stdio", "http"],
+    *,
+    has_docx: bool,
+    has_xlsx: bool,
+) -> None:
+    """Registers convert_batch, only if at least one format is actually
+    available — same "don't publish a tool that can never succeed"
+    philosophy as ``_register_convert_docx``/``_register_convert_xlsx``
+    (phase-4 spec §4). Builds ``server_ctx.batch_convert_fns`` from its
+    OWN guarded imports (mirroring the exact pattern the other two
+    register functions already use) rather than threading the already-
+    imported modules through ``build_server()`` — the import is cheap
+    (Python caches it) and this keeps each register function's
+    format-guard local to itself, not centralized in ``build_server``."""
+    if not (has_docx or has_xlsx):
+        return
+    if has_docx:
+        from .. import docx as docx_module
+
+        server_ctx.batch_convert_fns["docx"] = docx_module.convert
+    if has_xlsx:
+        from .. import xlsx as xlsx_module
+
+        server_ctx.batch_convert_fns["xlsx"] = xlsx_module.convert
+
+    @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
+    async def convert_batch(
+        mcp_ctx: Context,
+        items: list[BatchItem],
+        use_vlm: bool = False,
+        vlm_verify: bool = False,
+        vlm_judge_mode: Literal["solo", "panel"] | None = None,
+        vlm_model: str | None = None,
+    ) -> BatchOutput:
+        """Convert multiple DOCX/XLSX files in one call. Each item needs
+        exactly one of path/content_base64 (path is rejected outright over
+        HTTP, same as convert_docx/convert_xlsx). use_vlm/vlm_verify/
+        vlm_judge_mode/vlm_model apply as ONE shared policy across every
+        item, not per item. One item failing never aborts the batch — its
+        entry reports status="error" with a stable "ClassName: message"
+        while every other item still reports its own real outcome; check
+        the aggregate succeeded/failed counts, not just the overall call's
+        own success."""
+        return await _call_and_wrap_errors(
+            _run_convert_batch_tool(
+                items, use_vlm, vlm_verify, vlm_judge_mode, vlm_model, server_ctx, mcp_ctx
+            ),
+            transport=transport,
+        )
 
 
 def _register_conversion_resource(mcp: MCPServer, server_ctx: _ServerContext) -> None:
@@ -723,6 +1118,7 @@ def build_server(
     rate_limit_count: int = 30,
     rate_limit_window_s: float = 60.0,
     token_map: dict[str, str] | None = None,
+    max_batch_size: int = 20,
 ) -> MCPServer:
     """Assemble the ``refigure-mcp`` server: register ``convert_docx``/
     ``convert_xlsx`` (each conditionally, see ``_register_convert_docx``/
@@ -773,15 +1169,36 @@ def build_server(
     only place that count is computed (architecture doc §4: active only
     at ≥2 distinct configured ``caller_id``s).
 
+    ``max_batch_size`` (phase-4 spec §4): ceiling on ``len(items)`` for a
+    single ``convert_batch`` call — 20 by default, safely under the
+    default ``rate_limit_count`` (30), since the whole batch is admitted
+    atomically against that SAME per-window counter (``ServerState.
+    check_and_consume_rate_limit``'s ``n`` parameter, unused before this
+    phase). Validated HERE, not in ``cli.py``: when ``token_map is not
+    None`` (a reliable proxy for "rate-limit is actually enforced" — it's
+    ``None`` on stdio, where ``cli.py`` already fail-fasts on the
+    token-file+stdio combination, so this condition is equivalent to
+    "HTTP with real auth") and ``max_batch_size > rate_limit_count``, a
+    full-size batch could NEVER be admitted — raises ``ValueError`` at
+    startup rather than shipping a config that silently locks every
+    caller out of their own configured batch ceiling.
+
     Can raise ``MissingOptionalDependencyError`` (``vlm_cache_path`` set
     without ``[vlm]`` installed — ``FileCacheBackend`` lives inside the
     ``refigure.vlm`` package, guarded the same as everything else in it)
     or ``ValueError`` (``vlm_cache_path`` already locked by another
-    instance) — callers constructing a real server from user-supplied
-    config (``cli.py``) must route this through the same
-    exception-to-exit-code boundary every other optional-dependency/
-    external-resource construction in this codebase already uses
-    (CLAUDE.md's "Do NOT" list)."""
+    instance, or the ``max_batch_size``/``rate_limit_count`` mismatch
+    above) — callers constructing a real server from user-supplied config
+    (``cli.py``) must route this through the same exception-to-exit-code
+    boundary every other optional-dependency/external-resource
+    construction in this codebase already uses (CLAUDE.md's "Do NOT"
+    list)."""
+    if token_map is not None and max_batch_size > rate_limit_count:
+        raise ValueError(
+            f"max_batch_size ({max_batch_size}) must not exceed rate_limit_count "
+            f"({rate_limit_count}) — otherwise a full-size batch could never be "
+            "admitted over HTTP"
+        )
     vlm_cache: VlmCacheBackend
     if vlm_cache_path is not None:
         from ..vlm.cache import FileCacheBackend  # lazy — see this module's import block
@@ -822,11 +1239,14 @@ def build_server(
         state=state,
         vlm_cache=vlm_cache,
         resource_inline_threshold_bytes=resource_inline_threshold_bytes,
+        max_batch_size=max_batch_size,
+        batch_convert_fns={},
         transport=transport,
     )
     has_docx = _register_convert_docx(mcp, server_ctx, transport)
     has_xlsx = _register_convert_xlsx(mcp, server_ctx, transport)
     _register_conversion_resource(mcp, server_ctx)
+    _register_convert_batch(mcp, server_ctx, transport, has_docx=has_docx, has_xlsx=has_xlsx)
     _register_prompts(mcp, has_docx=has_docx, has_xlsx=has_xlsx)
     _register_completion(mcp)
     return mcp

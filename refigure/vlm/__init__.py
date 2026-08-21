@@ -67,6 +67,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import zipfile
 from collections import Counter
 from collections.abc import Callable
@@ -577,6 +578,23 @@ FIGURE_RENDER_DPI = 144
 FIGURE_JPEG_QUALITY = 90  # figures are color/fine-detail; per-document volume is small
 SOFFICE_RENDER_TIMEOUT = 60  # one (~1-page) object, headless soffice — seconds
 
+# Serializes pdfplumber's PDF-open/crop/rasterize calls across threads —
+# pdfplumber's rendering backend (pypdfium2, wrapping the native PDFium C++
+# library) is NOT safe for concurrent use from multiple Python threads in one
+# process: a genuine concurrent MCP convert_batch call (2 threads, each
+# rendering ITS OWN separate PDF via ITS OWN pdfplumber.open()) crashed the
+# whole interpreter with SIGTRAP inside libpdfium.so (CPDF_Color destructor,
+# confirmed via a real coredump backtrace during phase-4 testing — not a
+# graceful Python exception the existing `except Exception` below could ever
+# catch). Same root-cause SHAPE as `_OPENPYXL_LOAD_LOCK`
+# (`refigure/xlsx/__init__.py`) — a third-party library sharing unsynchronized
+# native state across threads — but a more severe failure mode (a hard
+# process crash, not a wrong-result race), so the lock is not optional here.
+# soffice itself needs no such lock (isolated by `profile_dir`, see
+# `_render_via_soffice`'s own docstring); only the pdfplumber/pypdfium2 call
+# below does.
+_PDFIUM_RENDER_LOCK = threading.Lock()
+
 
 def _source_label(source: Path | bytes) -> str:
     """Human-readable name for log messages — ``source`` may be ``bytes``
@@ -756,7 +774,7 @@ def _render_via_soffice(
             )
             return None
         try:
-            with pdfplumber.open(pdf_path) as pdf:
+            with _PDFIUM_RENDER_LOCK, pdfplumber.open(pdf_path) as pdf:
                 page = pdf.pages[0]
                 bbox = _content_bbox(page)
                 cropped = page.crop(bbox) if bbox is not None else page
