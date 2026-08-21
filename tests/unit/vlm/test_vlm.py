@@ -985,7 +985,10 @@ def test_docx_media_uri_safely_degrades_instead_of_raising(
     "exc", [vlm.zipsafe.ArchiveBombSuspected("boom"), zipfile.BadZipFile("bad crc")]
 )
 def test_render_docx_group_safely_degrades_instead_of_raising(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, exc: Exception
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    exc: Exception,
+    tmp_path: vlm.Path,
 ) -> None:
     def _raise(*a: object, **k: object) -> str | None:
         raise exc
@@ -993,7 +996,9 @@ def test_render_docx_group_safely_degrades_instead_of_raising(
     monkeypatch.setattr(vlm, "_render_docx_group", _raise)
 
     with caplog.at_level("WARNING"):
-        result = vlm._render_docx_group_safely(b"docbytes", "id1", raw_name="doc.docx")
+        result = vlm._render_docx_group_safely(
+            b"docbytes", "id1", raw_name="doc.docx", profile_dir=tmp_path
+        )
 
     assert result is None
     assert "failed to re-read" in caplog.text
@@ -1064,7 +1069,7 @@ def test_content_bbox_valid_elements_returns_dense_bbox() -> None:
 
 
 def test_render_via_soffice_timeout_returns_none_with_warning(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: vlm.Path
 ) -> None:
     def _raise_timeout(*args: object, **kwargs: object) -> None:
         raise subprocess.TimeoutExpired(cmd="soffice", timeout=vlm.SOFFICE_RENDER_TIMEOUT)
@@ -1073,7 +1078,12 @@ def test_render_via_soffice_timeout_returns_none_with_warning(
 
     with caplog.at_level("WARNING"):
         result = vlm._render_via_soffice(
-            b"docbytes", suffix=".docx", raw_name="doc.docx", obj_id="id1", obj_kind="group"
+            b"docbytes",
+            suffix=".docx",
+            raw_name="doc.docx",
+            obj_id="id1",
+            obj_kind="group",
+            profile_dir=tmp_path,
         )
 
     assert result is None
@@ -1081,7 +1091,7 @@ def test_render_via_soffice_timeout_returns_none_with_warning(
 
 
 def test_render_via_soffice_nonzero_exit_returns_none_with_warning(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: vlm.Path
 ) -> None:
     def _fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="boom")
@@ -1090,7 +1100,12 @@ def test_render_via_soffice_nonzero_exit_returns_none_with_warning(
 
     with caplog.at_level("WARNING"):
         result = vlm._render_via_soffice(
-            b"docbytes", suffix=".docx", raw_name="doc.docx", obj_id="id1", obj_kind="group"
+            b"docbytes",
+            suffix=".docx",
+            raw_name="doc.docx",
+            obj_id="id1",
+            obj_kind="group",
+            profile_dir=tmp_path,
         )
 
     assert result is None
@@ -1098,7 +1113,7 @@ def test_render_via_soffice_nonzero_exit_returns_none_with_warning(
 
 
 def test_render_via_soffice_pdfplumber_exception_returns_none_with_warning(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: vlm.Path
 ) -> None:
     def _fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         outdir_index = cmd.index("--outdir") + 1
@@ -1114,7 +1129,12 @@ def test_render_via_soffice_pdfplumber_exception_returns_none_with_warning(
 
     with caplog.at_level("WARNING"):
         result = vlm._render_via_soffice(
-            b"docbytes", suffix=".docx", raw_name="doc.docx", obj_id="id1", obj_kind="group"
+            b"docbytes",
+            suffix=".docx",
+            raw_name="doc.docx",
+            obj_id="id1",
+            obj_kind="group",
+            profile_dir=tmp_path,
         )
 
     assert result is None
@@ -1167,7 +1187,7 @@ class _FakePdfDocument:
 
 
 def test_render_via_soffice_success_returns_jpeg_data_uri(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: vlm.Path
 ) -> None:
     def _fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         outdir_index = cmd.index("--outdir") + 1
@@ -1179,7 +1199,12 @@ def test_render_via_soffice_success_returns_jpeg_data_uri(
     monkeypatch.setattr(vlm.pdfplumber, "open", lambda path: _FakePdfDocument())
 
     result = vlm._render_via_soffice(
-        b"docbytes", suffix=".docx", raw_name="doc.docx", obj_id="id1", obj_kind="group"
+        b"docbytes",
+        suffix=".docx",
+        raw_name="doc.docx",
+        obj_id="id1",
+        obj_kind="group",
+        profile_dir=tmp_path,
     )
 
     assert result is not None
@@ -1187,26 +1212,30 @@ def test_render_via_soffice_success_returns_jpeg_data_uri(
 
 
 def test_render_docx_group_not_found_on_redetection_returns_none_with_warning(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: vlm.Path
 ) -> None:
     monkeypatch.setattr(vlm, "_soffice_available", lambda: True)
     monkeypatch.setattr(vlm.docx_groups, "extract_group_docx", lambda *a, **k: None)
 
     with caplog.at_level("WARNING"):
-        result = vlm._render_docx_group(b"docbytes", "abcdef012345", raw_name="doc.docx")
+        result = vlm._render_docx_group(
+            b"docbytes", "abcdef012345", raw_name="doc.docx", profile_dir=tmp_path
+        )
 
     assert result is None
     assert "not found on re-detection" in caplog.text
 
 
 def test_render_docx_group_success_delegates_to_render_via_soffice(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: vlm.Path
 ) -> None:
     monkeypatch.setattr(vlm, "_soffice_available", lambda: True)
     monkeypatch.setattr(vlm.docx_groups, "extract_group_docx", lambda *a, **k: b"mini-docx-bytes")
     monkeypatch.setattr(vlm, "_render_via_soffice", lambda *a, **k: "data:image/jpeg;base64,xyz")
 
-    result = vlm._render_docx_group(b"docbytes", "abcdef012345", raw_name="doc.docx")
+    result = vlm._render_docx_group(
+        b"docbytes", "abcdef012345", raw_name="doc.docx", profile_dir=tmp_path
+    )
 
     assert result == "data:image/jpeg;base64,xyz"
 

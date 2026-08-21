@@ -86,8 +86,10 @@ def test_fixture_group_ids_match_pinned_baseline() -> None:
     ),
 )
 @pytest.mark.parametrize("id12", _KNOWN_GROUP_IDS)
-def test_render_docx_group_produces_a_real_jpeg(id12: str) -> None:
-    data_uri = vlm._render_docx_group(_FIXTURE_PATH, id12, raw_name=_FIXTURE_PATH.name)
+def test_render_docx_group_produces_a_real_jpeg(id12: str, tmp_path: Path) -> None:
+    data_uri = vlm._render_docx_group(
+        _FIXTURE_PATH, id12, raw_name=_FIXTURE_PATH.name, profile_dir=tmp_path
+    )
 
     assert data_uri is not None, f"group {id12} failed to render — see warnings in the test log"
     assert data_uri.startswith("data:image/jpeg;base64,")
