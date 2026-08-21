@@ -352,3 +352,30 @@ async def test_config_vlm_cache_is_the_same_object_across_two_calls() -> None:
     assert len(captured_caches) == 2
     assert captured_caches[0] is captured_caches[1]
     assert captured_caches[0] is not None
+
+
+async def test_vlm_cache_path_wires_a_real_file_cache_backend(tmp_path) -> None:
+    """build_server(vlm_cache_path=...) — the opt-in FileCacheBackend path
+    (architecture doc §7-bis), as opposed to the default BoundedLruVlmCache
+    the test above exercises."""
+    import refigure.docx as docx_module
+    from refigure.vlm.cache import FileCacheBackend
+
+    cache_path = tmp_path / "vlm-cache.json"
+    captured: dict[str, object] = {}
+
+    def _capture_convert(source: object, *, config: object = None) -> object:
+        captured["config"] = config
+        from refigure.api import ConversionResult
+
+        return ConversionResult(markdown="ok")
+
+    mcp_server = build_server(vlm_cache_path=cache_path)
+    with patch.object(docx_module, "convert", _capture_convert):
+        async with Client(mcp_server, raise_exceptions=True) as c:
+            b64 = base64.b64encode(build_minimal_docx(["one"])).decode("ascii")
+            await c.call_tool("convert_docx", {"content_base64": b64})
+
+    vlm_cache = captured["config"].vlm_cache  # type: ignore[attr-defined]
+    assert isinstance(vlm_cache, FileCacheBackend)
+    assert vlm_cache.path == cache_path
