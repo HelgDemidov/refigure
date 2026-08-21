@@ -256,12 +256,19 @@ def main(argv: list[str] | None = None) -> int:
     # nothing about — routing it through _exit_code_for's fallback would
     # mislabel an ordinary token-file typo as EXIT_INTERNAL_ERROR ("internal
     # error: ..."), same class of mistake CLAUDE.md's "Do NOT" list already
-    # flags for other external-construction boundaries.
+    # flags for other external-construction boundaries. Also catches OSError
+    # (FileNotFoundError/PermissionError/IsADirectoryError, all raised by
+    # load_token_file's own Path.read_text() before it ever gets to parsing
+    # — none are ValueError subclasses) — a missing/unreadable token-file
+    # path is the same class of plain operator typo as a malformed line
+    # inside it, not an internal error either (real gap found by ultrareview
+    # on this PR: only ValueError was caught here, so a bad path crashed
+    # with a raw traceback and exit code 1 instead of this clean path).
     token_map: dict[str, str] | None = None
     if args.mcp_auth_token_file is not None:
         try:
             token_map = load_token_file(Path(args.mcp_auth_token_file))
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return EXIT_USAGE
 

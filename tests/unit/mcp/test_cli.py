@@ -260,6 +260,26 @@ def test_malformed_token_file_exits_usage_not_internal_error(
     assert "internal error" not in err
 
 
+def test_missing_token_file_exits_usage_not_a_raw_traceback(
+    capsys: pytest.CaptureFixture[str], tmp_path
+) -> None:
+    """Regression: load_token_file()'s Path.read_text() raises
+    FileNotFoundError (an OSError, not a ValueError) for a nonexistent
+    path — the except clause around it must catch that too, not just
+    ValueError, or a plain --mcp-auth-token-file typo crashes with a raw
+    Python traceback and exit code 1 instead of this clean EXIT_USAGE
+    path (found by ultrareview on this PR)."""
+    missing_path = tmp_path / "does-not-exist.txt"
+
+    code = mcp_cli_module.main(["--transport", "http", "--mcp-auth-token-file", str(missing_path)])
+
+    assert code == EXIT_USAGE
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "Traceback" not in err
+    assert "internal error" not in err
+
+
 def test_valid_token_file_reaches_build_server_as_token_map(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:

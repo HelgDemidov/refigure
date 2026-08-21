@@ -22,7 +22,7 @@ inside the ``anyio.to_thread`` bridge). A plain lock protects either
 caller identically — no async-specific primitive needed here.
 
 Phase 3 (``docs/mcp-server/mcp-server-phase3-http-auth/
-mcp-server-phase3-http-auth-2026-08-21.md`` §1) adds two addtive members —
+mcp-server-phase3-http-auth-2026-08-21.md`` §1) adds two additive members —
 existing callers that don't pass ``on_evict``/don't call ``remove()`` see
 no behavior change: an optional ``on_evict`` callback, invoked for entries
 evicted by ``insert()``'s own count/byte-budget loop (``ServerState``'s
@@ -86,13 +86,16 @@ class BoundedLru(Generic[_T]):
         exists to avoid.
 
         ``on_evict`` (if set) is called once per entry evicted by THIS
-        call's own count/byte-budget loop — while ``self._lock`` is still
-        held (the callback must stay non-blocking/no-I/O, true of every
-        real caller: ``ServerState``'s own per-caller counter
-        adjustment). A replacement of ``key`` itself (already present,
-        same key re-inserted) is NOT reported via ``on_evict`` — that's a
-        value update, not an eviction, and the caller performing the
-        ``insert()`` already knows about it directly."""
+        call's own count/byte-budget loop — AFTER ``self._lock`` has
+        already been released (never while held: a lock this class
+        doesn't own must never be acquired while this one is, and
+        ``ServerState``'s own callback does exactly that with its own
+        ``self._lock`` — see the inline comment below for the full
+        lock-ordering rationale). A replacement of ``key`` itself
+        (already present, same key re-inserted) is NOT reported via
+        ``on_evict`` — that's a value update, not an eviction, and the
+        caller performing the ``insert()`` already knows about it
+        directly."""
         evicted: list[tuple[str, _T, int]] = []
         with self._lock:
             if key in self._data:
