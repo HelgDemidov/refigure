@@ -29,6 +29,7 @@ from typing import Any, Callable, Coroutine, Literal, TypeVar, cast
 
 import anyio
 from mcp.server import MCPServer
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError
 from mcp.types import (
@@ -42,6 +43,7 @@ from mcp.types import (
     TextContent,
     ToolAnnotations,
 )
+from pydantic import AnyHttpUrl
 
 from ..api import (
     Config,
@@ -54,6 +56,7 @@ from ..api import (
     VlmMarkerLimitExceededError,
 )
 from ..cli import _VLM_XLSX_WARNING
+from .auth import _StaticTokenVerifier
 from .exceptions import RateLimitExceededError
 
 # NOT `from ..vlm.cache import FileCacheBackend` at module level: refigure.vlm's
@@ -710,6 +713,7 @@ def build_server(
     vlm_cache_path: Path | None = None,
     rate_limit_count: int = 30,
     rate_limit_window_s: float = 60.0,
+    token_map: dict[str, str] | None = None,
 ) -> MCPServer:
     """Assemble the ``refigure-mcp`` server: register ``convert_docx``/
     ``convert_xlsx`` (each conditionally, see ``_register_convert_docx``/
@@ -741,6 +745,25 @@ def build_server(
     ``_run_convert_tool`` only ever checks this when ``transport=="http"``
     (stdio skips the check entirely, not just never hits the limit).
 
+    ``token_map`` (``{token: caller_id}``, from ``auth.load_token_file()``
+    — phase-3 spec §2/§6): ``None`` (default, stdio's only valid value —
+    ``cli.py`` fail-fasts before ever calling this with a non-``None``
+    map on stdio) builds a plain ``MCPServer("refigure")`` exactly as
+    phases 1-2 did. A real map builds
+    ``MCPServer("refigure", token_verifier=_StaticTokenVerifier(token_map),
+    auth=AuthSettings(issuer_url=..., resource_server_url=...))`` — both
+    URLs are fixed, meaningless placeholders (``http://localhost/``), not
+    a real authorization server: live-verified against ``mcp==2.0.0``
+    (this spec's own §0) that ``auth_server_provider=None`` (never set
+    here) means the SDK never mounts the OAuth grant-flow endpoints that
+    would make those URLs matter — they exist purely to satisfy
+    ``AuthSettings``' own required-field validation for a
+    resource-server-only (bearer-verification-only) setup. Soft-cap
+    (``ServerState.__init__``'s ``soft_cap_enabled``) is derived HERE from
+    the same map — ``len(set(token_map.values())) >= 2`` — the one and
+    only place that count is computed (architecture doc §4: active only
+    at ≥2 distinct configured ``caller_id``s).
+
     Can raise ``MissingOptionalDependencyError`` (``vlm_cache_path`` set
     without ``[vlm]`` installed — ``FileCacheBackend`` lives inside the
     ``refigure.vlm`` package, guarded the same as everything else in it)
@@ -759,15 +782,27 @@ def build_server(
     else:
         vlm_cache = BoundedLruVlmCache(max_entries=2000, max_bytes=100 * 1024 * 1024)
 
+    soft_cap_enabled = token_map is not None and len(set(token_map.values())) >= 2
     state = ServerState(
         max_entries=resource_max_entries,
         max_bytes=resource_max_bytes,
         ttl_s=resource_ttl_s,
         rate_limit_count=rate_limit_count,
         rate_limit_window_s=rate_limit_window_s,
+        soft_cap_enabled=soft_cap_enabled,
     )
 
-    mcp = MCPServer("refigure")
+    if token_map is not None:
+        mcp = MCPServer(
+            "refigure",
+            token_verifier=_StaticTokenVerifier(token_map),
+            auth=AuthSettings(
+                issuer_url=AnyHttpUrl("http://localhost/"),
+                resource_server_url=AnyHttpUrl("http://localhost/"),
+            ),
+        )
+    else:
+        mcp = MCPServer("refigure")
     server_ctx = _ServerContext(
         limiter=anyio.CapacityLimiter(max_concurrent),
         vlm_client=vlm_client,
