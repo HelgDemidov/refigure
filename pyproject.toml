@@ -57,9 +57,17 @@ vlm = ["pdfplumber>=0.11,<0.12"]
 # [vlm] here reflects a genuine dependency, not a bug to route around by
 # flattening client.py out of the package.
 vlm-direct = ["refigure[vlm]", "openai>=3.1.0,<4", "anthropic>=0.120,<1"]
+# MCP server (v2, stage 10) — thin protocol wrapper over docx.convert()/
+# xlsx.convert(), no self-referential coupling to [docx]/[xlsx]/[vlm]
+# (unlike vlm-direct above): refigure/mcp/__init__.py's guard is the only
+# module-level dependency, a bare `refigure[mcp]` is valid with 0 tools
+# registered — see docs/mcp-server/mcp-server-architecture/
+# mcp-server-architecture.md §2.
+mcp = ["mcp>=2.0,<3"]
 
 [project.scripts]
 refigure = "refigure.cli:main"
+refigure-mcp = "refigure.mcp.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/HelgDemidov/refigure"

@@ -15,3 +15,7 @@ types-openpyxl==3.1.5.20260807
 # NOT declared as a hard dependency of any published extra.
 mermaidx==0.9.4
 hypothesis==6.165.10
+# mcp — pulled in for the dev/test environment same as mermaidx above (not
+# a hard dependency of any extra except [mcp] itself); pins anyio/starlette/
+# uvicorn transitively.
+mcp==2.0.0
