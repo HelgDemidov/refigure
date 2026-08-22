@@ -121,6 +121,48 @@ jobs:
             ghcr.io/helgdemidov/refigure:${{ steps.version.outputs.version }}
             ghcr.io/helgdemidov/refigure:latest
 
+  # server.json (MCP Registry listing) was previously published via a manual,
+  # interactive `mcp-publisher login github` (GitHub OAuth device flow) —
+  # a real gap: nothing re-published it on any later release, so the
+  # registry's version field could silently go stale. `login github-oidc`
+  # (verified live 2026-08-22 against the real mcp-publisher binary's own
+  # --help output, not just docs) is the same trusted-publishing shape the
+  # `publish` job above already uses for PyPI — id-token: write, zero stored
+  # secrets. `needs: publish` (not docker-publish) — this target is
+  # independent of the Docker image, only of the PyPI release actually
+  # having gone out. release.sh already keeps server.json's version in sync
+  # with pyproject.toml's in the same commit, so there is nothing to bump
+  # here — just publish what's already correct in the tagged commit.
+  mcp-registry-publish:
+    name: Publish to the official MCP Registry
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned to a specific release + checksum-verified, not
+      # /latest/download/ — same discipline as every other third-party
+      # binary/action pinned in this repo. Checksum from the release's own
+      # registry_1.8.1_checksums.txt, verified live 2026-08-22 (also covers
+      # the mcp-publisher assets, not just the registry ones its filename
+      # suggests). Bump both the URL and the checksum together on update —
+      # dependabot does not track this, it's a raw release download, not a
+      # GitHub Action or a package-manager dependency.
+      - name: Download mcp-publisher (v1.8.1, checksum-verified)
+        run: |
+          curl -sL -o mcp-publisher.tar.gz "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz"
+          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+
+      - name: Log in via GitHub Actions OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server.json
+        run: ./mcp-publisher publish
+
   # Separate job, not a step tacked onto `publish` above — deliberately, so
   # this never needs to share that job's `id-token: write`. Runs only after
   # a REAL successful publish (`needs: publish`), so a failed/aborted
