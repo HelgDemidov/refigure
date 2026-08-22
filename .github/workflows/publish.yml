@@ -213,6 +213,15 @@ jobs:
     name: Cross-platform install verification (${{ matrix.os }})
     needs: publish
     runs-on: ${{ matrix.os }}
+    # Read-only: this job only checks out the repo (for
+    # scripts/docker_smoke_fixture.py) and installs the already-published
+    # PyPI package — no gh release/Docker/registry writes, unlike every
+    # other job in this file. Missing explicit permissions here was a real
+    # gap (CodeQL actions/missing-workflow-permissions, alert #6) — every
+    # other job already declares its own minimal set, this one was just
+    # added without one.
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
