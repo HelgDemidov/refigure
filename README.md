@@ -259,8 +259,16 @@ docker pull ghcr.io/helgdemidov/refigure:latest
 ```
 
 Pin an exact version instead of `:latest` for reproducibility — e.g.
-`:0.3.3` — see the [package page](https://github.com/HelgDemidov/refigure/pkgs/container/refigure)
+`:0.3.4` — see the [package page](https://github.com/HelgDemidov/refigure/pkgs/container/refigure)
 for available tags.
+
+The package page's **OS/Arch** tab lists `unknown/unknown` alongside the
+real `linux/amd64`/`linux/arm64` entries — that's a build-provenance/SBOM
+attestation (in-toto + SPDX metadata this image publishes for every
+platform), not a broken or untrusted image. GHCR's own UI doesn't label
+attestation manifests, a
+[known, widely-reported limitation](https://github.com/docker/build-push-action/issues/900)
+of the registry's package view, unrelated to this project.
 
 CLI, via a bind mount (the image's working directory is already `/data`):
 
@@ -340,7 +348,7 @@ GitHub rendering — no extra step, that's GitHub's own Markdown support.
   positioned zero-loss markers. Full provenance:
   [`tests/integration/fixtures/manifest.yaml`](tests/integration/fixtures/manifest.yaml).
 - **Tested**: CI gates on a combined unit+integration coverage floor of 95%.
-- **Published** as `v0.3.3` — [PyPI](https://pypi.org/project/refigure/)
+- **Published** as `v0.3.4` — [PyPI](https://pypi.org/project/refigure/)
   (trusted publishing, no stored tokens),
   [GHCR](https://github.com/HelgDemidov/refigure/pkgs/container/refigure),
   and the official
