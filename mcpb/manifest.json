@@ -1,0 +1,27 @@
+{
+  "manifest_version": "0.4",
+  "name": "refigure",
+  "display_name": "refigure",
+  "version": "1.0.0",
+  "description": "Convert DOCX/XLSX to Markdown — native OOXML chart-data extraction, zero-loss composite-figure markers",
+  "author": {
+    "name": "HelgDemidov",
+    "url": "https://github.com/HelgDemidov"
+  },
+  "server": {
+    "type": "uv",
+    "entry_point": "src/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "${__dirname}", "src/server.py"]
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "linux", "win32"],
+    "runtimes": {
+      "python": ">=3.10"
+    }
+  },
+  "keywords": ["docx", "xlsx", "markdown", "conversion", "mcp"],
+  "license": "Apache-2.0"
+}
