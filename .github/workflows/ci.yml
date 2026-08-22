@@ -440,8 +440,17 @@ jobs:
   # this file's own `on:` block already has none (feedback_ci_branch_triggers).
   # ---------------------------------------------------------------------------
   docker-build:
-    name: Docker image (build + smoke test)
-    runs-on: ubuntu-latest
+    name: Docker image (build + smoke test, ${{ matrix.platform }})
+    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # linux/arm64 added 2026-08-22 (docs/distribution/docker-arm64 spec)
+        # — a native GitHub-hosted arm64 runner (GA, free/unmetered for
+        # public repos since Jan 2025), not QEMU: no emulation anywhere in
+        # this pipeline. `docker build` below needs no --platform flag on
+        # either leg — each runner builds natively for its own host arch.
+        platform: [linux/amd64, linux/arm64]
     steps:
       - uses: actions/checkout@v7
 
