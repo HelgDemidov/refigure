@@ -239,6 +239,31 @@ jobs:
         shell: bash
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      # `needs: publish` only guarantees the upload API call succeeded —
+      # NOT that PyPI's simple index (what `uv`/`pip` actually resolve
+      # against) has propagated it yet. Hit real on v0.3.5's release: both
+      # matrix legs raced the index and failed with "no version of
+      # refigure==X.Y.Z" seconds after a genuinely successful publish.
+      # Polls the exact endpoint the install step below resolves against
+      # (not the JSON API, which can propagate on a different schedule),
+      # separately from the install itself — so a real resolver failure
+      # (bad dependency pin, etc.) still fails fast and distinctly, not
+      # disguised as "still propagating".
+      - name: Wait for PyPI's simple index to actually serve this version
+        shell: bash
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          for i in $(seq 1 30); do
+            if curl -fsS "https://pypi.org/simple/refigure/" | grep -q "refigure-${version}-"; then
+              echo "refigure ${version} is live on PyPI's simple index"
+              exit 0
+            fi
+            echo "refigure ${version} not yet visible (attempt $i/30) — retrying in 10s"
+            sleep 10
+          done
+          echo "::error::refigure ${version} never appeared on PyPI's simple index after 5 minutes"
+          exit 1
+
       - name: Create venv, install the real published PyPI package (not
           local source), put its bin dir on PATH for later steps
         # Same uv venv + $GITHUB_PATH pattern the `publish` job above
