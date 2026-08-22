@@ -54,6 +54,7 @@ CLAUDE.local.md
 docs/*
 !docs/assets/
 CLAUDE.md
+BACKLOG.md
 
 # Real-document integration test fixtures (2026-08-05): 26/27 are checked
 # in — clean, well-documented redistribution licenses (see ATTRIBUTION.md
