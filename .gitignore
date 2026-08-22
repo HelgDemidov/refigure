@@ -11,6 +11,7 @@ env/
 dist/
 build/
 *.egg-info/
+*.mcpb
 
 # uv auto-generates this on `uv run`/`uv pip` if absent — project's
 # dependency source of truth is requirements.txt/requirements-dev.txt
