@@ -5,12 +5,12 @@
 # plus the one dependency PyPI/uvx structurally cannot deliver: the system
 # soffice/LibreOffice binary the VLM composite-figure path shells out to
 # (see pyproject.toml's [vlm] comment).
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.14-slim-bookworm AS builder
 WORKDIR /build
 COPY . .
 RUN pip install --no-cache-dir build && python -m build --wheel
 
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 LABEL org.opencontainers.image.source="https://github.com/HelgDemidov/refigure"
 LABEL org.opencontainers.image.description="DOCX/XLSX -> Markdown conversion with native OOXML chart-data extraction + optional VLM interpretation. CLI (refigure) and MCP server (refigure-mcp) in one image."
