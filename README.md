@@ -62,7 +62,8 @@ degraded summary for agents.
   per-file isolation (see below).
 - **Docker image** — `ghcr.io/helgdemidov/refigure`, both console commands
   on `PATH`, `soffice`/LibreOffice baked in — the VLM composite-figure
-  path works turnkey, no manual LibreOffice install (see below).
+  path works turnkey, no manual LibreOffice install. Multi-arch —
+  `linux/amd64` + `linux/arm64`, native Apple Silicon (see below).
 - **`.mcpb` bundle for Claude Desktop** — one-click install, no terminal
   (`docx`+`xlsx` only, see below).
 
@@ -249,7 +250,9 @@ One image, both surfaces — `refigure` and `refigure-mcp` are already on
 `PATH`, no separate CLI/MCP builds to choose between. The one thing this
 format buys over `pip`/`uvx` that neither can: the system `soffice`/
 LibreOffice binary the VLM composite-figure path needs is baked in, not a
-manual install.
+manual install. Multi-arch manifest (`linux/amd64` + `linux/arm64`) —
+`docker pull` resolves the right layer automatically, including on
+Apple Silicon.
 
 ```bash
 docker pull ghcr.io/helgdemidov/refigure:latest
