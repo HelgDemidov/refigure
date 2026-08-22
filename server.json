@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.HelgDemidov/refigure",
   "description": "Convert DOCX/XLSX to Markdown — native chart-data extraction, optional VLM for figures",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "repository": {
     "url": "https://github.com/HelgDemidov/refigure",
     "source": "github"
@@ -11,7 +11,7 @@
     {
       "registryType": "pypi",
       "identifier": "refigure",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "transport": {
         "type": "stdio"
       }
