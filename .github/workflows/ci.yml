@@ -533,3 +533,27 @@ jobs:
           out="$(uv run src/server.py --version)"
           echo "$out"
           echo "$out" | grep -q "^refigure-mcp "
+
+  # ---------------------------------------------------------------------------
+  # Dependency review (2026-08-22): free for public repos, no GHAS license
+  # needed. Complements, doesn't duplicate, the quality job's pip-audit —
+  # pip-audit scans the WHOLE currently-installed tree on every run;
+  # dependency-review-action scans only what a given PR's diff actually
+  # ADDS or bumps, against both known vulnerabilities and license
+  # compatibility, directly in the PR's checks (and its own "Files changed"
+  # dependency-diff UI). PR-only by nature (needs a base to diff against) —
+  # `github.event_name` guard so a plain push to main doesn't try to run
+  # (and fail-open/no-op oddly) against a nonexistent base. Not added to
+  # required_status_checks: it doesn't run on every event, and this repo's
+  # branch-protection semantics for a conditionally-skipped required check
+  # aren't worth the edge cases at this project's scale — still shows up
+  # as a real, visible check on every PR either way.
+  # ---------------------------------------------------------------------------
+  dependency-review:
+    name: Dependency review (new/changed deps only)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
