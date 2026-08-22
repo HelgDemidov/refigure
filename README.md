@@ -6,6 +6,9 @@
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/HelgDemidov/refigure/main/docs/assets/coverage-badge.json)](https://github.com/HelgDemidov/refigure/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![PyPI](https://img.shields.io/pypi/v/refigure)](https://pypi.org/project/refigure/)
+[![Docker](https://img.shields.io/badge/ghcr.io-refigure-2496ED?logo=docker&logoColor=white)](https://github.com/HelgDemidov/refigure/pkgs/container/refigure)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-6f42c1)](https://registry.modelcontextprotocol.io/?q=refigure)
 
 <!-- mcp-name: io.github.HelgDemidov/refigure -->
 
@@ -152,7 +155,9 @@ Exit codes:
 `refigure-mcp` — the same converters as an
 [MCP](https://modelcontextprotocol.io) server, for agents/IDEs that speak
 the protocol directly instead of shelling out to a CLI or importing the
-library:
+library. Listed on the official
+[MCP Registry](https://registry.modelcontextprotocol.io/?q=refigure) as
+`io.github.HelgDemidov/refigure`:
 
 ```bash
 pip install "refigure[mcp,docx,xlsx]"
@@ -215,13 +220,17 @@ LibreOffice binary the VLM composite-figure path needs is baked in, not a
 manual install.
 
 ```bash
-docker pull ghcr.io/helgdemidov/refigure:0.3.1
+docker pull ghcr.io/helgdemidov/refigure:latest
 ```
+
+Pin an exact version instead of `:latest` for reproducibility — e.g.
+`:0.3.2` — see the [package page](https://github.com/HelgDemidov/refigure/pkgs/container/refigure)
+for available tags.
 
 CLI, via a bind mount (the image's working directory is already `/data`):
 
 ```bash
-docker run --rm -v "$PWD:/data:ro" ghcr.io/helgdemidov/refigure:0.3.1 \
+docker run --rm -v "$PWD:/data:ro" ghcr.io/helgdemidov/refigure:latest \
   refigure /data/report.docx
 ```
 
@@ -232,7 +241,7 @@ MCP, stdio — the client launches the container itself:
   "mcpServers": {
     "refigure": {
       "command": "docker",
-      "args": ["run", "-i", "--rm", "ghcr.io/helgdemidov/refigure:0.3.1", "refigure-mcp"]
+      "args": ["run", "-i", "--rm", "ghcr.io/helgdemidov/refigure:latest", "refigure-mcp"]
     }
   }
 }
@@ -247,7 +256,7 @@ flag would silently never respond:
 ```bash
 echo "sk-... = alice" > tokens.txt
 docker run --rm -p 8000:8000 -v "$PWD/tokens.txt:/data/tokens.txt:ro" \
-  ghcr.io/helgdemidov/refigure:0.3.1 \
+  ghcr.io/helgdemidov/refigure:latest \
   refigure-mcp --transport http --mcp-http-host 0.0.0.0 \
   --mcp-auth-token-file /data/tokens.txt
 ```
@@ -316,7 +325,7 @@ else:
     markdown = refigure.xlsx.convert(path).markdown
 ```
 
-`v0.3.1` published via trusted publishing (GitHub↔PyPI, no stored tokens),
+`v0.3.2` published via trusted publishing (GitHub↔PyPI, no stored tokens),
 also on GHCR as `ghcr.io/helgdemidov/refigure` and on the official
 [MCP Registry](https://registry.modelcontextprotocol.io) as
 `io.github.HelgDemidov/refigure`. `refigure-md` is a reserved alternate
