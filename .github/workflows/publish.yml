@@ -183,6 +183,86 @@ jobs:
       - name: Verify the published manifest lists both platforms
         run: docker buildx imagetools inspect ghcr.io/helgdemidov/refigure:${{ steps.version.outputs.version }}
 
+  # Independent cross-platform install verification (2026-08-22,
+  # docs/distribution/ecosystem-memo + a live-researched brainstorm) — tests
+  # the REAL published PyPI artifact (needs: publish, not local source) on
+  # the 2 platforms nothing else in this repo's CI touches: Windows and
+  # macOS. Docker-on-Windows/Docker-on-macOS are deliberately NOT covered
+  # here — live-verified structurally impossible on GitHub-hosted runners
+  # (neither Windows nor macOS runners support nested virtualization, which
+  # a Linux container needs on either host OS; macOS's default Apple
+  # Silicon runners additionally lack the hardware support entirely). The
+  # container's own correctness is already exhaustively covered by
+  # docker-build/docker-publish's amd64+arm64 Linux legs — what's
+  # untestable here is specifically "does `docker pull`/`docker run` behave
+  # from a real Windows/macOS host's own Docker Desktop", a narrow,
+  # low-risk gap left to an occasional manual spot-check, not CI.
+  # `.mcpb`/Claude Desktop is similarly NOT covered — installing the
+  # bundle is a GUI click inside Claude Desktop with no documented
+  # scriptable path, disproportionate to automate; covered by a manual
+  # checklist on real hardware instead (macOS: done, real M2 MacBook,
+  # 2026-08-22).
+  # `shell: bash` explicit on every step — Windows runners default to
+  # PowerShell, macOS/Linux default to bash; declaring bash everywhere
+  # keeps one script portable across both matrix legs (Windows runners
+  # ship Git Bash for exactly this). NOT added to `required_status_checks`
+  # — it only runs on a tag push, never on a PR, so it's structurally not
+  # a PR-gating check (unlike docker-build's matrix rename gotcha, this
+  # job never existed as a single un-suffixed name to begin with).
+  cross-platform-verify:
+    name: Cross-platform install verification (${{ matrix.os }})
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv and set Python version
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.12"
+
+      - name: Strip the leading "v" from the tag (PyPI version is X.Y.Z, not vX.Y.Z)
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create venv, install the real published PyPI package (not
+          local source), put its bin dir on PATH for later steps
+        # Same uv venv + $GITHUB_PATH pattern the `publish` job above
+        # already uses — that job only ever ran on ubuntu-latest, so it
+        # never needed the Windows branch: a venv's executables live in
+        # `.venv/Scripts` there, not `.venv/bin`. $RUNNER_OS is a GitHub
+        # Actions builtin (Linux/Windows/macOS), no extra setup needed.
+        shell: bash
+        run: |
+          uv venv
+          uv pip install "refigure[full]==${{ steps.version.outputs.version }}"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            echo "$PWD/.venv/Scripts" >> "$GITHUB_PATH"
+          else
+            echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Smoke test — both console scripts
+        shell: bash
+        run: |
+          refigure --version
+          refigure-mcp --version
+
+      - name: Smoke test — real conversion, no soffice installed (the common
+          case for a fresh install — the vlm path's own soffice-missing
+          degrade is already covered on Linux, not re-tested here)
+        shell: bash
+        run: |
+          python scripts/docker_smoke_fixture.py test.docx "hello from cross-platform-verify"
+          out="$(refigure test.docx)"
+          echo "$out"
+          echo "$out" | grep -q "hello from cross-platform-verify"
+
   # server.json (MCP Registry listing) was previously published via a manual,
   # interactive `mcp-publisher login github` (GitHub OAuth device flow) —
   # a real gap: nothing re-published it on any later release, so the
