@@ -74,7 +74,10 @@ construct either (a dense radial sunburst — nothing in the 4 original
 mermaid types could represent it), `--vlm` both recovers the real content
 and produces a genuinely renderable diagram, not just recovered text:
 
-<img src="docs/assets/demo-vlm-dark.svg" alt="A real docx image (a dense wireless-technology sunburst chart with no native chart data) converted by refigure.docx.convert(use_vlm=True) into a rich VLM-generated description and a real rendered mermaid mindmap diagram, laid out radially instead of the unreadable flat strip a generic flowchart construct would have produced">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/demo-vlm-dark.svg">
+  <img src="docs/assets/demo-vlm-light.svg" alt="A real docx image (a dense wireless-technology sunburst chart with no native chart data) converted by refigure.docx.convert(use_vlm=True) into a rich VLM-generated description and a real rendered mermaid mindmap diagram, laid out radially instead of the unreadable flat strip a generic flowchart construct would have produced">
+</picture>
 
 **Native chart-data extraction** — real OOXML `numCache`, not a screenshot,
 not OCR:

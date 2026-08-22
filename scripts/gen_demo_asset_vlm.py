@@ -19,13 +19,20 @@ strip. `mindmap` (one of that spec's 22 new types) renders it radially
 instead — this hero is the concrete "was broken, now works" payoff of that
 work, not a synthetic example.
 
-Dark-only, no light variant, unlike this script's 3 siblings and its own
-previous version — explicit user decision 2026-08-20: the established Demo
-convention (per live review of the rendered README on GitHub) is the dark
-surface, and the mindmap's own categorical palette below is tuned
-specifically against it, not derived to also satisfy a light surface.
-README embeds this via a single `<img>`, not the other heroes'
-`<picture>`/`<source media="prefers-color-scheme">` pair.
+Light+dark, like the other 3 siblings, as of 2026-08-22 — but only the
+composite's own canvas (bg/ink/muted/blue) switches per theme; the nested
+mindmap panel itself stays permanently dark (`_MINDMAP_PANEL`, a fixed,
+non-per-theme dict), because the mindmap's categorical palette is tuned
+specifically against a dark surface (see "Palette" below) and mermaid's
+`mindmap` diagram type has no reachable per-theme override for it (see
+"Direct SVG post-processing" below) — deriving a second, independently
+validated light-mode categorical palette just for this one sub-panel was
+explicitly rejected in favor of keeping the mindmap panel a fixed dark
+card embedded in an otherwise theme-matched composite (explicit user
+decision 2026-08-22, superseding this script's earlier dark-only-with-no-
+light-variant-at-all design from 2026-08-20). README embeds this via a
+`<picture>`/`<source media="prefers-color-scheme">` pair, matching the
+other 3 heroes exactly.
 
 **Direct SVG post-processing, not themeVariables — confirmed live, not
 assumed:**
@@ -149,15 +156,18 @@ _DISPLAY_W = 380
 FONT_MONO = "JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
 FONT_SANS = "Inter, ui-sans-serif, -apple-system, Segoe UI, sans-serif"
 
-# Dark-only (see module docstring) — same token names as the 3 siblings'
-# per-theme dicts, just one instance.
-THEME = dict(
-    bg="#14150F",
-    ink="#EDEDE6",
-    muted="#9A988F",
-    blue="#7C9CD6",
-)
-# Fixed (not derived from THEME), same reasoning as the other 3 demo
+# Canvas tokens, same shape/values as the 3 siblings' per-theme dicts —
+# only the composite's own bg/ink/muted/blue switch per theme now.
+THEMES: dict[str, dict[str, str]] = {
+    "light": dict(bg="#FAFAF8", ink="#1A1A1A", muted="#63635A", blue="#3B5BA5"),
+    "dark": dict(bg="#14150F", ink="#EDEDE6", muted="#9A988F", blue="#7C9CD6"),
+}
+# Fixed (not per-theme, see module docstring): the mindmap sub-panel stays
+# a permanently dark card regardless of the surrounding canvas theme —
+# these are exactly THEMES["dark"]'s own former values, kept as the
+# mindmap panel's own frozen identity now that the canvas around it moves.
+_MINDMAP_PANEL = dict(bg="#14150F", muted="#9A988F", blue="#7C9CD6")
+# Fixed (not derived from THEMES), same reasoning as the other 3 demo
 # scripts' _INPUT_LABEL_COLOR: this label sits on the real screenshot's
 # own light UI background, not the page's dark surface.
 _INPUT_LABEL_COLOR = "#1E7A6E"
@@ -274,6 +284,8 @@ def _mermaid_viewbox(svg: str) -> tuple[float, float]:
 
 
 def compose(
+    theme_name: str,
+    theme: dict[str, str],
     input_bytes: bytes,
     prose: str,
     mermaid_code: str,
@@ -341,7 +353,7 @@ def compose(
     scale = min(avail_w / native_w, avail_h / native_h)
     chart_w, chart_h = native_w * scale, native_h * scale
 
-    bg, ink, muted, blue = THEME["bg"], THEME["ink"], THEME["muted"], THEME["blue"]
+    bg, ink, muted, blue = theme["bg"], theme["ink"], theme["muted"], theme["blue"]
 
     svg = f'''<svg width="{W}" height="{H}" viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="refigure VLM interpretation demo: a real dense wireless-technology sunburst chart with no native chart data, converted by refigure.docx.convert(use_vlm=True) into a rich text description and a real rendered mermaid mindmap diagram">
 <rect width="{W}" height="{H}" fill="{bg}"/>
@@ -367,15 +379,15 @@ def compose(
 <text x="{out_x + text_pad_x}" y="{boxA_y + 26}" font-family="{FONT_SANS}" font-size="15" font-weight="600" fill="{blue}">OUTPUT — as your LLM/RAG pipeline reads it</text>
 <text x="{out_x + text_pad_x}" y="{boxA_y + text_pad_top}" font-family="{FONT_MONO}" font-size="{mono_size}" fill="{ink}">{text_tspans}</text>
 
-<rect x="{out_x}" y="{boxB_y}" width="{out_w}" height="{boxB_h}" fill="none" stroke="{muted}" stroke-width="1" opacity="0.35"/>
-<text x="{out_x + text_pad_x}" y="{boxB_y + 26}" font-family="{FONT_SANS}" font-size="15" font-weight="600" fill="{blue}">OUTPUT — same response, rendered as a real diagram</text>
+<rect x="{out_x}" y="{boxB_y}" width="{out_w}" height="{boxB_h}" fill="{_MINDMAP_PANEL["bg"]}" stroke="{_MINDMAP_PANEL["muted"]}" stroke-width="1" stroke-opacity="0.35"/>
+<text x="{out_x + text_pad_x}" y="{boxB_y + 26}" font-family="{FONT_SANS}" font-size="15" font-weight="600" fill="{_MINDMAP_PANEL["blue"]}">OUTPUT — same response, rendered as a real diagram</text>
 <svg x="{out_x + (out_w - chart_w) / 2}" y="{boxB_y + 40 + (avail_h - chart_h) / 2}" width="{chart_w}" height="{chart_h}" viewBox="0 0 {native_w} {native_h}" preserveAspectRatio="xMidYMid meet">
 {mindmap_svg}
 </svg>
 
 </svg>'''
     out_path.write_text(svg, encoding="utf-8")
-    print(f"{out_path} ({out_path.stat().st_size} bytes)")
+    print(f"{theme_name}: {out_path} ({out_path.stat().st_size} bytes)")
 
 
 def main() -> None:
@@ -384,15 +396,21 @@ def main() -> None:
     prose, mermaid_code = get_live_text()
     print(f"verified live: cached VLM response for marker {MARKER_ID} has a mermaid mindmap fence")
 
+    # Rendered once, not per theme: the mindmap sub-panel is a fixed dark
+    # card regardless of the surrounding canvas (see module docstring).
     mindmap_svg = render_mindmap_svg(mermaid_code)
     input_bytes = get_input_crop()
 
-    compose(input_bytes, prose, mermaid_code, mindmap_svg, OUT_DIR / "demo-vlm-dark.svg")
-
-    old_light = OUT_DIR / "demo-vlm-light.svg"
-    if old_light.exists():
-        old_light.unlink()
-        print(f"removed retired {old_light} (this hero is dark-only, no light variant)")
+    for theme_name, theme in THEMES.items():
+        compose(
+            theme_name,
+            theme,
+            input_bytes,
+            prose,
+            mermaid_code,
+            mindmap_svg,
+            OUT_DIR / f"demo-vlm-{theme_name}.svg",
+        )
 
 
 if __name__ == "__main__":
