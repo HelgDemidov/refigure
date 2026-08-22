@@ -6,5 +6,5 @@ mammoth==1.12.1     # DOCX -> HTML (refigure/docx.py), [docx] extra
 markdownify==1.2.3  # HTML -> Markdown (refigure/docx.py), [docx] extra
 openpyxl==3.1.5     # XLSX read + chart access (refigure/xlsx.py), [xlsx] extra
 pdfplumber==0.11.10  # docx-group soffice-render crop (refigure/vlm.py), [vlm] extra
-openai==3.1.0      # OpenAIClient (refigure/vlm/client.py), [vlm-direct] extra
+openai==3.3.0      # OpenAIClient (refigure/vlm/client.py), [vlm-direct] extra
 anthropic==0.122.0  # AnthropicClient (refigure/vlm/client.py), [vlm-direct] extra
