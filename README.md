@@ -10,6 +10,7 @@
 [![Docker](https://img.shields.io/badge/ghcr.io-refigure-2496ED?logo=docker&logoColor=white)](https://github.com/HelgDemidov/refigure/pkgs/container/refigure)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-6f42c1)](https://registry.modelcontextprotocol.io/?q=refigure)
 [![Claude Desktop](https://img.shields.io/badge/Claude_Desktop-.mcpb-D97757)](https://github.com/HelgDemidov/refigure/releases/latest/download/refigure.mcpb)
+[![AllMCPs Verified](https://allmcps.com/api/badge/refigure?style=shield)](https://allmcps.com/mcp/refigure)
 
 <!-- mcp-name: io.github.HelgDemidov/refigure -->
 
