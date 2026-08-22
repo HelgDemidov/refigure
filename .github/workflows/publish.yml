@@ -110,6 +110,13 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64
+          # Provenance attestation is already on by default at this pinned
+          # version — SBOM is NOT, and needs this explicit opt-in (verified
+          # against the real action.yml at this exact commit SHA). Matches
+          # the rest of this repo's security posture (Trivy/CodeQL/ruff-S/
+          # pip-audit already run elsewhere) — an inconsistency to close,
+          # not new tooling.
+          sbom: true
           tags: |
             ghcr.io/helgdemidov/refigure:${{ steps.version.outputs.version }}
             ghcr.io/helgdemidov/refigure:latest
