@@ -1,0 +1,8 @@
+[project]
+name = "refigure-mcpb"
+version = "1.0.0"
+description = "MCPB entry point for refigure-mcp"
+requires-python = ">=3.10"
+dependencies = [
+    "refigure[mcp,docx,xlsx]>=0.3,<1",
+]

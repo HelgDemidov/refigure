@@ -493,3 +493,43 @@ jobs:
           docker stop refigure-http-smoke
           echo "http_code=$code"
           [ "$code" = "401" ]
+
+  # ---------------------------------------------------------------------------
+  # .mcpb distribution (2026-08-22): build-verify on every push/PR — cheap
+  # (packing is near-instant, no Docker-style slow build), so no reason not
+  # to run it every time. Actual release-asset attachment (re-run every
+  # release, not one-time — see the spec's own note on why) is
+  # publish.yml's mcpb-publish job, gated on `needs: github-release`.
+  # ---------------------------------------------------------------------------
+  mcpb-build:
+    name: MCPB bundle (validate + pack + uv smoke test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.12"
+
+      - name: Install mcpb CLI (pinned)
+        run: npm install -g @anthropic-ai/mcpb@2.1.2
+
+      - name: Validate manifest
+        run: mcpb validate mcpb/manifest.json
+
+      - name: Pack the bundle
+        # Explicit output name — `mcpb pack <dir>` alone names the file
+        # after the directory ("mcpb.mcpb"), not the manifest's own
+        # "name" field. Caught live during spec research.
+        run: mcpb pack mcpb/ refigure.mcpb
+
+      - name: Smoke test — uv actually resolves and runs the shim
+        # The exact chain a host application (e.g. Claude Desktop) runs
+        # on first launch: resolve refigure[mcp,docx,xlsx] from PyPI per
+        # mcpb/pyproject.toml's unpinned range, then execute the shim.
+        run: |
+          cd mcpb
+          out="$(uv run src/server.py --version)"
+          echo "$out"
+          echo "$out" | grep -q "^refigure-mcp "
