@@ -117,6 +117,8 @@ refigure report.docx --vlm                    # needs the system soffice/LibreOf
 - **Docker image** — `ghcr.io/helgdemidov/refigure`, both console commands
   on `PATH`, `soffice`/LibreOffice baked in — the VLM composite-figure
   path works turnkey, no manual LibreOffice install (see below).
+- **`.mcpb` bundle for Claude Desktop** — one-click install, no terminal
+  (`docx`+`xlsx` only, see below).
 
 ## CLI
 
@@ -260,6 +262,18 @@ docker run --rm -p 8000:8000 -v "$PWD/tokens.txt:/data/tokens.txt:ro" \
   refigure-mcp --transport http --mcp-http-host 0.0.0.0 \
   --mcp-auth-token-file /data/tokens.txt
 ```
+
+## Claude Desktop (`.mcpb`)
+
+The simplest install for a non-technical user: download, double-click,
+done — no terminal, no `pip`/`uvx`/`docker`. Covers `docx`+`xlsx`
+conversion only (no VLM — that needs the `[vlm]` extra, deliberately
+not carried by this bundle); dependencies resolve fresh from PyPI via
+`uv` on first launch, the same mechanism `uvx` uses under the hood,
+just one click instead of a config snippet.
+
+[**Download refigure.mcpb**](https://github.com/HelgDemidov/refigure/releases/latest/download/refigure.mcpb)
+— open it with Claude Desktop to install.
 
 ## Real examples
 
