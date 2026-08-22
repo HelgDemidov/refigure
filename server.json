@@ -15,6 +15,43 @@
       "transport": {
         "type": "stdio"
       }
+    },
+    {
+      "registryType": "pypi",
+      "identifier": "refigure",
+      "version": "0.3.4",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://{--mcp-http-host}:{--mcp-http-port}/mcp"
+      },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--transport",
+          "value": "http",
+          "description": "Use Streamable HTTP transport instead of the stdio default"
+        },
+        {
+          "type": "named",
+          "name": "--mcp-auth-token-file",
+          "isRequired": true,
+          "format": "filepath",
+          "description": "Bearer-token file (one 'token = caller_id' pair per line) — refigure-mcp refuses to start over HTTP without one"
+        },
+        {
+          "type": "named",
+          "name": "--mcp-http-host",
+          "default": "127.0.0.1",
+          "description": "Bind host — loopback by default; a non-loopback value is accepted but logs a startup warning"
+        },
+        {
+          "type": "named",
+          "name": "--mcp-http-port",
+          "format": "number",
+          "default": "8000",
+          "description": "Bind port"
+        }
+      ]
     }
   ]
 }
