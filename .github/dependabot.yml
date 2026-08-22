@@ -39,3 +39,20 @@ updates:
         update-types:
           - "minor"
           - "patch"
+
+  # Dockerfile's FROM python:3.12-slim-bookworm base image — previously
+  # untracked (no dependabot ecosystem covered it), so it got neither
+  # automated bumps nor CVE-patch pressure, unlike every other dependency
+  # in this repo.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    groups:
+      docker-patch-minor:
+        update-types:
+          - "minor"
+          - "patch"

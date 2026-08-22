@@ -71,6 +71,25 @@ pyproject="$repo_root/pyproject.toml"
 
 grep -qE '^version = "[^"]*"$' "$pyproject" || die "no \`version = \"...\"\` line found in $pyproject — refusing to guess where to edit"
 
+# server.json (MCP Registry listing, project_uvx_distribution) carries its own
+# version fields — bumped alongside pyproject.toml below so the two can never
+# drift out of sync (a real 100-char-description-cap-style bug class this
+# project has already hit once with server.json, see project_docker_distribution/
+# project_uvx_distribution memory). Structural check only here — the mutation
+# itself happens in the "mutate" section below, after every other check passes.
+server_json="$repo_root/server.json"
+[ -f "$server_json" ] || die "$server_json not found"
+python3 -c "
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+assert 'version' in data, 'no top-level \"version\" field'
+assert data.get('packages'), 'no non-empty \"packages\" array'
+assert all('version' in p for p in data['packages']), 'a packages[] entry has no \"version\" field'
+" "$server_json" || die "$server_json failed structural validation — refusing to guess how to bump it"
+
 # A dirty working tree would get the version-bump commit mixed up with
 # unrelated in-progress changes — require a clean tree first.
 if [ -n "$(git status --porcelain)" ]; then
@@ -94,7 +113,26 @@ echo "bumping version: $current_version -> $version"
 sed -i.bak -E "s/^version = \"[^\"]*\"\$/version = \"$version\"/" "$pyproject"
 rm -f "$pyproject.bak"
 
-git add "$pyproject"
+# JSON, not sed — a regex match on `"version": "..."` is fragile to
+# reformatting; parsing structurally is not. Bumps the top-level field AND
+# every packages[] entry (currently one, pypi) so a future second package
+# entry gets bumped too without touching this script again.
+python3 -c "
+import json
+import sys
+
+path, version = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    data = json.load(f)
+data['version'] = version
+for pkg in data['packages']:
+    pkg['version'] = version
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+" "$server_json" "$version"
+
+git add "$pyproject" "$server_json"
 git commit -m "chore: release $version"
 
 git tag -a "$tag" -m "$version"
