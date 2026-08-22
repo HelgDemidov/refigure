@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "refigure"
-version = "0.3.4"
+version = "0.3.5"
 description = "DOCX/XLSX -> Markdown conversion with native OOXML chart-data extraction (no rasterize/OCR/VLM needed) + optional VLM interpretation for figures with no native chart data"
 readme = "README.md"
 license = "Apache-2.0"
