@@ -19,3 +19,10 @@ hypothesis==6.165.10
 # a hard dependency of any extra except [mcp] itself); pins anyio/starlette/
 # uvicorn transitively.
 mcp==2.0.0
+# httpx — tests/unit/mcp/test_http.py drives the MCP HTTP transport in-process
+# via httpx.AsyncClient/httpx.ASGITransport. Not a hard dependency of any
+# extra (mcp>=2.0 itself already depends on httpx2, not this) — until
+# anthropic 1.0.0 it arrived only by transitive accident (anthropic==0.122.0
+# required classic httpx<1); anthropic 1.0.0 switched to httpx2 too, so this
+# needs to be declared explicitly now instead of relying on that.
+httpx==0.28.1
