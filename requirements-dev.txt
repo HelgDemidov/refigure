@@ -8,7 +8,7 @@ ruff==0.16.4
 mypy==2.3.1
 pytest==9.1.1
 pytest-cov==7.1.0
-types-openpyxl==3.1.5.20260807
+types-openpyxl==3.1.5.20260827
 # mermaidx — optional render-validation layer inside chart_render.py (try/except
 # ImportError + capability flag, not a pip extra — same pattern already proven
 # in the source pipeline). Installed here so the dev/test environment covers that code path;
