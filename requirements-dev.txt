@@ -4,7 +4,7 @@
 #   mypy refigure
 #   pytest --cov --cov-report=term-missing
 -r requirements.txt
-ruff==0.16.4
+ruff==0.16.5
 mypy==2.3.1
 pytest==9.1.1
 pytest-cov==7.1.0
@@ -14,11 +14,11 @@ types-openpyxl==3.1.5.20260827
 # in the source pipeline). Installed here so the dev/test environment covers that code path;
 # NOT declared as a hard dependency of any published extra.
 mermaidx==0.9.4
-hypothesis==6.165.10
+hypothesis==6.167.0
 # mcp — pulled in for the dev/test environment same as mermaidx above (not
 # a hard dependency of any extra except [mcp] itself); pins anyio/starlette/
 # uvicorn transitively.
-mcp==2.0.0
+mcp==2.1.1
 # httpx — tests/unit/mcp/test_http.py drives the MCP HTTP transport in-process
 # via httpx.AsyncClient/httpx.ASGITransport. Not a hard dependency of any
 # extra (mcp>=2.0 itself already depends on httpx2, not this) — until
