@@ -31,7 +31,7 @@ import anyio
 from mcp.server import MCPServer
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import Context
-from mcp.server.mcpserver.exceptions import ResourceNotFoundError
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from mcp.types import (
     CallToolResult,
     Completion,
@@ -551,7 +551,7 @@ def _redact(text: str) -> str:
 def _classify_exception(exc: Exception, *, transport: Literal["stdio", "http"]) -> str:
     """The one place an exception becomes a stable, transport-redacted
     string — shared by ``_call_and_wrap_errors`` (below, which wraps it in
-    ``RuntimeError`` for a single-item tool call) and phase 4's
+    ``ToolError`` for a single-item tool call) and phase 4's
     ``_run_batch_item`` (which stores it directly as
     ``BatchItemOutput.error``, never raising it at all — per-item
     isolation, ``docs/mcp-server/mcp-server-phase4-batch-progress/
@@ -582,12 +582,22 @@ async def _call_and_wrap_errors(
     """The one place every single-item tool call's exceptions are
     classified and formatted — not a decorator (see
     ``_run_convert_tool``'s docstring). Refigure's typed exceptions become
-    ``RuntimeError("ClassName: message")`` so a calling agent can branch
-    on the class name, mirroring ``cli.py``'s ``_exit_code_for`` —
-    ``MCPServer``'s own ``@mcp.tool()`` wrapper catches a plain exception
-    raised here and reports it as ``isError=True`` with the exception text
-    as content (confirmed against this ``mcp`` version's docs), so raising
-    is sufficient, no manual ``CallToolResult`` construction needed.
+    ``ToolError("ClassName: message")`` so a calling agent can branch on
+    the class name, mirroring ``cli.py``'s ``_exit_code_for``.
+
+    Raised as the SDK's own ``mcp.server.mcpserver.exceptions.ToolError``,
+    not a bare ``RuntimeError``/``ValueError`` — as of ``mcp`` 2.1 (this
+    project's own floor is ``mcp>=2.0,<3``, so both must work),
+    ``Tool.run()`` only keeps an exception's message visible to the
+    caller for ``ToolError``/``ResourceError``; anything else is treated
+    as a crash and collapses to a bare ``"Error executing tool <name>"``
+    with no detail (``UnexpectedToolError`` — confirmed live: this is
+    exactly what broke every test in this module on the mcp 2.0.0->2.1.1
+    bump). ``ToolError`` existed already in 2.0.0 too, where it changes
+    nothing — that version's ``Tool.run()`` wrapped every exception
+    uniformly regardless of type. Same discipline this project's own
+    resource-template handler already follows via ``ResourceNotFoundError``
+    (see this module's other exceptions import) — now extended to tools.
     ``transport`` is threaded through already, unused on the only
     transport phase 1 had (``"stdio"``) — phase 3 extended this for HTTP,
     phase 4 extends it a third time for ``convert_batch`` (via
@@ -595,14 +605,14 @@ async def _call_and_wrap_errors(
     architecture doc §8."""
     try:
         return await coro
-    except ValueError:
+    except ValueError as exc:
         # Input-validation failures from _run_convert_tool itself — already
         # a clean, stable message (see _classify_exception's own
         # docstring for why this case is excluded from it here), nothing
         # further to classify.
-        raise
+        raise ToolError(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - unexpected exceptions are the real-bug signal, see _classify_exception
-        raise RuntimeError(_classify_exception(exc, transport=transport)) from exc
+        raise ToolError(_classify_exception(exc, transport=transport)) from exc
 
 
 def _register_convert_docx(
